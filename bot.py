@@ -1118,7 +1118,7 @@ async def welcome(interaction: discord.Interaction):
         await interaction.response.send_message("Salon verify introuvable.", ephemeral=True)
         return
     embed = discord.Embed(
-        title="Bienvenue sur le serveur 10mans FR",
+        title="Bienvenu sur The Hub Matchmaking",
         description="Bienvenue sur un serveur de **10mans français** avec 3 queues :\n\n• **Pro Queue** — TOP VRC\n• **Open Queue** — Immortal peak\n• **GC Queue** — Ascendant peak\n\nPour pouvoir accéder au serveur, merci de cliquer sur le bouton **Postuler** juste en dessous.\n\n**Amusez-vous ! 🍀**",
         color=0x5865f2,
         timestamp=datetime.now(timezone.utc)
