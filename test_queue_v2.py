@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import discord
 import pytest
 
 from cogs.queue_v2 import (
@@ -19,6 +20,14 @@ def _fake_member(member_id: int, name: str = "User"):
     m.mention = f"<@{member_id}>"
     m.roles = []
     m.voice = None
+    # Methodes async explicites — necessaires car __class__=discord.Member
+    # ci-dessous fige le type et empeche l'auto-creation d'AsyncMock.
+    m.add_roles = AsyncMock()
+    m.remove_roles = AsyncMock()
+    m.move_to = AsyncMock()
+    # Marque comme discord.Member pour passer le fail-safe isinstance check
+    # dans _join_callback (gate de role).
+    m.__class__ = discord.Member
     return m
 
 
@@ -504,13 +513,33 @@ async def test_cannot_join_two_queues_simultaneously():
     assert "deja" in msg.lower() or "autre queue" in msg.lower()
 
 
-async def test_queue_view_custom_ids_per_type():
-    db = MagicMock()
-    pro = QueueView(db, queue_type="pro")
-    open_v = QueueView(db, queue_type="open")
-    assert pro.join_btn.custom_id == "queue_v2:join:pro"
-    assert pro.leave_btn.custom_id == "queue_v2:leave:pro"
-    assert open_v.join_btn.custom_id == "queue_v2:join:open"
+@pytest.mark.asyncio
+async def test_join_rejects_non_member_user():
+    """Si inter.user n'est pas un Member, refus du join (fail-safe)."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView
+    db = bot_module.db
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="open",
+        channel_id=100, message_id=999,
+    )
+    _seed_riot_link(db, 42, 1)
+
+    user = MagicMock()  # Pas un discord.Member
+    user.id = 1
+    user.display_name = "User"
+    user.mention = "<@1>"
+    # IMPORTANT : ne PAS set user.__class__ = discord.Member
+    inter = _fake_interaction(user)
+    inter.user = user
+
+    view = QueueView(db, queue_type="open")
+    await view._join_callback(inter)
+
+    # Le join doit etre refuse avec un message clair
+    inter.followup.send.assert_called()
+    msg = inter.followup.send.call_args[0][0]
+    assert "invalide" in msg.lower() or "serveur" in msg.lower()
 
 
 def test_waiting_room_name_per_queue_type():

@@ -260,7 +260,14 @@ class QueueView(discord.ui.View):
     def _has_required_role(
         self, member: discord.Member,
     ) -> tuple[bool, str | None]:
-        """Renvoie (has_role, role_name_required_or_None_if_no_gate)."""
+        """Verifie le gate de role pour cette queue.
+
+        Returns:
+            (True, None) si la queue n'a pas de gate (open).
+            (True, role_name) si le gate est satisfait.
+            (False, role_name) si le gate n'est pas satisfait. Le role_name
+            est utilise par le caller pour le message d'erreur.
+        """
         required = QUEUE_ROLE_GATES.get(self.queue_type)
         if required is None:
             return True, None
@@ -316,16 +323,22 @@ class QueueView(discord.ui.View):
                 )
                 return
 
-            # 4) gate de role pour la queue
-            if isinstance(inter.user, discord.Member):
-                ok, required = self._has_required_role(inter.user)
-                if not ok:
-                    await inter.followup.send(
-                        f"❌ Cette queue est reservee aux joueurs avec le role "
-                        f"**{required}** (Pro Queue / GC).",
-                        ephemeral=True,
-                    )
-                    return
+            # 4) gate de role pour la queue (fail-safe : reject if non-Member)
+            if not isinstance(inter.user, discord.Member):
+                await inter.followup.send(
+                    "❌ Interaction invalide (hors serveur ou type "
+                    "d'utilisateur inattendu).",
+                    ephemeral=True,
+                )
+                return
+            ok, required = self._has_required_role(inter.user)
+            if not ok:
+                await inter.followup.send(
+                    f"❌ Cette queue est reservee aux joueurs avec le role "
+                    f"**{required}** (Pro Queue / GC).",
+                    ephemeral=True,
+                )
+                return
 
             # 5) ajout en base
             res = await asyncio.to_thread(
