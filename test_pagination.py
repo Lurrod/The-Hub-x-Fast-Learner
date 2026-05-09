@@ -125,3 +125,38 @@ def test_chunk_empty_when_out_of_bounds():
     players = list(range(15))
     chunk = players[15:30]
     assert chunk == []
+
+
+import mongomock
+from unittest.mock import AsyncMock, MagicMock
+
+
+@pytest.mark.asyncio
+async def test_build_leaderboard_payload_filters_by_queue_type():
+    from services.leaderboard_refresh import build_leaderboard_payload
+    from services.repository import get_elo_col, player_doc_id
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    col = get_elo_col(db, 42)
+    col.insert_many([
+        {"_id": player_doc_id(1, "pro"), "user_id": "1", "name": "A",
+         "elo": 2500, "wins": 5, "losses": 1, "queue_type": "pro"},
+        {"_id": player_doc_id(1, "open"), "user_id": "1", "name": "A",
+         "elo": 1500, "wins": 1, "losses": 5, "queue_type": "open"},
+    ])
+
+    guild = MagicMock()
+    guild.id = 42
+    guild.name = "TestGuild"
+    fake_member = MagicMock()
+    fake_member.display_name = "A"
+    fake_member.display_avatar.replace.return_value.url = "http://av/1.png"
+    guild.get_member.return_value = fake_member
+
+    file_pro, _ = await build_leaderboard_payload(guild, db, queue_type="pro")
+    file_open, _ = await build_leaderboard_payload(guild, db, queue_type="open")
+    file_gc, _ = await build_leaderboard_payload(guild, db, queue_type="gc")
+
+    assert file_pro is not None
+    assert file_open is not None
+    assert file_gc is None  # 0 players in GC

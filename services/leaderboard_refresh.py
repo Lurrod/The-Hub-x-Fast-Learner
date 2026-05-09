@@ -38,40 +38,30 @@ _REFRESH_DEBOUNCE_SECONDS: int = 30
 # nombreuses guilds (entree par guild_id, jamais purgee). LRU avec
 # eviction FIFO du plus ancien acces au-dela de _MAX_GUILDS_TRACKED.
 _MAX_GUILDS_TRACKED: int = 1024
-_LAST_REFRESH_AT: "OrderedDict[int, datetime]" = OrderedDict()
+_LAST_REFRESH_AT: "OrderedDict[tuple[int, str], datetime]" = OrderedDict()
 
 
 async def build_leaderboard_payload(
-    guild: discord.Guild, db, *,
+    guild: discord.Guild, db, queue_type: str, *,
     with_view: bool = True,
     view_timeout: float | None = 300,
 ) -> Tuple[Optional[discord.File], Optional[discord.ui.View]]:
-    """Retourne (file, view) prets a etre envoyes. (None, None) si vide.
-
-    `with_view=False` -> pas de pagination (post statique).
-    `view_timeout` -> duree de vie des boutons (None = jamais expire,
-    pratique pour les posts permanents dans `#leaderboard`)."""
+    """Genere file/view pour le leaderboard du queue_type donne."""
+    repository._check_queue_type(queue_type)
     col  = repository.get_elo_col(db, guild.id)
-    # Tri deterministique : ELO desc, puis wins desc (recompense l'activite
-    # parmi les ex-aequo), puis _id asc comme tie-breaker final.
-    # Sans tie-breaker, l'ordre des ex-aequo est non-deterministique cote
-    # MongoDB et /stats peut afficher des rangs incoherents avec le
-    # leaderboard.
-    docs = list(col.find().sort([("elo", -1), ("wins", -1), ("_id", 1)]))
+    docs = list(col.find({"queue_type": queue_type})
+                  .sort([("elo", -1), ("wins", -1), ("_id", 1)]))
     if not docs:
         return None, None
 
     all_players = []
     rank = 1
     for doc in docs:
-        uid = doc["_id"]
+        uid = doc.get("user_id") or doc["_id"].split(":")[0]
         try:
             member = guild.get_member(int(uid))
         except (TypeError, ValueError):
             member = None
-        # Skip les joueurs ayant quitte le serveur (kick/ban/leave). Sans
-        # ce filtre, un joueur seede a 2000 ELO via /link-riot puis parti
-        # squatte le leaderboard a vie avec un avatar par defaut.
         if member is None:
             continue
         ava_url = str(member.display_avatar.replace(format="png", size=64).url)
@@ -88,17 +78,23 @@ async def build_leaderboard_payload(
         })
         rank += 1
 
+    if not all_players:
+        return None, None
+
     total_pages = max(1, (len(all_players) + PAGE_SIZE - 1) // PAGE_SIZE)
     loop = asyncio.get_running_loop()
 
     async def build_page(page: int) -> discord.File:
         start = page * PAGE_SIZE
         chunk = all_players[start:start + PAGE_SIZE]
+        # Le titre du leaderboard inclut le queue_type pour distinguer les
+        # 3 leaderboards qui cohabitent dans #leaderboard.
+        title = f"Leaderboard {queue_type.upper()} Queue"
         buf   = await loop.run_in_executor(
             None,
-            lambda: generate_leaderboard(chunk, server_name=guild.name),
+            lambda: generate_leaderboard(chunk, server_name=f"{guild.name} - {title}"),
         )
-        return discord.File(buf, filename=LEADERBOARD_FILENAME)
+        return discord.File(buf, filename=f"leaderboard_{queue_type}.png")
 
     class LeaderboardView(discord.ui.View):
         def __init__(self, page: int):
@@ -111,7 +107,7 @@ async def build_leaderboard_payload(
             self.next_btn.disabled = self.page >= total_pages - 1
             self.page_btn.label    = f"Page {self.page + 1} / {total_pages}"
 
-        async def _go(self, inter: discord.Interaction, new_page: int):
+        async def _go(self, inter, new_page):
             if new_page < 0 or new_page >= total_pages:
                 if not inter.response.is_done():
                     await inter.response.defer()
@@ -124,64 +120,47 @@ async def build_leaderboard_payload(
                 file = await build_page(self.page)
                 await inter.followup.edit_message(
                     message_id=inter.message.id,
-                    attachments=[file],
-                    view=self,
+                    attachments=[file], view=self,
                 )
             except Exception:
                 logger.exception("leaderboard_refresh exception")
-                try:
-                    await inter.followup.send(
-                        "Erreur lors du changement de page. Réessaie.",
-                        ephemeral=True,
-                    )
-                except Exception:
-                    pass
 
-        @discord.ui.button(emoji="⬅️", style=discord.ButtonStyle.secondary)
-        async def prev_btn(self, inter: discord.Interaction, button: discord.ui.Button):
+        @discord.ui.button(emoji="◀️", style=discord.ButtonStyle.secondary)
+        async def prev_btn(self, inter, button):
             await self._go(inter, self.page - 1)
 
         @discord.ui.button(label="Page 1 / 1", style=discord.ButtonStyle.grey, disabled=True)
-        async def page_btn(self, inter: discord.Interaction, button: discord.ui.Button):
+        async def page_btn(self, inter, button):
             pass
 
-        @discord.ui.button(emoji="➡️", style=discord.ButtonStyle.secondary)
-        async def next_btn(self, inter: discord.Interaction, button: discord.ui.Button):
+        @discord.ui.button(emoji="▶️", style=discord.ButtonStyle.secondary)
+        async def next_btn(self, inter, button):
             await self._go(inter, self.page + 1)
 
     file = await build_page(0)
     if not with_view:
         return file, None
-    view = LeaderboardView(page=0)
-    return file, view
+    return file, LeaderboardView(page=0)
 
 
 async def refresh_leaderboard_channel(
-    guild: discord.Guild, db, bot_user_id: int,
+    guild: discord.Guild, db, bot_user_id: int, queue_type: str,
 ) -> None:
-    """Supprime le dernier leaderboard poste par le bot dans `#leaderboard`
-    puis poste une version a jour. Silencieux en cas d'erreur (channel
-    introuvable, permissions manquantes, etc.).
+    """Refresh le leaderboard du queue_type donne dans #leaderboard.
 
-    Debounce : si un refresh a ete declenche pour cette guild il y a moins
-    de `_REFRESH_DEBOUNCE_SECONDS`, on skip silencieusement pour eviter
-    les rafales delete+send qui frappent le rate-limit Discord."""
+    Per-queue debounce : une rafale Pro ne bloque pas un refresh Open."""
+    repository._check_queue_type(queue_type)
     now = datetime.now(timezone.utc)
-    last = _LAST_REFRESH_AT.get(guild.id)
+    key = (guild.id, queue_type)
+    last = _LAST_REFRESH_AT.get(key)
     if last is not None and (now - last).total_seconds() < _REFRESH_DEBOUNCE_SECONDS:
-        # Tape l'entree comme recemment utilisee (move_to_end) pour
-        # qu'elle ne soit pas evincee tant que la guild reste active.
-        _LAST_REFRESH_AT.move_to_end(guild.id)
+        _LAST_REFRESH_AT.move_to_end(key)
         return
-    _LAST_REFRESH_AT[guild.id] = now
-    _LAST_REFRESH_AT.move_to_end(guild.id)
+    _LAST_REFRESH_AT[key] = now
+    _LAST_REFRESH_AT.move_to_end(key)
     while len(_LAST_REFRESH_AT) > _MAX_GUILDS_TRACKED:
         _LAST_REFRESH_AT.popitem(last=False)
 
-    # On accepte tout salon dont le nom contient "leaderboard" (insensible
-    # a la casse) pour supporter les variantes decoratives type
-    # "🏆・leaderboard", "leaderboard-elo", etc. Coherent avec
-    # `_is_leaderboard_channel` dans bot.py.
     needle = LEADERBOARD_CHANNEL_NAME.lower()
     chan = next(
         (c for c in guild.text_channels if needle in (c.name or "").lower()),
@@ -190,45 +169,23 @@ async def refresh_leaderboard_channel(
     if chan is None:
         return
 
-    # Suppression de l'ancien leaderboard : on prefere un fetch direct
-    # via le message_id persiste plutot qu'un scan `chan.history(limit=20)`
-    # qui rate l'ancien leaderboard si >= 20 messages ont ete postes
-    # depuis (spam, hors-sujet, etc.) et provoque un duplicat.
-    stored_id = repository.get_leaderboard_message_id(db, guild.id)
-    deleted_via_stored = False
+    stored_id = repository.get_leaderboard_message_id(db, guild.id, queue_type)
     if stored_id is not None:
         try:
             old_msg = await chan.fetch_message(stored_id)
             await old_msg.delete()
-            deleted_via_stored = True
         except discord.NotFound:
-            # Message deja supprime (manuellement ou par /clear). On le
-            # nettoie de l'etat et on continue avec un fallback history.
-            repository.clear_leaderboard_message_id(db, guild.id)
+            repository.clear_leaderboard_message_id(db, guild.id, queue_type)
         except Exception:
             logger.exception("leaderboard_refresh exception")
 
-    if not deleted_via_stored:
-        # Fallback : ancien comportement par scan recent. Sert en
-        # premier deploiement (pas encore d'etat persiste) ou apres un
-        # clear manuel.
-        try:
-            async for msg in chan.history(limit=20):
-                if msg.author.id != bot_user_id:
-                    continue
-                if not any(a.filename == LEADERBOARD_FILENAME for a in msg.attachments):
-                    continue
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
-                break
-        except Exception:
-            logger.exception("leaderboard_refresh exception")
+    # NO fallback history scan : avec 3 LBs qui cohabitent dans #leaderboard,
+    # on ne peut pas identifier "lequel des 3" sans le state persiste. Si
+    # aucun stored_id n'existe, on poste juste le nouveau message.
 
     try:
         file, view = await build_leaderboard_payload(
-            guild, db, view_timeout=None,
+            guild, db, queue_type, view_timeout=None,
         )
     except Exception:
         logger.exception("leaderboard_refresh exception")
@@ -242,9 +199,7 @@ async def refresh_leaderboard_channel(
         logger.exception("leaderboard_refresh exception")
         return
 
-    # Persiste le message_id du nouveau leaderboard pour le prochain
-    # refresh (evite le scan history => duplication possible).
     try:
-        repository.set_leaderboard_message_id(db, guild.id, new_msg.id)
+        repository.set_leaderboard_message_id(db, guild.id, queue_type, new_msg.id)
     except Exception:
         logger.exception("leaderboard_refresh exception")
