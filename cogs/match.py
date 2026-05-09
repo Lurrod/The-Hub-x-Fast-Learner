@@ -34,7 +34,13 @@ import asyncio
 
 logger = logging.getLogger(__name__)
 
-from cogs.queue_v2 import _grant_match_role, _revoke_match_role, _revoke_queue_role
+from cogs.queue_v2 import (
+    _grant_match_role,
+    _revoke_match_role,
+    _revoke_queue_role,
+    QUEUE_CHANNEL_NAMES,
+    QUEUE_LABELS,
+)
 
 MATCH_ROLE_CLEANUP_DELAY_SECONDS: Final[int] = 0  # immediat (etait 60s) — le role
 # Match #N est retire des le vote valide, pour que les joueurs puissent
@@ -48,7 +54,7 @@ MAX_REPLACE_ELO_DIFF: Final[int] = 500
 MATCH_HOST_ROLE_NAME: Final[str]              = "Match Host"
 MATCH_HOST_CLEANUP_DELAY_SECONDS: Final[int]  = 600  # 10 min apres validation
 
-from services import repository
+from services import elo_calc, repository
 from services.elo_updater import (
     apply_match_validation,
     MatchEloOutcome,
@@ -86,14 +92,17 @@ ADMIN_ROLE_NAMES: Final[tuple[str, ...]] = ("Admin", "Match Staff", "Administrat
 
 
 # ── Embed : depuis MatchPlan (publication initiale) ───────────────
-def build_match_embed(plan, guild_name: str) -> discord.Embed:
+def build_match_embed(
+    plan, guild_name: str, queue_type: str = "open",
+) -> discord.Embed:
     teams        = plan.teams
     map_name     = plan.map_name
     leader       = plan.lobby_leader
     category     = plan.category_name
 
+    qt_label = QUEUE_LABELS.get(queue_type, queue_type.upper())
     embed = discord.Embed(
-        title="🎯 Match trouve !",
+        title=f"🎯 [{qt_label}] Match trouve !",
         description=f"**Map :** {map_name}\n**Lobby host :** <@{leader.id}> ({leader.name})",
         color=0x5865f2,
         timestamp=datetime.now(timezone.utc),
@@ -148,14 +157,18 @@ def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     count_a  = sum(1 for v in votes.values() if v == "a")
     count_b  = sum(1 for v in votes.values() if v == "b")
 
+    queue_type = doc.get("queue_type", "open")
+    qt_label = QUEUE_LABELS.get(queue_type, queue_type.upper())
+    qt_prefix = f"[{qt_label}] "
+
     if status == "validated_a":
-        title, color, footer_extra = "🏆 Team A a gagne !", 0x2ecc71, "Match valide"
+        title, color, footer_extra = f"🏆 {qt_prefix}Team A a gagne !", 0x2ecc71, "Match valide"
     elif status == "validated_b":
-        title, color, footer_extra = "🏆 Team B a gagne !", 0xe74c3c, "Match valide"
+        title, color, footer_extra = f"🏆 {qt_prefix}Team B a gagne !", 0xe74c3c, "Match valide"
     elif status == "contested":
-        title, color, footer_extra = "⚠️ Match en attente admin", 0xe67e22, "Vote en timeout"
+        title, color, footer_extra = f"⚠️ {qt_prefix}Match en attente admin", 0xe67e22, "Vote en timeout"
     else:
-        title, color, footer_extra = "🎯 Match termine - Reportez le vainqueur", 0x5865f2, "Cliquez sur l'equipe qui a remporte la partie"
+        title, color, footer_extra = f"🎯 {qt_prefix}Match termine - Reportez le vainqueur", 0x5865f2, "Cliquez sur l'equipe qui a remporte la partie"
 
     embed = discord.Embed(
         title=title, color=color, timestamp=datetime.now(timezone.utc),
@@ -374,7 +387,12 @@ class MatchCog(commands.Cog):
         self._henrik_lock: asyncio.Lock = asyncio.Lock()
 
     # ── Branchement queue full ───────────────────────────────────
-    async def on_queue_full(self, interaction: discord.Interaction, queue_doc: dict):
+    async def on_queue_full(
+        self,
+        interaction: discord.Interaction,
+        queue_doc: dict,
+        queue_type: str = "open",
+    ):
         guild      = interaction.guild
         player_ids = [str(uid) for uid in queue_doc.get("players", [])]
 
@@ -390,11 +408,24 @@ class MatchCog(commands.Cog):
             elo_map:  dict[str, int]  = {}
             for doc in riot_col.find({"_id": {"$in": player_ids}}):
                 riot_map[str(doc["_id"])] = dict(doc)
-            for doc in elo_col.find({"_id": {"$in": player_ids}}):
-                elo_map[str(doc["_id"])] = int(doc.get("elo", 0))
+            # Compound _id : map de "uid:queue_type" -> elo. On stocke par
+            # uid simple pour que `build_players` reste pur (cle uid bare).
+            compound_ids = [
+                repository.player_doc_id(uid, queue_type) for uid in player_ids
+            ]
+            for doc in elo_col.find({"_id": {"$in": compound_ids}}):
+                uid = str(doc["_id"]).split(":", 1)[0]
+                elo_map[uid] = int(doc.get("elo", elo_calc.ELO_START))
             return riot_map, elo_map
 
         riot_accounts, bot_elos = await asyncio.to_thread(_batch_fetch)
+
+        # Joueurs sans doc ELO encore (premier match, ou apres reset) :
+        # default ELO_START au lieu de 0. `build_players` lira ces valeurs
+        # via `bot_elos.get(uid, 0)` ; on remplit donc explicitement le
+        # fallback ici pour garder la fonction pure.
+        for uid in player_ids:
+            bot_elos.setdefault(uid, elo_calc.ELO_START)
 
         member_names: dict[str, str] = {}
         for uid in player_ids:
@@ -404,14 +435,21 @@ class MatchCog(commands.Cog):
 
         players = build_players(player_ids, riot_accounts, member_names, bot_elos)
         if len(players) < 10:
-            await self._fail(interaction, queue_doc,
-                             "Joueur(s) sans compte Riot lie. Match annule.")
+            await self._fail(
+                interaction, queue_doc,
+                "Joueur(s) sans compte Riot lie. Match annule.",
+                queue_type=queue_type,
+            )
             return None
 
         # Channel d'origine de la queue (pour reposter le setup-queue apres)
         queue_channel = guild.get_channel(int(queue_doc["channel_id"]))
         if queue_channel is None:
-            await self._fail(interaction, queue_doc, "Salon de queue introuvable.")
+            await self._fail(
+                interaction, queue_doc,
+                "Salon de queue introuvable.",
+                queue_type=queue_type,
+            )
             return None
 
         # Recherche d'un salon 'match-preparation' libre (categories Match #1/2/3)
@@ -420,6 +458,7 @@ class MatchCog(commands.Cog):
             await self._fail(
                 interaction, queue_doc,
                 "Aucun salon 'match-preparation' libre dans les categories Match #1/2/3.",
+                queue_type=queue_type,
             )
             return None
         free_cat_name, prep_channel = free
@@ -439,6 +478,7 @@ class MatchCog(commands.Cog):
             repository.create_match,
             self.db,
             guild_id=guild.id,
+            queue_type=queue_type,
             team_a=serialize_team(plan.teams.team_a),
             team_b=serialize_team(plan.teams.team_b),
             map_name=plan.map_name,
@@ -468,7 +508,7 @@ class MatchCog(commands.Cog):
         # Etape 3 : envoyer l'annonce. Les joueurs ont desormais le
         # role Match #N et peuvent voir le salon + le message.
         mentions = " ".join(f"<@{p.id}>" for p in players)
-        embed    = build_match_embed(plan, guild.name)
+        embed    = build_match_embed(plan, guild.name, queue_type)
         try:
             msg = await prep_channel.send(
                 content=f"🎯 Match trouve ! {mentions}",
@@ -487,6 +527,7 @@ class MatchCog(commands.Cog):
             await self._fail(
                 interaction, queue_doc,
                 "Echec de l'envoi de l'annonce match. Match annule.",
+                queue_type=queue_type,
             )
             return None
 
@@ -502,17 +543,26 @@ class MatchCog(commands.Cog):
         # Etape 5 : vider la queue immediatement apres la persistance.
         # Empêche un re-trigger eventuel d'on_queue_full sur la meme queue.
         await asyncio.to_thread(
-            repository.delete_active_queue, self.db, guild.id,
+            repository.delete_active_queue, self.db, guild.id, queue_type,
         )
 
         # Etape 6 : deplacement vocal Waiting Room -> Waiting Match.
         await self._move_players_to_match_vc(guild, free_cat_name, player_ids)
 
-        # Etape 7 : repose setup-queue (best-effort).
+        # Etape 7 : repose setup-queue (best-effort) dans le salon de
+        # destination de ce queue_type. On preserve le channel d'origine
+        # (queue_doc.channel_id) si possible, sinon on tombe sur le
+        # salon nomme QUEUE_CHANNEL_NAMES[queue_type].
+        target_channel = queue_channel
+        target_name = QUEUE_CHANNEL_NAMES.get(queue_type)
+        if target_name and target_channel.name != target_name:
+            named = discord.utils.get(guild.text_channels, name=target_name)
+            if named is not None:
+                target_channel = named
         queue_cog = self.bot.get_cog("QueueCog")
         if queue_cog is not None:
             try:
-                await queue_cog.post_queue_message(queue_channel)
+                await queue_cog.post_queue_message(target_channel, queue_type)
             except Exception as e:
                 logger.exception("[match] echec re-post setup-queue")
         return match_id
@@ -551,8 +601,12 @@ class MatchCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-    async def _fail(self, interaction, queue_doc, reason: str) -> None:
-        repository.delete_active_queue(self.db, interaction.guild.id)
+    async def _fail(
+        self, interaction, queue_doc, reason: str, queue_type: str = "open",
+    ) -> None:
+        repository.delete_active_queue(
+            self.db, interaction.guild.id, queue_type,
+        )
         channel = None
         try:
             channel = interaction.guild.get_channel(int(queue_doc["channel_id"]))
@@ -568,7 +622,7 @@ class MatchCog(commands.Cog):
             queue_cog = self.bot.get_cog("QueueCog")
             if queue_cog is not None:
                 try:
-                    await queue_cog.post_queue_message(channel)
+                    await queue_cog.post_queue_message(channel, queue_type)
                 except Exception as e:
                     logger.exception("[match] _fail re-post queue a leve")
 
@@ -943,7 +997,8 @@ class MatchCog(commands.Cog):
         """
         Tente la verif HenrikDev. Applique l'ELO si :
           - Henrik a trouve les multiplicateurs ACS (ELO pondere), OU
-          - `force_apply` est True (timeout atteint -> ELO plat).
+          - `force_apply` est True (timeout atteint -> ELO plat), OU
+          - le match est en Pro Queue (Henrik skippe, ELO plat).
         Sinon : ne fait rien, le match sera retente au prochain tick.
 
         Idempotence : on **claim** le match (`elo_applied=True`) AVANT
@@ -951,11 +1006,17 @@ class MatchCog(commands.Cog):
         skip. Si l'application ELO leve, on relache le claim pour permettre
         un retry au prochain tick.
         """
+        queue_type = match_doc.get("queue_type", "open")
+        is_pro = queue_type == "pro"
+
         multipliers: dict[str, float] | None = None
-        if self.henrik_client is not None:
+        if not is_pro and self.henrik_client is not None:
             multipliers = await self._fetch_henrik_multipliers(guild, match_doc)
 
-        if multipliers is None and not force_apply:
+        # Pro Queue : pas de ponderation Henrik, on applique l'ELO plat
+        # immediatement (apply_match_validation gere le court-circuit
+        # quand queue_type=="pro").
+        if multipliers is None and not force_apply and not is_pro:
             # Pas trouve, pas en timeout -> on retentera dans 1 min.
             return
 
@@ -1000,7 +1061,9 @@ class MatchCog(commands.Cog):
         bot_user = self.bot.user
         if bot_user is not None:
             try:
-                await refresh_leaderboard_channel(guild, self.db, bot_user.id)
+                await refresh_leaderboard_channel(
+                    guild, self.db, bot_user.id, queue_type,
+                )
             except Exception as e:
                 logger.exception("[match] refresh leaderboard a leve")
 
@@ -1299,11 +1362,18 @@ class MatchCog(commands.Cog):
             )
             return
 
+        # Lookup ELO du remplacant dans le queue_type du match en cours.
+        # Le doc joueur utilise un compound _id `<uid>:<queue_type>`.
+        match_queue_type = match.get("queue_type", "open")
         elo_col = repository.get_elo_col(self.db, interaction.guild_id)
         elo_doc = await asyncio.to_thread(
-            elo_col.find_one, {"_id": str(remplacant.id)},
+            elo_col.find_one,
+            {"_id": repository.player_doc_id(remplacant.id, match_queue_type)},
         )
-        new_elo = int(elo_doc.get("elo", 0)) if elo_doc else 0
+        new_elo = (
+            int(elo_doc.get("elo", elo_calc.ELO_START))
+            if elo_doc else elo_calc.ELO_START
+        )
 
         # Refuse le replace si l'ecart est trop grand : les equipes
         # avaient ete equilibrees au moment de la formation, un swap

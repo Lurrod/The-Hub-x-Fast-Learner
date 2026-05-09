@@ -82,9 +82,18 @@ def _fake_interaction(guild, user=None):
     return inter
 
 
-def _seed_full_queue(db, guild_id: int, channel_id: int = 100):
-    """Cree la queue active + 10 comptes Riot lies + leur ELO serveur."""
-    repository.setup_active_queue(db, guild_id=guild_id, channel_id=channel_id, message_id=999)
+def _seed_full_queue(
+    db, guild_id: int, channel_id: int = 100, queue_type: str = "open",
+):
+    """Cree la queue active + 10 comptes Riot lies + leur ELO serveur.
+
+    Par defaut on simule une Open Queue (legacy, sans gate). Les tests
+    Pro Queue passeront `queue_type="pro"` explicitement.
+    """
+    repository.setup_active_queue(
+        db, guild_id=guild_id, queue_type=queue_type,
+        channel_id=channel_id, message_id=999,
+    )
     elo_col = repository.get_elo_col(db, guild_id)
     for i in range(10):
         repository.link_riot_account(
@@ -94,13 +103,19 @@ def _seed_full_queue(db, guild_id: int, channel_id: int = 100):
             peak_elo=1500 + i * 50,
             source="peak_recent",
         )
+        # Compound _id `<uid>:<queue_type>` pour le doc joueur.
         elo_col.insert_one({
-            "_id": str(i), "name": f"P{i}",
+            "_id": repository.player_doc_id(i, queue_type),
+            "name": f"P{i}",
             "elo": 1500 + i * 50, "wins": 0, "losses": 0,
             "linked_once": True,
         })
-        repository.add_player_to_queue(db, guild_id=guild_id, user_id=i)
-    return repository.get_active_queue(db, guild_id=guild_id)
+        repository.add_player_to_queue(
+            db, guild_id=guild_id, queue_type=queue_type, user_id=i,
+        )
+    return repository.get_active_queue(
+        db, guild_id=guild_id, queue_type=queue_type,
+    )
 
 
 # ── on_queue_full : succes ────────────────────────────────────────
@@ -118,7 +133,7 @@ async def test_on_queue_full_posts_message_with_view():
     inter = _fake_interaction(guild, user=members[9])
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
-    match_id = await cog.on_queue_full(inter, queue_doc)
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
     # Message envoye dans le salon match-preparation
     prep.send.assert_awaited_once()
@@ -147,7 +162,7 @@ async def test_on_queue_full_persists_match():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    match_id = await cog.on_queue_full(inter, queue_doc)
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
     match = repository.get_match(bot_module.db, 42, match_id)
     assert match is not None
@@ -173,9 +188,9 @@ async def test_on_queue_full_resets_queue():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    await cog.on_queue_full(inter, queue_doc)
+    await cog.on_queue_full(inter, queue_doc, "open")
 
-    assert repository.get_active_queue(bot_module.db, guild_id=42) is None
+    assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
 
 
 async def test_on_queue_full_aborts_when_no_prep_channel_free():
@@ -195,11 +210,11 @@ async def test_on_queue_full_aborts_when_no_prep_channel_free():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    match_id = await cog.on_queue_full(inter, queue_doc)
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
     assert match_id is None
     # Queue annulee, message d'erreur poste dans le salon de queue
-    assert repository.get_active_queue(bot_module.db, guild_id=42) is None
+    assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
     channel.send.assert_awaited_once()
     args, _ = channel.send.call_args
     assert "match-preparation" in args[0]
@@ -216,7 +231,7 @@ async def test_on_queue_full_balanced_teams_in_persistence():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    match_id = await cog.on_queue_full(inter, queue_doc)
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
     match = repository.get_match(bot_module.db, 42, match_id)
     sum_a = sum(p["elo"] for p in match["team_a"])
@@ -240,7 +255,7 @@ async def test_on_queue_full_aborts_if_player_unlinked():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    result = await cog.on_queue_full(inter, queue_doc)
+    result = await cog.on_queue_full(inter, queue_doc, "open")
 
     assert result is None  # echec
     # Le message d'erreur a ete envoye, pas le match
@@ -254,7 +269,7 @@ async def test_on_queue_full_aborts_if_player_unlinked():
     )
     assert "annule" in sent_contents.lower() or "annul" in sent_contents.lower()
     # La queue est supprimee
-    assert repository.get_active_queue(bot_module.db, guild_id=42) is None
+    assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
 
 
 # ── VoteView stub (Phase 4 — Phase 5 implementera) ────────────────
@@ -296,7 +311,7 @@ async def test_roles_granted_before_match_message_sent():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    await cog.on_queue_full(inter, queue_doc)
+    await cog.on_queue_full(inter, queue_doc, "open")
 
     # Le test echoue si le faux role manque ; on verifie l'ordre uniquement si
     # add_roles a ete appele (cas reel : le serveur a le role Match #N).
@@ -332,7 +347,7 @@ async def test_players_moved_to_waiting_match_vc():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    await cog.on_queue_full(inter, queue_doc)
+    await cog.on_queue_full(inter, queue_doc, "open")
 
     # Les 10 joueurs doivent avoir ete move_to vers la Waiting Match
     waiting_match = next(v for v in cat.voice_channels if v.name == "Waiting Match")
@@ -360,7 +375,7 @@ async def test_player_already_in_waiting_match_not_moved():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    await cog.on_queue_full(inter, queue_doc)
+    await cog.on_queue_full(inter, queue_doc, "open")
 
     # Le joueur deja a destination n'est pas re-deplace
     members[0].move_to.assert_not_called()
@@ -382,8 +397,61 @@ async def test_queue_full_does_not_crash_when_no_waiting_match_vc():
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    match_id = await cog.on_queue_full(inter, queue_doc)
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
     assert match_id is not None
+
+
+# ── queue_type propagation ────────────────────────────────────────
+async def test_on_queue_full_persists_queue_type_in_match_doc():
+    """Le match doc doit stocker queue_type='pro' quand on_queue_full
+    est invoque pour la Pro Queue."""
+    import bot as bot_module
+    queue_doc = _seed_full_queue(
+        bot_module.db, guild_id=42, queue_type="pro",
+    )
+
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    cat = _fake_category("Match #1")
+    guild = _fake_guild(42, members=members,
+                        categories=[cat], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    match_id = await cog.on_queue_full(inter, queue_doc, "pro")
+
+    match = repository.get_match(bot_module.db, 42, match_id)
+    assert match is not None
+    assert match["queue_type"] == "pro"
+
+
+async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
+    """Spy sur repository.create_match : verifie le kwarg queue_type."""
+    import bot as bot_module
+    queue_doc = _seed_full_queue(
+        bot_module.db, guild_id=42, queue_type="gc",
+    )
+
+    captured: dict = {}
+    real_create = repository.create_match
+
+    def spy_create(*args, **kwargs):
+        captured.update(kwargs)
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr("services.repository.create_match", spy_create)
+
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    cat = _fake_category("Match #1")
+    guild = _fake_guild(42, members=members,
+                        categories=[cat], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    await cog.on_queue_full(inter, queue_doc, "gc")
+
+    assert captured.get("queue_type") == "gc"
 
 
 # ── build_match_embed ─────────────────────────────────────────────
