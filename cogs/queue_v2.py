@@ -283,11 +283,43 @@ class QueueView(discord.ui.View):
         except discord.NotFound:
             return
 
+        # Pre-check hors lock : role match en cours + type Member.
+        # Lectures pures sur le membre Discord (pas de DB), donc safe.
+        if not isinstance(inter.user, discord.Member):
+            await inter.followup.send(
+                "❌ Interaction invalide (hors serveur ou type "
+                "d'utilisateur inattendu).",
+                ephemeral=True,
+            )
+            return
+        ongoing_role = _has_match_role(inter.user)
+        if ongoing_role is not None:
+            await inter.followup.send(
+                f"❌ Tu es deja dans un match en cours (role `{ongoing_role}`). "
+                "Attends la fin du vote pour rejoindre une nouvelle queue.",
+                ephemeral=True,
+            )
+            return
+        ok, required = self._has_required_role(inter.user)
+        if not ok:
+            await inter.followup.send(
+                f"❌ Cette queue est reservee aux joueurs avec le role "
+                f"**{required}** (Pro Queue / GC).",
+                ephemeral=True,
+            )
+            return
+
         async with self._lock(inter.guild_id):
-            # 1) compte Riot lie ?
-            riot = await asyncio.to_thread(
-                repository.get_riot_account,
-                self.db, inter.guild_id, inter.user.id,
+            # 1+3) Lectures DB independantes -> en parallele.
+            riot, current = await asyncio.gather(
+                asyncio.to_thread(
+                    repository.get_riot_account,
+                    self.db, inter.guild_id, inter.user.id,
+                ),
+                asyncio.to_thread(
+                    repository.find_player_in_any_queue,
+                    self.db, inter.guild_id, inter.user.id,
+                ),
             )
             if not riot:
                 await inter.followup.send(
@@ -295,47 +327,10 @@ class QueueView(discord.ui.View):
                     ephemeral=True,
                 )
                 return
-
-            # 2) deja dans un match en cours ?
-            # Le role `Match #N` reste tant que le vote n'est pas valide ;
-            # on bloque le requeue pour eviter qu'un joueur soit dans 2
-            # matches simultanes (lobbies eclates, equipes desequilibrees).
-            if isinstance(inter.user, discord.Member):
-                ongoing_role = _has_match_role(inter.user)
-                if ongoing_role is not None:
-                    await inter.followup.send(
-                        f"❌ Tu es deja dans un match en cours (role `{ongoing_role}`). "
-                        "Attends la fin du vote pour rejoindre une nouvelle queue.",
-                        ephemeral=True,
-                    )
-                    return
-
-            # 3) deja dans une autre queue ?
-            current = await asyncio.to_thread(
-                repository.find_player_in_any_queue,
-                self.db, inter.guild_id, inter.user.id,
-            )
             if current is not None and current != self.queue_type:
                 await inter.followup.send(
                     f"❌ Tu es deja dans la queue **{current.upper()}**. "
                     "Quitte-la d'abord pour rejoindre une autre queue.",
-                    ephemeral=True,
-                )
-                return
-
-            # 4) gate de role pour la queue (fail-safe : reject if non-Member)
-            if not isinstance(inter.user, discord.Member):
-                await inter.followup.send(
-                    "❌ Interaction invalide (hors serveur ou type "
-                    "d'utilisateur inattendu).",
-                    ephemeral=True,
-                )
-                return
-            ok, required = self._has_required_role(inter.user)
-            if not ok:
-                await inter.followup.send(
-                    f"❌ Cette queue est reservee aux joueurs avec le role "
-                    f"**{required}** (Pro Queue / GC).",
                     ephemeral=True,
                 )
                 return
@@ -351,43 +346,50 @@ class QueueView(discord.ui.View):
                 )
                 return
 
-            # 6) si la queue est maintenant pleine -> on ferme + trigger formation
+            # 6) si la queue est maintenant pleine -> on ferme atomiquement
+            # (find_one_and_update renvoie le doc mis a jour : 1 round-trip).
             queue_doc = res.queue
             full = len(queue_doc.get("players", [])) >= QUEUE_SIZE
             if full:
-                await asyncio.to_thread(
+                closed = await asyncio.to_thread(
                     repository.close_active_queue,
                     self.db, inter.guild_id, self.queue_type,
                 )
-                queue_doc = await asyncio.to_thread(
-                    repository.get_active_queue,
-                    self.db, inter.guild_id, self.queue_type,
-                )
+                if closed is not None:
+                    queue_doc = closed
 
-            # 7) edit du message
-            embed = build_queue_embed(queue_doc, inter.guild, self.queue_type)
-            await inter.edit_original_response(embed=embed, view=self)
+        # Lock libere : la DB est coherente. Les side-effects Discord
+        # n'ont pas besoin de serialisation cross-joueurs.
 
-            # 7b) auto-move dans le salon vocal "Waiting Room <type>"
-            move_notice = None
-            role_notice = None
-            if isinstance(inter.user, discord.Member):
-                move_notice = await _move_to_waiting_room(inter.user, self.queue_type)
-                role_notice = await _grant_queue_role(inter.user)
+        # 7) edit message + voice move + role grant en parallele.
+        embed = build_queue_embed(queue_doc, inter.guild, self.queue_type)
+        edit_task = inter.edit_original_response(embed=embed, view=self)
+        results = await asyncio.gather(
+            _move_to_waiting_room(inter.user, self.queue_type),
+            _grant_queue_role(inter.user),
+            edit_task,
+            return_exceptions=True,
+        )
+        move_notice = results[0] if not isinstance(results[0], BaseException) else None
+        role_notice = results[1] if not isinstance(results[1], BaseException) else None
+        if isinstance(results[2], BaseException):
+            logger.warning(
+                "[queue_v2] edit_original_response a echoue: %r", results[2],
+            )
 
-            # 7c) confirmation ephemere (visible uniquement par le joueur)
-            count = len(queue_doc.get("players", []))
-            label = QUEUE_LABELS[self.queue_type]
-            confirm = f"✅ Tu as rejoint la queue **{label}** ({count}/{QUEUE_SIZE})"
-            if move_notice:
-                confirm += f"\n{move_notice}"
-            if role_notice:
-                confirm += f"\n{role_notice}"
-            await inter.followup.send(confirm, ephemeral=True)
+        # 7c) confirmation ephemere (visible uniquement par le joueur)
+        count = len(queue_doc.get("players", []))
+        label = QUEUE_LABELS[self.queue_type]
+        confirm = f"✅ Tu as rejoint la queue **{label}** ({count}/{QUEUE_SIZE})"
+        if move_notice:
+            confirm += f"\n{move_notice}"
+        if role_notice:
+            confirm += f"\n{role_notice}"
+        await inter.followup.send(confirm, ephemeral=True)
 
-            # 8) trigger formation
-            if full and self._on_full:
-                asyncio.create_task(self._safe_on_full(inter, queue_doc))
+        # 8) trigger formation
+        if full and self._on_full:
+            asyncio.create_task(self._safe_on_full(inter, queue_doc))
 
     async def _safe_on_full(
         self, inter: discord.Interaction, queue_doc: dict,
@@ -447,17 +449,25 @@ class QueueView(discord.ui.View):
                     _leave_error_message(res.reason), ephemeral=True,
                 )
                 return
-            embed = build_queue_embed(res.queue, inter.guild, self.queue_type)
-            await inter.edit_original_response(embed=embed, view=self)
+            queue_doc = res.queue
+            # Lecture cross-queues pendant qu'on tient encore le lock pour
+            # garantir la coherence : "le joueur est-il encore quelque part ?"
+            still_in = None
             if isinstance(inter.user, discord.Member):
-                # Le joueur est sorti de SA queue. S'il n'est dans aucune
-                # autre queue, on retire le role global "En Queue".
                 still_in = await asyncio.to_thread(
                     repository.find_player_in_any_queue,
                     self.db, inter.guild_id, inter.user.id,
                 )
-                if still_in is None:
-                    await _revoke_queue_role(inter.user)
+
+        # Lock libere : side-effects Discord en parallele.
+        embed = build_queue_embed(queue_doc, inter.guild, self.queue_type)
+        tasks: list = [inter.edit_original_response(embed=embed, view=self)]
+        if isinstance(inter.user, discord.Member) and still_in is None:
+            tasks.append(_revoke_queue_role(inter.user))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException):
+                logger.warning("[queue_v2] leave side-effect a echoue: %r", r)
 
 
 def _join_error_message(reason: str) -> str:

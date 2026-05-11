@@ -290,12 +290,19 @@ def delete_active_queue(db: Database, guild_id: int | str, queue_type: str) -> b
     return res.deleted_count > 0
 
 
-def close_active_queue(db: Database, guild_id: int | str, queue_type: str) -> None:
-    """Marque la queue de ce type comme 'forming'."""
+def close_active_queue(
+    db: Database, guild_id: int | str, queue_type: str,
+) -> Mapping[str, Any] | None:
+    """Marque la queue de ce type comme 'forming' et renvoie le doc mis a jour.
+
+    Renvoie None si la queue n'existe pas. Utilise find_one_and_update pour
+    fusionner write + read en un seul round-trip atomique.
+    """
     _check_queue_type(queue_type)
-    get_queue_col(db, guild_id).update_one(
+    return get_queue_col(db, guild_id).find_one_and_update(
         {"_id": active_queue_id(queue_type)},
         {"$set": {"status": "forming"}},
+        return_document=ReturnDocument.AFTER,
     )
 
 
