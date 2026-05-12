@@ -1375,15 +1375,16 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
                 )
                 return
 
-        # Calcule le prochain numero ticket-N dans la categorie.
-        existing_numbers: list[int] = []
-        for chan in category.text_channels:
-            name = chan.name
-            if name.startswith("ticket-"):
-                suffix = name[len("ticket-"):]
-                if suffix.isdigit():
-                    existing_numbers.append(int(suffix))
-        next_number = (max(existing_numbers) + 1) if existing_numbers else 1
+        # Compteur persistant en DB : $inc atomique avec upsert garantit
+        # une numerotation monotone meme apres fermeture/suppression des
+        # anciens salons et resiste aux clics concurrents.
+        counter_doc = db["ticket_counters"].find_one_and_update(
+            {"_id": str(guild.id)},
+            {"$inc": {"counter": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        next_number = int(counter_doc["counter"])
         channel_name = f"ticket-{next_number}"
 
         # Permissions : ticket anonyme — l'auteur n'a PAS d'acces particulier
@@ -1419,8 +1420,17 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
 
 
 @tree.command(name="report", description="Envoie un report anonyme dans la categorie Tickets")
+@app_commands.checks.has_permissions(manage_guild=True)
 async def report(interaction: discord.Interaction):
     await interaction.response.send_modal(ReportModal())
+
+
+@report.error
+async def _report_perm_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "🚫 Reservé aux administrateurs.", ephemeral=True,
+        )
 
 
 # ── /welcome ───────────────────────────────────────────────────
