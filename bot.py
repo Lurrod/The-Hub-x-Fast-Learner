@@ -1345,12 +1345,33 @@ class CloseTicketView(discord.ui.View):
 
 
 class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
-    contenu = discord.ui.TextInput(
-        label="Decris ton report",
-        placeholder="Explique ce qu'il se passe (anonyme)...",
+    cible = discord.ui.TextInput(
+        label="Qui report-tu ?",
+        placeholder="Pseudo Discord / @mention / ID du joueur",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=200,
+    )
+    raison = discord.ui.TextInput(
+        label="Pour quelle raison ?",
+        placeholder="Triche, toxicite, throw, insultes, AFK, etc.",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=200,
+    )
+    details = discord.ui.TextInput(
+        label="Details / contexte",
+        placeholder="Decris la situation : quand, ou, ce qu'il s'est passe...",
         style=discord.TextStyle.paragraph,
         required=True,
-        max_length=2000,
+        max_length=1500,
+    )
+    preuves = discord.ui.TextInput(
+        label="Preuves (liens, clips, screens)",
+        placeholder="Colle ici les liens vers tes preuves (optionnel)",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=1000,
     )
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -1403,10 +1424,14 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
 
         embed = discord.Embed(
             title=f"🎫 Nouveau report — {channel_name}",
-            description=self.contenu.value,
             color=0xe67e22,
             timestamp=datetime.now(timezone.utc),
         )
+        embed.add_field(name="Joueur reporte", value=self.cible.value, inline=False)
+        embed.add_field(name="Raison", value=self.raison.value, inline=False)
+        embed.add_field(name="Details", value=self.details.value, inline=False)
+        if self.preuves.value.strip():
+            embed.add_field(name="Preuves", value=self.preuves.value, inline=False)
         embed.set_footer(text="Report anonyme")
         try:
             await ticket_channel.send(embed=embed, view=CloseTicketView())
@@ -1419,10 +1444,51 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
         )
 
 
-@tree.command(name="report", description="Envoie un report anonyme dans la categorie Tickets")
+class ReportView(discord.ui.View):
+    """Vue persistante : un bouton 'Report' qui ouvre le ReportModal."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Report",
+        style=discord.ButtonStyle.danger,
+        custom_id="report_open_btn",
+    )
+    async def open_report(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReportModal())
+
+
+@tree.command(name="report", description="Poste le message de report avec le bouton dans ce salon")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def report(interaction: discord.Interaction):
-    await interaction.response.send_modal(ReportModal())
+    channel = interaction.channel
+    if channel is None or not isinstance(channel, discord.TextChannel):
+        await interaction.response.send_message(
+            "❌ Cette commande doit etre utilisee dans un salon textuel.",
+            ephemeral=True,
+        )
+        return
+    embed = discord.Embed(
+        title="🎫 Envoyer un report anonyme",
+        description=(
+            "Clique sur le bouton **Report** ci-dessous pour ouvrir un ticket "
+            "anonyme dans la categorie `Tickets`.\n\n"
+            "Le formulaire te demandera :\n"
+            "• **Qui** tu reportes (pseudo / @mention / ID)\n"
+            "• **Pour quelle raison** (triche, toxicite, throw, etc.)\n"
+            "• **Les details** de la situation (quand, ou, ce qu'il s'est passe)\n"
+            "• **Les preuves** (liens, clips, screenshots) — optionnel\n\n"
+            "Ton identite ne sera pas revelee au staff."
+        ),
+        color=0xe67e22,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.set_footer(text=interaction.guild.name if interaction.guild else "Report")
+    await channel.send(embed=embed, view=ReportView())
+    await interaction.response.send_message(
+        f"Message envoye dans {channel.mention} !", ephemeral=True,
+    )
 
 
 @report.error
@@ -1505,6 +1571,7 @@ async def on_ready():
     bot.add_view(WelcomeView())
     bot.add_view(ApplicationReviewView())
     bot.add_view(CloseTicketView())
+    bot.add_view(ReportView())
 
     # Sync rapide sur une guild specifique si DEV_GUILD_ID est defini.
     # Sinon, sync global (peut prendre jusqu'a 1h pour propager).
