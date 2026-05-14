@@ -238,6 +238,13 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
         required=True,
         max_length=200,
     )
+    queue: discord.ui.TextInput = discord.ui.TextInput(
+        label="Dans quelle queue ?",
+        placeholder="Pro / Open / GC",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=50,
+    )
     raison: discord.ui.TextInput = discord.ui.TextInput(
         label="Pour quelle raison ?",
         placeholder="Triche, toxicite, throw, insultes, AFK, etc.",
@@ -313,6 +320,7 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
             timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Joueur reporte", value=self.cible.value, inline=False)
+        embed.add_field(name="Queue concernee", value=self.queue.value, inline=False)
         embed.add_field(name="Raison", value=self.raison.value, inline=False)
         embed.add_field(name="Details", value=self.details.value, inline=False)
         if self.preuves.value.strip():
@@ -583,6 +591,7 @@ class ApplicationsCog(commands.Cog):
                 "anonyme dans la categorie `Tickets`.\n\n"
                 "Le formulaire te demandera :\n"
                 "• **Qui** tu reportes (pseudo / @mention / ID)\n"
+                "• **Dans quelle queue** l'incident a eu lieu (Pro / Open / GC)\n"
                 "• **Pour quelle raison** (triche, toxicite, throw, etc.)\n"
                 "• **Les details** de la situation (quand, ou, ce qu'il s'est passe)\n"
                 "• **Les preuves** (liens, clips, screenshots) — optionnel\n\n"
