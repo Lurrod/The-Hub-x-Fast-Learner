@@ -5,7 +5,8 @@ import random
 
 import pytest
 
-from services.captain_draft import DraftState, PICK_SEQUENCE, pick_captains
+from services.captain_draft import DraftState, PICK_SEQUENCE, pick_captains, DraftResult
+from services.match_service import build_plan_from_draft
 from services.team_balancer import Player
 
 pytestmark = pytest.mark.unit
@@ -132,3 +133,35 @@ def test_draft_state_apply_pick_rejects_when_complete():
     extra = _p(99, 1500)
     with pytest.raises(RuntimeError, match="status=complete"):
         state.apply_pick(extra)
+
+
+def test_draft_result_from_state_when_complete():
+    state, pool = _make_state_with_8_pool()
+    for p in pool:
+        state = state.apply_pick(p)
+    result = DraftResult.from_state(state)
+    assert result.cap_a is state.cap_a
+    assert result.cap_b is state.cap_b
+    assert len(result.team_a) == 5 and len(result.team_b) == 5
+
+
+def test_draft_result_rejects_incomplete_state():
+    state, _ = _make_state_with_8_pool()
+    with pytest.raises(ValueError, match="non termine"):
+        DraftResult.from_state(state)
+
+
+def test_build_plan_from_draft_uses_capA_as_leader():
+    state, pool = _make_state_with_8_pool()
+    for p in pool:
+        state = state.apply_pick(p)
+    result = DraftResult.from_state(state)
+    plan = build_plan_from_draft(
+        result, free_category="Match #1", rng=random.Random(42),
+    )
+    assert plan.category_name == "Match #1"
+    assert plan.lobby_leader is state.cap_a
+    assert plan.teams.team_a == result.team_a
+    assert plan.teams.team_b == result.team_b
+    # map_name est choisi par rng parmi elo_calc.MAPS, non vide
+    assert plan.map_name

@@ -127,3 +127,22 @@ class DraftState:
             turn_index=new_turn,
             status=new_status,
         )
+
+
+@dataclass(frozen=True)
+class DraftResult:
+    cap_a:  Player
+    cap_b:  Player
+    team_a: tuple[Player, ...]   # 5 joueurs incl. cap_a
+    team_b: tuple[Player, ...]   # 5 joueurs incl. cap_b
+
+    @classmethod
+    def from_state(cls, state: DraftState) -> "DraftResult":
+        if state.status != "complete":
+            raise ValueError(f"Draft non termine (status={state.status}).")
+        return cls(
+            cap_a=state.cap_a,
+            cap_b=state.cap_b,
+            team_a=state.team_a,
+            team_b=state.team_b,
+        )

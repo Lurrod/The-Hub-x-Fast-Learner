@@ -98,6 +98,38 @@ def plan_match(
     )
 
 
+def build_plan_from_draft(
+    result,           # services.captain_draft.DraftResult (typed via duck typing pour eviter import cycle)
+    *,
+    free_category: str,
+    rng:           random.Random,
+) -> MatchPlan:
+    """Construit un MatchPlan a partir d'un DraftResult capitaine.
+
+    Utilise sur la branche Pro Queue ou les equipes viennent du draft
+    et NON de balance_teams. Compute elo_diff/peak_diff pour info
+    (pas de fonction objectif puisque le draft n'optimise pas).
+    """
+    team_a = result.team_a
+    team_b = result.team_b
+    sum_a = sum(p.elo for p in team_a)
+    sum_b = sum(p.elo for p in team_b)
+    max_a = max(p.elo for p in team_a)
+    max_b = max(p.elo for p in team_b)
+    teams = BalancedTeams(
+        team_a=team_a,
+        team_b=team_b,
+        elo_diff=abs(sum_a - sum_b),
+        peak_diff=abs(max_a - max_b),
+    )
+    return MatchPlan(
+        teams=teams,
+        map_name=rng.choice(elo_calc.MAPS),
+        lobby_leader=result.cap_a,
+        category_name=free_category,
+    )
+
+
 def serialize_team(team: tuple[Player, ...]) -> list[dict]:
     """Pour stockage MongoDB."""
     return [asdict(p) for p in team]
