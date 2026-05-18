@@ -52,7 +52,7 @@ def _fake_interaction(user, guild, message_id: int = 555):
 def _seed_match(db, guild_id: int = 42, message_id: int = 555,
                 team_a_ids=range(0, 5), team_b_ids=range(5, 10)):
     return repository.create_match(
-        db, guild_id=guild_id,
+        db, origin_guild_id=guild_id,
         team_a=[{"id": i, "name": f"P{i}", "elo": 1500 + i*50} for i in team_a_ids],
         team_b=[{"id": i, "name": f"P{i}", "elo": 1500 + i*50} for i in team_b_ids],
         map_name="Ascent",
@@ -94,7 +94,7 @@ async def test_vote_when_user_did_not_play_match_refused():
 async def test_vote_on_validated_match_refused():
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
 
     view = VoteView(bot_module.db)
     inter = _fake_interaction(_fake_member(0), _fake_guild())
@@ -113,7 +113,7 @@ async def test_vote_recorded_in_db():
     inter = _fake_interaction(_fake_member(3), _fake_guild())
     await view.vote_a.callback(inter)
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["votes"] == {"3": "a"}
     assert match["status"] == "pending"
     inter.response.edit_message.assert_awaited_once()
@@ -131,7 +131,7 @@ async def test_vote_can_be_changed():
     inter2 = _fake_interaction(_fake_member(3), _fake_guild())
     await view.vote_b.callback(inter2)
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["votes"] == {"3": "b"}
 
 
@@ -145,7 +145,7 @@ async def test_six_votes_for_a_keeps_pending():
         inter = _fake_interaction(_fake_member(uid), _fake_guild())
         await view.vote_a.callback(inter)
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "pending"
     a_count = sum(1 for v in match["votes"].values() if v == "a")
     assert a_count == 6
@@ -165,7 +165,7 @@ async def test_seven_votes_for_a_validates_match():
         inter = _fake_interaction(_fake_member(uid), _fake_guild())
         await view.vote_a.callback(inter)
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "validated_a"
     assert match["validated_at"] is not None
 
@@ -183,7 +183,7 @@ async def test_seven_votes_for_b_validates_b():
         inter = _fake_interaction(_fake_member(uid), _fake_guild())
         await view.vote_b.callback(inter)
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "validated_b"
 
 
@@ -270,7 +270,7 @@ async def test_timeout_marks_pending_match_contested():
 
     # Crée un match expiré (au-delà du timeout)
     match_id = _seed_match(bot_module.db)
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {"created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5)}},
     )
@@ -289,7 +289,7 @@ async def test_timeout_marks_pending_match_contested():
     flagged = await cog.check_vote_timeouts()
     assert flagged == 1
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "contested"
 
 
@@ -300,7 +300,7 @@ async def test_timeout_self_heals_pending_with_majority_a():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {
             "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
@@ -319,7 +319,7 @@ async def test_timeout_self_heals_pending_with_majority_a():
     flagged = await cog.check_vote_timeouts()
     assert flagged == 0
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "validated_a"
     assert match["validated_at"] is not None
     channel.send.assert_not_awaited()
@@ -330,7 +330,7 @@ async def test_timeout_self_heals_pending_with_majority_b():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {
             "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
@@ -349,7 +349,7 @@ async def test_timeout_self_heals_pending_with_majority_b():
     flagged = await cog.check_vote_timeouts()
     assert flagged == 0
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "validated_b"
     channel.send.assert_not_awaited()
 
@@ -361,7 +361,7 @@ async def test_timeout_still_marks_contested_when_no_majority():
     match_id = _seed_match(bot_module.db)
     split_votes = {**{str(i): "a" for i in range(4)},
                    **{str(i): "b" for i in range(4, 7)}}
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {
             "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
@@ -383,7 +383,7 @@ async def test_timeout_still_marks_contested_when_no_majority():
     flagged = await cog.check_vote_timeouts()
     assert flagged == 1
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "contested"
 
     channel.send.assert_awaited_once()
@@ -396,7 +396,7 @@ async def test_timeout_does_not_affect_validated():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {
             "status": "validated_a",
@@ -456,7 +456,7 @@ async def test_timeout_falls_back_when_no_admin_role():
     """Si aucun role 'Admin' n'existe : on ping `@admin` en plain text."""
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    bot_module.db["matches_42"].update_one(
+    bot_module.db["matches"].update_one(
         {"_id": match_id},
         {"$set": {"created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5)}},
     )
@@ -486,7 +486,7 @@ def test_timeout_minutes_is_5():
 # ── Phase 6 : MAJ ELO apres validation ────────────────────────────
 def _seed_match_with_avg_2400(db, guild_id: int = 42, message_id: int = 555):
     return repository.create_match(
-        db, guild_id=guild_id,
+        db, origin_guild_id=guild_id,
         team_a=[{"id": i, "name": f"P{i}", "elo": 2400} for i in range(0, 5)],
         team_b=[{"id": i, "name": f"P{i}", "elo": 2400} for i in range(5, 10)],
         map_name="Ascent",
@@ -502,7 +502,7 @@ def _seed_db_elos(db, guild_id: int = 42, baseline: int = 2000) -> None:
     """Seed elo_col pour 10 joueurs : reflete la situation production ou
     chaque joueur a au moins LINK_BASE_ELO=2000 via /link-riot, evitant
     le plancher zero-sum qui neutraliserait les gains gagnants."""
-    col = repository.get_elo_col(db, guild_id)
+    col = repository.get_elo_col(db)
     for i in range(10):
         col.insert_one({
             "_id": f"{i}:open", "name": f"P{i}",
@@ -520,7 +520,7 @@ async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: i
             await view.vote_a.callback(inter)
         else:
             await view.vote_b.callback(inter)
-    match_doc = repository.get_match(db, guild_id, match_id)
+    match_doc = repository.get_match(db, match_id)
     # force_apply=True simule le passage du timeout Henrik (ELO plat)
     await cog._verify_match(guild, match_doc, force_apply=True)
 
@@ -540,7 +540,7 @@ async def test_validation_triggers_elo_update_in_db():
     cog = MatchCog(bot_module.bot, bot_module.db)
     await _vote_and_verify(cog, guild, match_id, choice="a", db=bot_module.db)
 
-    elo_col = repository.get_elo_col(bot_module.db, 42)
+    elo_col = repository.get_elo_col(bot_module.db)
     for i in range(5):
         doc = elo_col.find_one({"_id": f"{i}:open"})
         # _verify_match force_apply=True sans Henrik -> flat fallback +16
@@ -584,7 +584,7 @@ async def test_validation_with_high_elo_match_bigger_gain():
     from cogs.match import MatchCog
 
     match_id = repository.create_match(
-        bot_module.db, guild_id=42,
+        bot_module.db, origin_guild_id=42,
         team_a=[{"id": i, "name": f"P{i}", "elo": 3000} for i in range(0, 5)],
         team_b=[{"id": i, "name": f"P{i}", "elo": 3000} for i in range(5, 10)],
         map_name="Ascent",
@@ -602,7 +602,7 @@ async def test_validation_with_high_elo_match_bigger_gain():
     cog = MatchCog(bot_module.bot, bot_module.db)
     await _vote_and_verify(cog, guild, match_id, choice="a", db=bot_module.db)
 
-    elo_col = repository.get_elo_col(bot_module.db, 42)
+    elo_col = repository.get_elo_col(bot_module.db)
     # Sans Henrik -> flat fallback +16 (independant de l'avg ELO du match).
     assert elo_col.find_one({"_id": "0:open"})["elo"] == 2016
 
@@ -621,7 +621,7 @@ async def test_validated_b_distributes_correctly():
     cog = MatchCog(bot_module.bot, bot_module.db)
     await _vote_and_verify(cog, guild, match_id, choice="b", db=bot_module.db)
 
-    elo_col = repository.get_elo_col(bot_module.db, 42)
+    elo_col = repository.get_elo_col(bot_module.db)
     # team_b (5..9) gagnent +16 (flat sans Henrik) -> 2016
     for i in range(5, 10):
         assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 2016
@@ -648,7 +648,7 @@ async def test_vote_validation_does_not_touch_elo():
         inter = _fake_interaction(_fake_member(uid), guild)
         await cog.vote_view.vote_a.callback(inter)
 
-    elo_col = repository.get_elo_col(bot_module.db, 42)
+    elo_col = repository.get_elo_col(bot_module.db)
     # Aucun doc ELO cree : l'ELO sera applique uniquement par _verify_match.
     for i in range(10):
         assert elo_col.find_one({"_id": str(i)}) is None
@@ -659,7 +659,7 @@ def test_transition_match_status_succeeds_from_pending():
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
     res = repository.transition_match_status(
-        bot_module.db, 42, match_id,
+        bot_module.db, match_id,
         from_status="pending", to_status="validated_a",
     )
     assert res is not None
@@ -672,10 +672,10 @@ def test_transition_match_status_fails_when_already_validated():
     une seconde transition ne reussit pas (renvoie None)."""
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
 
     res = repository.transition_match_status(
-        bot_module.db, 42, match_id,
+        bot_module.db, match_id,
         from_status="pending", to_status="validated_b",
     )
     assert res is None
@@ -712,9 +712,9 @@ async def test_concurrent_votes_only_fire_on_validated_once():
 def test_claim_match_for_elo_succeeds_first_time():
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
 
-    claim = repository.claim_match_for_elo(bot_module.db, 42, match_id)
+    claim = repository.claim_match_for_elo(bot_module.db, match_id)
     assert claim is not None
     assert claim["elo_applied"] is True
 
@@ -723,10 +723,10 @@ def test_claim_match_for_elo_returns_none_when_already_claimed():
     """Empeche la double-application d'ELO : seul le premier claim passe."""
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
 
-    first = repository.claim_match_for_elo(bot_module.db, 42, match_id)
-    second = repository.claim_match_for_elo(bot_module.db, 42, match_id)
+    first = repository.claim_match_for_elo(bot_module.db, match_id)
+    second = repository.claim_match_for_elo(bot_module.db, match_id)
     assert first is not None
     assert second is None
 
@@ -735,7 +735,7 @@ def test_claim_match_for_elo_rejects_non_validated_match():
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
     # Status reste 'pending', pas de claim possible
-    claim = repository.claim_match_for_elo(bot_module.db, 42, match_id)
+    claim = repository.claim_match_for_elo(bot_module.db, match_id)
     assert claim is None
 
 
@@ -743,11 +743,11 @@ def test_release_elo_claim_allows_retry():
     """Si l'application ELO leve, on relache le claim pour re-essayer."""
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
 
-    repository.claim_match_for_elo(bot_module.db, 42, match_id)
-    repository.release_elo_claim(bot_module.db, 42, match_id)
-    retry = repository.claim_match_for_elo(bot_module.db, 42, match_id)
+    repository.claim_match_for_elo(bot_module.db, match_id)
+    repository.release_elo_claim(bot_module.db, match_id)
+    retry = repository.claim_match_for_elo(bot_module.db, match_id)
     assert retry is not None
 
 
@@ -756,9 +756,9 @@ def test_find_validated_unverified_excludes_elo_applied():
     la queue de verification (eviter le double credit)."""
     import bot as bot_module
     match_id = _seed_match(bot_module.db)
-    repository.set_match_status(bot_module.db, 42, match_id, "validated_a")
-    repository.claim_match_for_elo(bot_module.db, 42, match_id)
+    repository.set_match_status(bot_module.db, match_id, "validated_a")
+    repository.claim_match_for_elo(bot_module.db, match_id)
 
     cutoff = datetime.now(UTC) + timedelta(minutes=1)
-    matches = repository.find_validated_unverified(bot_module.db, 42, cutoff)
+    matches = repository.find_validated_unverified(bot_module.db, cutoff)
     assert all(m["_id"] != match_id for m in matches)

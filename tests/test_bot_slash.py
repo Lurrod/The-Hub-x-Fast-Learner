@@ -112,7 +112,7 @@ async def test_slash_stats_known_player():
     guild = _fake_guild(42, members=[user])
     inter = _fake_interaction(user, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     col.insert_one({
         "_id": "1:open", "user_id": "1", "queue_type": "open",
         "name": "Alice", "elo": 200, "wins": 8, "losses": 2,
@@ -161,7 +161,7 @@ async def test_slash_win_5_players_distributes_elo_v2():
     )
 
     expected_gains = bot_module.WIN_DELTAS_BY_SLOT  # (20, 18, 17, 16, 15)
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for slot, t in enumerate(targets):
         doc = col.find_one({"_id": f"{t.id}:open"})
         gain = expected_gains[slot]
@@ -180,7 +180,7 @@ async def test_slash_win_base_is_constant_regardless_of_avg():
     inter = _fake_interaction(admin, guild)
 
     # Seed une ELO serveur de 3000 (Radiant) : les gains pondérés sont indépendants de l'avg.
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for t in targets:
         col.insert_one({
             "_id": f"{t.id}:open", "user_id": str(t.id), "queue_type": "open",
@@ -207,7 +207,7 @@ async def test_slash_lose_floors_at_zero():
     guild = _fake_guild(42, members=[admin, target, partner])
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
                     "name": "Bob",   "elo": 5,    "wins": 0, "losses": 0})
     col.insert_one({"_id": "3:open", "user_id": "3", "queue_type": "open",
@@ -236,7 +236,7 @@ async def test_slash_leaderboard_creates_view_with_pagination():
     guild = _fake_guild(42, members=[admin] + members)
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for i, m in enumerate(members):
         col.insert_one({
             "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
@@ -275,7 +275,7 @@ async def test_slash_leaderboard_next_button_navigates_to_page_2():
     guild = _fake_guild(42, members=[admin] + members)
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for i, m in enumerate(members):
         col.insert_one({
             "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
@@ -317,7 +317,7 @@ async def test_slash_leaderboard_clicking_next_past_last_page_is_noop():
     guild = _fake_guild(42, members=[admin] + members)
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for i, m in enumerate(members):
         col.insert_one({
             "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
@@ -351,7 +351,7 @@ async def test_slash_elomodify_add():
 
     await bot_module.elomodify.callback(inter, queue="open", joueur=target, action="add", montant=50)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     doc = col.find_one({"_id": "2:open"})
     assert doc["elo"] == 2050
 
@@ -364,7 +364,7 @@ async def test_slash_elomodify_remove_floors_at_zero():
     guild = _fake_guild(42, members=[admin, target])
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
                     "name": "Bob", "elo": 30, "wins": 0, "losses": 0})
 
@@ -383,7 +383,7 @@ async def test_slash_resetelo_single_player():
     guild = _fake_guild(42, members=[admin, target])
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
                     "name": "Bob", "elo": 999, "wins": 50, "losses": 5})
 
@@ -403,7 +403,7 @@ async def test_slash_resetelo_all_players():
     guild = _fake_guild(42, members=[admin] + targets)
     inter = _fake_interaction(admin, guild)
 
-    col = bot_module.get_elo_col(42)
+    col = bot_module.get_elo_col()
     for t in targets:
         col.insert_one({"_id": f"{t.id}:open", "user_id": str(t.id),
                         "queue_type": "open", "name": t.display_name,

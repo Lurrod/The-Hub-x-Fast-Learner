@@ -104,7 +104,7 @@ async def test_link_riot_persists_metadata_without_seeding_elo():
     await cog.link_riot.callback(cog, inter, riot_id="Player#EUW")
 
     from services import repository
-    doc = repository.get_riot_account(bot_module.db, 42, 1)
+    doc = repository.get_riot_account(bot_module.db, 1)
     assert doc is not None
     assert doc["riot_name"]   == "Player"
     assert doc["riot_tag"]    == "EUW"
@@ -114,7 +114,7 @@ async def test_link_riot_persists_metadata_without_seeding_elo():
 
     # Aucun seed ELO : la collection elo_<guild> reste vide tant que le
     # joueur n'a pas joue dans une queue.
-    assert repository.get_elo_col(bot_module.db, 42).count_documents({}) == 0
+    assert repository.get_elo_col(bot_module.db).count_documents({}) == 0
 
     embed = inter.followup.send.call_args.kwargs["embed"]
     fields = {f.name: f.value for f in embed.fields}
@@ -136,9 +136,9 @@ async def test_link_riot_accepts_any_rank():
     await cog.link_riot.callback(cog, inter, riot_id="Iron#EUW")
 
     from services import repository
-    assert repository.get_riot_account(bot_module.db, 42, 1) is not None
+    assert repository.get_riot_account(bot_module.db, 1) is not None
     # Aucun seed ELO meme pour un Iron : on persiste seulement la metadata.
-    assert repository.get_elo_col(bot_module.db, 42).count_documents({}) == 0
+    assert repository.get_elo_col(bot_module.db).count_documents({}) == 0
 
 
 async def test_link_riot_does_not_touch_existing_elo():
@@ -148,7 +148,7 @@ async def test_link_riot_does_not_touch_existing_elo():
     from services import repository
 
     # ELO existante dans la queue Open (compound _id <user>:open)
-    repository.get_elo_col(bot_module.db, 42).insert_one({
+    repository.get_elo_col(bot_module.db).insert_one({
         "_id": "1:open", "user_id": "1", "queue_type": "open",
         "name": "Jet", "elo": 2200, "wins": 5, "losses": 2,
     })
@@ -163,7 +163,7 @@ async def test_link_riot_does_not_touch_existing_elo():
     await cog.link_riot.callback(cog, inter, riot_id="Player#EUW")
 
     # Le doc ELO existant n'a pas bouge.
-    elo_doc = repository.get_elo_col(bot_module.db, 42).find_one({"_id": "1:open"})
+    elo_doc = repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})
     assert elo_doc["elo"]    == 2200
     assert elo_doc["wins"]   == 5
     assert elo_doc["losses"] == 2
@@ -174,7 +174,7 @@ async def test_link_unlink_relink_does_not_change_elo():
     import bot as bot_module
     from services import repository
 
-    repository.get_elo_col(bot_module.db, 42).insert_one({
+    repository.get_elo_col(bot_module.db).insert_one({
         "_id": "1:open", "user_id": "1", "queue_type": "open",
         "name": "Jet", "elo": 2200, "wins": 5, "losses": 2,
     })
@@ -184,14 +184,14 @@ async def test_link_unlink_relink_does_not_change_elo():
     inter = _fake_interaction(_fake_member(1, "Jet"), guild_id=42)
 
     await cog.link_riot.callback(cog, inter, riot_id="Player#EUW")
-    assert repository.get_elo_col(bot_module.db, 42).find_one({"_id": "1:open"})["elo"] == 2200
+    assert repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})["elo"] == 2200
 
     await cog.unlink_riot.callback(cog, _fake_interaction(_fake_member(1), guild_id=42))
-    assert repository.get_elo_col(bot_module.db, 42).find_one({"_id": "1:open"})["elo"] == 2200
+    assert repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})["elo"] == 2200
 
     inter2 = _fake_interaction(_fake_member(1, "Jet"), guild_id=42)
     await cog.link_riot.callback(cog, inter2, riot_id="Player#EUW")
-    assert repository.get_elo_col(bot_module.db, 42).find_one({"_id": "1:open"})["elo"] == 2200
+    assert repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})["elo"] == 2200
 
 
 # ── /unlink-riot ──────────────────────────────────────────────────
@@ -199,7 +199,7 @@ async def test_unlink_riot_when_linked():
     import bot as bot_module
     from services import repository
     repository.link_riot_account(
-        bot_module.db, guild_id=42, user_id=1,
+        bot_module.db, user_id=1,
         riot_name="X", riot_tag="1", riot_region="eu",
         puuid="abc", peak_elo=1500, source="peak_recent",
     )
@@ -210,7 +210,7 @@ async def test_unlink_riot_when_linked():
 
     args, _ = inter.response.send_message.call_args
     assert "delie" in args[0]
-    assert repository.get_riot_account(bot_module.db, 42, 1) is None
+    assert repository.get_riot_account(bot_module.db, 1) is None
 
 
 async def test_unlink_riot_when_not_linked():

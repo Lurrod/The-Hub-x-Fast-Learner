@@ -137,7 +137,7 @@ async def test_build_leaderboard_payload_filters_by_queue_type():
     from services.repository import get_elo_col, player_doc_id
 
     db = mongomock.MongoClient(tz_aware=True).db
-    col = get_elo_col(db, 42)
+    col = get_elo_col(db)
     col.insert_many([
         {"_id": player_doc_id(1, "pro"), "user_id": "1", "name": "A",
          "elo": 2500, "wins": 5, "losses": 1, "queue_type": "pro"},
@@ -182,17 +182,21 @@ def _make_guild_with_member(guild_id: int = 99):
 
 def _seed_pro_open(db, guild_id: int, n: int = 1) -> None:
     from services.repository import get_elo_col, player_doc_id
-    col = get_elo_col(db, guild_id)
+    col = get_elo_col(db)
     docs = []
+    # User IDs offset par guild pour eviter les collisions dans la collection
+    # `elo` partagee (post-refactor shared collections).
+    offset = guild_id * 1000
     for i in range(1, n + 1):
+        uid = offset + i
         docs.append({
-            "_id": player_doc_id(i, "pro"), "user_id": str(i),
-            "name": f"P{i}", "elo": 2500 + i, "wins": 1, "losses": 0,
+            "_id": player_doc_id(uid, "pro"), "user_id": str(uid),
+            "name": f"P{uid}", "elo": 2500 + i, "wins": 1, "losses": 0,
             "queue_type": "pro",
         })
         docs.append({
-            "_id": player_doc_id(i, "open"), "user_id": str(i),
-            "name": f"P{i}", "elo": 2000 + i, "wins": 1, "losses": 0,
+            "_id": player_doc_id(uid, "open"), "user_id": str(uid),
+            "name": f"P{uid}", "elo": 2000 + i, "wins": 1, "losses": 0,
             "queue_type": "open",
         })
     col.insert_many(docs)

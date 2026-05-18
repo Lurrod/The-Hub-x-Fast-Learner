@@ -23,7 +23,7 @@ async def test_leaderboard_empty_says_no_player(discord_bot, fake_guild):
 
 async def test_leaderboard_shows_one_player(discord_bot, fake_guild):
     import bot as bot_module
-    col = bot_module.get_elo_col(fake_guild.id)
+    col = bot_module.get_elo_col()
     member = fake_guild.members[0]
     col.insert_one({
         "_id": str(member.id),
@@ -44,7 +44,7 @@ async def test_leaderboard_shows_one_player(discord_bot, fake_guild):
 
 async def test_leaderboard_orders_by_elo_desc(discord_bot, fake_guild):
     import bot as bot_module
-    col = bot_module.get_elo_col(fake_guild.id)
+    col = bot_module.get_elo_col()
 
     members = fake_guild.members[:3]
     elos    = [50, 200, 100]
@@ -70,7 +70,7 @@ async def test_stats_for_unknown_player(discord_bot, fake_member):
 
 async def test_stats_shows_winrate(discord_bot, fake_guild, fake_member):
     import bot as bot_module
-    col = bot_module.get_elo_col(fake_guild.id)
+    col = bot_module.get_elo_col()
     col.insert_one({
         "_id": str(fake_member.id),
         "name": fake_member.display_name,
@@ -111,7 +111,7 @@ async def test_win_grants_elo_with_admin(discord_bot, fake_guild):
     await dpytest.message(f"!win {target.mention}")
 
     # Verifier en base — le prefix !win s'applique sur la queue open par defaut
-    col = bot_module.get_elo_col(fake_guild.id)
+    col = bot_module.get_elo_col()
     doc = col.find_one({"_id": f"{target.id}:open"})
     assert doc is not None, "Le joueur n'a pas ete cree en base"
     # Pondération par position : slot 0 (joueur1) gagne +20.
@@ -131,7 +131,7 @@ async def test_lose_floors_elo_at_zero(discord_bot, fake_guild):
     admin_role = await fake_guild.create_role(name="Admin", permissions=perms)
     await admin.add_roles(admin_role)
 
-    col = bot_module.get_elo_col(fake_guild.id)
+    col = bot_module.get_elo_col()
     col.insert_one({"_id": f"{target.id}:open", "user_id": str(target.id),
                     "queue_type": "open", "name": target.display_name,
                     "elo": 5,    "wins": 0, "losses": 0})

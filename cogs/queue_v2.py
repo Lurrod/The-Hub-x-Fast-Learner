@@ -316,7 +316,7 @@ class QueueView(discord.ui.View):
             riot, current = await asyncio.gather(
                 asyncio.to_thread(
                     repository.get_riot_account,
-                    self.db, inter.guild_id, inter.user.id,
+                    self.db, inter.user.id,
                 ),
                 asyncio.to_thread(
                     repository.find_player_in_any_queue,

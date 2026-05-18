@@ -69,12 +69,12 @@ def _fake_interaction(
 
 def _seed_riot_link(db, guild_id: int, user_id: int, elo: int = 1500):
     repository.link_riot_account(
-        db, guild_id=guild_id, user_id=user_id,
+        db, user_id=user_id,
         riot_name=f"P{user_id}", riot_tag="EUW", riot_region="eu",
         puuid=f"pu-{user_id}", peak_elo=elo, source="peak_recent",
     )
     # Compound _id pour matcher la nouvelle architecture per-queue.
-    repository.get_elo_col(db, guild_id).insert_one({
+    repository.get_elo_col(db).insert_one({
         "_id": f"{user_id}:open",
         "name": f"P{user_id}",
         "elo": elo, "wins": 0, "losses": 0,

@@ -97,7 +97,7 @@ class RiotLinkCog(commands.Cog):
         # comptes Discord lies au meme PUUID.
         existing = await asyncio.to_thread(
             repository.find_riot_account_by_puuid,
-            self.db, interaction.guild_id, account.puuid,
+            self.db, account.puuid,
         )
         if existing is not None and str(existing.get("_id")) != str(interaction.user.id):
             await interaction.followup.send(
@@ -118,7 +118,6 @@ class RiotLinkCog(commands.Cog):
         try:
             repository.link_riot_account(
                 self.db,
-                guild_id=interaction.guild_id,
                 user_id=interaction.user.id,
                 riot_name=name,
                 riot_tag=tag,
@@ -152,7 +151,7 @@ class RiotLinkCog(commands.Cog):
     @app_commands.command(name="unlink-riot", description="Supprime le lien avec ton compte Riot")
     async def unlink_riot(self, interaction: discord.Interaction) -> None:
         ok = repository.unlink_riot_account(
-            self.db, interaction.guild_id, interaction.user.id,
+            self.db, interaction.user.id,
         )
         if ok:
             await interaction.response.send_message("✅ Compte Riot delie.", ephemeral=True)

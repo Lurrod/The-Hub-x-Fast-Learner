@@ -95,10 +95,10 @@ def _seed_full_queue(
         db, guild_id=guild_id, queue_type=queue_type,
         channel_id=channel_id, message_id=999,
     )
-    elo_col = repository.get_elo_col(db, guild_id)
+    elo_col = repository.get_elo_col(db)
     for i in range(10):
         repository.link_riot_account(
-            db, guild_id=guild_id, user_id=i,
+            db, user_id=i,
             riot_name=f"P{i}", riot_tag="EUW", riot_region="eu",
             puuid=f"pu{i}",
             peak_elo=1500 + i * 50,
@@ -165,7 +165,7 @@ async def test_on_queue_full_persists_match():
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match is not None
     assert match["status"] == "pending"
     assert match["map"] in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven", "Pearl")
@@ -234,7 +234,7 @@ async def test_on_queue_full_balanced_teams_in_persistence():
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     sum_a = sum(p["elo"] for p in match["team_a"])
     sum_b = sum(p["elo"] for p in match["team_b"])
     # Les elos ont ete distribues comme 1500..1950 step 50, total 17250 -> ideal 8625
@@ -247,7 +247,7 @@ async def test_on_queue_full_aborts_if_player_unlinked():
     import bot as bot_module
     # Setup queue avec 10 joueurs, mais on retire le compte Riot du joueur 5
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-    repository.unlink_riot_account(bot_module.db, guild_id=42, user_id=5)
+    repository.unlink_riot_account(bot_module.db, user_id=5)
 
     members = [_fake_member(i) for i in range(10)]
     channel = _fake_channel(100)
@@ -454,7 +454,7 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     match_id = await cog.on_queue_full(inter, queue_doc, "pro")
 
-    match = repository.get_match(bot_module.db, 42, match_id)
+    match = repository.get_match(bot_module.db, match_id)
     assert match is not None
     assert match["queue_type"] == "pro"
 
