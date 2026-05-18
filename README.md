@@ -48,7 +48,7 @@ Cycle complet d'une partie :
 
 | Queue  | Salon dédié   | Rôle requis              | Vocal d'attente        |
 |--------|---------------|--------------------------|------------------------|
-| Pro    | `#pro-queue`  | `Rank S \| Pro Queue`    | `Waiting Room Pro`     |
+| Pro    | `#pro-queue`  | `Rank S \| Pro Queue` ou `Rank Q \| Qualification Pro` | `Waiting Room Pro`     |
 | Open   | `#open-queue` | aucun                    | `Waiting Room Open`    |
 | GC     | `#gc-queue`   | `GC`                     | `Waiting Room GC`      |
 
@@ -217,7 +217,7 @@ de queue, et pré-poste les 3 leaderboards. **Idempotent**, ré-exécutable sans
 - `En Queue` (donné aux joueurs en queue)
 - `Match #1`..`Match #5` (donnés pendant la durée d'un match — gate de visibilité)
 - `Match Host` (donné au lobby leader, retiré après 10 min)
-- `Rank S | Pro Queue` (gate de la queue Pro)
+- `Rank S | Pro Queue` ou `Rank Q | Qualification Pro` (gate de la queue Pro)
 - `GC` (gate de la queue GC)
 - `Admin` / `Match Staff` / `Administrateur` (ping si vote en timeout)
 - `Members`, `Coach/Analyst/Manager` (système de candidatures, optionnel)

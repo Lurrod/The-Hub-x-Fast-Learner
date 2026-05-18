@@ -2,7 +2,8 @@
 Cog V2 : queues 10mans avec boutons persistants (Rejoindre / Quitter).
 
 3 queues simultanees par guild :
-  - Pro Queue : reserve aux joueurs avec le role "Rank S | Pro Queue".
+  - Pro Queue : reserve aux joueurs avec le role "Rank S | Pro Queue"
+    ou "Rank Q | Qualification Pro".
   - Open Queue : sans gate de role.
   - GC Queue : reserve aux joueurs avec le role "GC".
 
@@ -67,11 +68,12 @@ WAITING_ROOM_NAMES: dict[str, str] = {
     "gc":   "Waiting Room GC",
 }
 
-# Role required pour rejoindre une queue gated. None = pas de gate.
-QUEUE_ROLE_GATES: dict[str, str | None] = {
-    "pro":  "Rank S | Pro Queue",
+# Roles autorises pour rejoindre une queue gated (n'importe lequel suffit).
+# None = pas de gate.
+QUEUE_ROLE_GATES: dict[str, tuple[str, ...] | None] = {
+    "pro":  ("Rank S | Pro Queue", "Rank Q | Qualification Pro"),
     "open": None,
-    "gc":   "GC",
+    "gc":   ("GC",),
 }
 
 # Nom du salon textuel attendu pour chaque queue (utilise par /setup
@@ -273,9 +275,11 @@ class QueueView(discord.ui.View):
         required = QUEUE_ROLE_GATES.get(self.queue_type)
         if required is None:
             return True, None
-        if any(r.name == required for r in member.roles):
-            return True, required
-        return False, required
+        label = " ou ".join(required)
+        member_role_names = {r.name for r in member.roles}
+        if any(name in member_role_names for name in required):
+            return True, label
+        return False, label
 
     async def _join_callback(self, inter: discord.Interaction):
         # Acquitte tout de suite : sous contention du lock par-guild, le token
