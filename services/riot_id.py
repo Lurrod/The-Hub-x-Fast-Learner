@@ -14,7 +14,7 @@ def parse_riot_id(riot_id: str) -> tuple[str, str]:
         raise ValueError("Format invalide. Attendu : Pseudo#TAG")
     name, _, tag = riot_id.rpartition("#")
     name = name.strip()
-    tag  = tag.strip()
+    tag = tag.strip()
     if not name or not tag:
         raise ValueError("Format invalide. Attendu : Pseudo#TAG")
     if len(tag) > 5 or len(name) > 16:

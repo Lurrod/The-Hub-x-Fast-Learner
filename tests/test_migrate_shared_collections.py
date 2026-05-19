@@ -1,4 +1,5 @@
 """Test that the migration script copies docs and archives source collections."""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -24,6 +25,7 @@ def test_migration_copies_and_archives(env):
 
     with patch("scripts.migrate_shared_collections.MongoClient", return_value=fake_client):
         from scripts import migrate_shared_collections
+
         rc = migrate_shared_collections.main()
 
     assert rc == 0
@@ -48,6 +50,7 @@ def test_migration_idempotent_when_no_source(env):
     # No data seeded - all 3 source collections absent
     with patch("scripts.migrate_shared_collections.MongoClient", return_value=fake_client):
         from scripts import migrate_shared_collections
+
         rc = migrate_shared_collections.main()
 
     assert rc == 0
@@ -71,6 +74,7 @@ def test_migration_idempotent_when_both_source_and_dest_present(env):
 
     with patch("scripts.migrate_shared_collections.MongoClient", return_value=fake_client):
         from scripts import migrate_shared_collections
+
         rc = migrate_shared_collections.main()
 
     assert rc == 0

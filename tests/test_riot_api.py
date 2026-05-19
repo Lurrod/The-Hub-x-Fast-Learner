@@ -33,10 +33,15 @@ def _make_session(response):
 
 # ── get_account ───────────────────────────────────────────────────
 def test_get_account_returns_parsed_data():
-    session = _make_session(_mock_response(200, {
-        "status": 200,
-        "data": {"puuid": "abc-123", "name": "Player", "tag": "EUW", "region": "eu"},
-    }))
+    session = _make_session(
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": {"puuid": "abc-123", "name": "Player", "tag": "EUW", "region": "eu"},
+            },
+        )
+    )
     client = HenrikDevClient(session=session)
 
     account = client.get_account("Player", "EUW")
@@ -62,6 +67,7 @@ def test_get_account_429_raises_rate_limited():
 
 def test_network_error_wrapped_as_riot_api_error():
     import requests as _requests
+
     session = MagicMock()
     session.get.side_effect = _requests.ConnectionError("DNS fail")
     client = HenrikDevClient(session=session)
@@ -71,18 +77,23 @@ def test_network_error_wrapped_as_riot_api_error():
 
 # ── get_current_mmr ───────────────────────────────────────────────
 def test_get_current_mmr_parses_fields():
-    session = _make_session(_mock_response(200, {
-        "status": 200,
-        "data": {
-            "current_data": {
-                "elo": 2080,
-                "currenttier": 24,
-                "currenttierpatched": "Immortal 1",
-                "ranking_in_tier": 80,
-                "mmr_change_to_last_game": -23,
+    session = _make_session(
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": {
+                    "current_data": {
+                        "elo": 2080,
+                        "currenttier": 24,
+                        "currenttierpatched": "Immortal 1",
+                        "ranking_in_tier": 80,
+                        "mmr_change_to_last_game": -23,
+                    },
+                },
             },
-        },
-    }))
+        )
+    )
     client = HenrikDevClient(session=session)
 
     mmr = client.get_current_mmr("eu", "Player", "EUW")
@@ -115,13 +126,28 @@ def test_valid_regions_includes_eu():
 
 # ── get_mmr_history ───────────────────────────────────────────────
 def test_get_mmr_history_parses_entries():
-    session = _make_session(_mock_response(200, {
-        "status": 200,
-        "data": [
-            {"elo": 2080, "currenttier": 24, "date_raw": 1750_000_000, "mmr_change_to_last_game": -10},
-            {"elo": 2090, "currenttier": 24, "date_raw": 1749_900_000, "mmr_change_to_last_game": 15},
-        ],
-    }))
+    session = _make_session(
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": [
+                    {
+                        "elo": 2080,
+                        "currenttier": 24,
+                        "date_raw": 1750_000_000,
+                        "mmr_change_to_last_game": -10,
+                    },
+                    {
+                        "elo": 2090,
+                        "currenttier": 24,
+                        "date_raw": 1749_900_000,
+                        "mmr_change_to_last_game": 15,
+                    },
+                ],
+            },
+        )
+    )
     client = HenrikDevClient(session=session)
 
     history = client.get_mmr_history("eu", "Player", "EUW")
@@ -133,13 +159,18 @@ def test_get_mmr_history_parses_entries():
 
 
 def test_get_mmr_history_skips_entries_without_date():
-    session = _make_session(_mock_response(200, {
-        "status": 200,
-        "data": [
-            {"elo": 1500, "date_raw": None},
-            {"elo": 1600, "date_raw": 1750_000_000},
-        ],
-    }))
+    session = _make_session(
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": [
+                    {"elo": 1500, "date_raw": None},
+                    {"elo": 1600, "date_raw": 1750_000_000},
+                ],
+            },
+        )
+    )
     client = HenrikDevClient(session=session)
     history = client.get_mmr_history("eu", "X", "1")
     assert len(history) == 1
@@ -154,9 +185,15 @@ def test_get_mmr_history_empty_data():
 
 # ── Cache ─────────────────────────────────────────────────────────
 def test_cache_avoids_double_api_calls():
-    session = _make_session(_mock_response(200, {
-        "status": 200, "data": {"puuid": "abc"},
-    }))
+    session = _make_session(
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": {"puuid": "abc"},
+            },
+        )
+    )
     client = HenrikDevClient(session=session)
 
     client.get_account("Player", "EUW")
@@ -177,7 +214,7 @@ def test_cache_distinct_keys():
     client = HenrikDevClient(session=session)
 
     a = client.get_account("Alice", "FR")
-    b = client.get_account("Bob",   "FR")
+    b = client.get_account("Bob", "FR")
     assert a.puuid == "alice"
     assert b.puuid == "bob"
     assert session.get.call_count == 2
@@ -201,11 +238,25 @@ def test_get_match_history_bypasses_cache():
     session.get.side_effect = [
         _mock_response(200, {"status": 200, "data": []}),
         _mock_response(200, {"status": 200, "data": []}),
-        _mock_response(200, {"status": 200, "data": [{
-            "metadata": {"matchid": "x", "mode": "Custom Game", "map": "Ascent",
-                         "game_start": 0, "rounds_played": 0},
-            "teams": {}, "players": {"all_players": []},
-        }]}),
+        _mock_response(
+            200,
+            {
+                "status": 200,
+                "data": [
+                    {
+                        "metadata": {
+                            "matchid": "x",
+                            "mode": "Custom Game",
+                            "map": "Ascent",
+                            "game_start": 0,
+                            "rounds_played": 0,
+                        },
+                        "teams": {},
+                        "players": {"all_players": []},
+                    }
+                ],
+            },
+        ),
     ]
     client = HenrikDevClient(session=session)
     client.get_match_history("eu", "Player", "EUW", mode="custom")

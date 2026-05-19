@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 
 # ── Constantes ───────────────────────────────────────────────────
 CANDIDATURE_CHANNEL = "candidatures"
-WELCOME_CHANNEL     = "verify"
-PLAYERS_ROLE        = "Members"
-STAFF_ROLE          = "Coach/Analyst/Manager"
+WELCOME_CHANNEL = "verify"
+PLAYERS_ROLE = "Members"
+STAFF_ROLE = "Coach/Analyst/Manager"
 TICKETS_CATEGORY_NAME = "Tickets"
 CANDIDATURE_COOLDOWN_SECONDS = 3600
 
@@ -110,9 +110,21 @@ def _parse_application_embed(message: discord.Message) -> tuple[int | None, str,
 
 # ── Modals ────────────────────────────────────────────────────────
 class ApplicationModal(discord.ui.Modal, title="Candidature 10mans"):
-    pseudo: discord.ui.TextInput = discord.ui.TextInput(label="Quel est ton pseudo ?", placeholder="Comment puis-je t'appeler ? ex : jetax", max_length=50)
-    tracker: discord.ui.TextInput = discord.ui.TextInput(label="Lien vers ton tracker", placeholder="https://tracker.gg/...", max_length=200)
-    experience: discord.ui.TextInput = discord.ui.TextInput(label="Experiences en tournois / LAN ?", placeholder="Indique les tournois/lans auxquels tu as participe", style=discord.TextStyle.paragraph, required=False, max_length=500)
+    pseudo: discord.ui.TextInput = discord.ui.TextInput(
+        label="Quel est ton pseudo ?",
+        placeholder="Comment puis-je t'appeler ? ex : jetax",
+        max_length=50,
+    )
+    tracker: discord.ui.TextInput = discord.ui.TextInput(
+        label="Lien vers ton tracker", placeholder="https://tracker.gg/...", max_length=200
+    )
+    experience: discord.ui.TextInput = discord.ui.TextInput(
+        label="Experiences en tournois / LAN ?",
+        placeholder="Indique les tournois/lans auxquels tu as participe",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500,
+    )
 
     def __init__(self, db, review_view: ApplicationReviewView) -> None:
         super().__init__()
@@ -126,32 +138,69 @@ class ApplicationModal(discord.ui.Modal, title="Candidature 10mans"):
         if not allowed:
             minutes = int(remaining // 60)
             seconds = int(remaining % 60)
-            await interaction.followup.send(f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.", ephemeral=True)
+            await interaction.followup.send(
+                f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.",
+                ephemeral=True,
+            )
             return
         with contextlib.suppress(discord.Forbidden):
-            await interaction.user.send(embed=discord.Embed(title="✅ Candidature reçue !", description="Merci d'avoir postulé, nous analysons votre profil et nous revenons vers vous le plus vite possible.", color=0x2ecc71, timestamp=datetime.now(UTC)))
+            await interaction.user.send(
+                embed=discord.Embed(
+                    title="✅ Candidature reçue !",
+                    description="Merci d'avoir postulé, nous analysons votre profil et nous revenons vers vous le plus vite possible.",
+                    color=0x2ECC71,
+                    timestamp=datetime.now(UTC),
+                )
+            )
         channel = discord.utils.get(interaction.guild.text_channels, name=CANDIDATURE_CHANNEL)
         if not channel:
             await interaction.followup.send("Salon candidatures introuvable.", ephemeral=True)
             return
-        embed = discord.Embed(title="📋 Nouvelle candidature", description="🎮 **Candidature Joueur**", color=0x5865f2, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="📋 Nouvelle candidature",
+            description="🎮 **Candidature Joueur**",
+            color=0x5865F2,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.add_field(name="👤 Membre", value=interaction.user.mention, inline=True)
         embed.add_field(name="🎮 Pseudo en jeu", value=self.pseudo.value, inline=True)
         embed.add_field(name="🔗 Tracker", value=self.tracker.value, inline=False)
-        embed.add_field(name="🏆 Tournois / LAN", value=self.experience.value if self.experience.value else "Aucune", inline=False)
+        embed.add_field(
+            name="🏆 Tournois / LAN",
+            value=self.experience.value if self.experience.value else "Aucune",
+            inline=False,
+        )
         embed.set_footer(text=f"ID: {interaction.user.id}")
         msg = await channel.send(embed=embed, view=self.review_view)
         repository.register_application(
-            self.db, interaction.guild_id, msg.id, interaction.user.id, is_staff=False,
+            self.db,
+            interaction.guild_id,
+            msg.id,
+            interaction.user.id,
+            is_staff=False,
         )
         await interaction.followup.send("✅ Ta candidature a bien été envoyée !", ephemeral=True)
 
 
 class StaffModal(discord.ui.Modal, title="Candidature Staff"):
-    pseudo: discord.ui.TextInput = discord.ui.TextInput(label="Quel est ton pseudo ?", placeholder="Comment puis-je t'appeler ? ex : jetax", max_length=50)
-    poste: discord.ui.TextInput = discord.ui.TextInput(label="Poste occupe actuellement", placeholder="Ex : Coach, Analyst, Manager... et dans quelle structure/organisation ?", max_length=100)
-    experience: discord.ui.TextInput = discord.ui.TextInput(label="Experiences", placeholder="Decris tes experiences dans le domaine...", style=discord.TextStyle.paragraph, required=False, max_length=500)
+    pseudo: discord.ui.TextInput = discord.ui.TextInput(
+        label="Quel est ton pseudo ?",
+        placeholder="Comment puis-je t'appeler ? ex : jetax",
+        max_length=50,
+    )
+    poste: discord.ui.TextInput = discord.ui.TextInput(
+        label="Poste occupe actuellement",
+        placeholder="Ex : Coach, Analyst, Manager... et dans quelle structure/organisation ?",
+        max_length=100,
+    )
+    experience: discord.ui.TextInput = discord.ui.TextInput(
+        label="Experiences",
+        placeholder="Decris tes experiences dans le domaine...",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500,
+    )
 
     def __init__(self, db, review_view: ApplicationReviewView) -> None:
         super().__init__()
@@ -165,30 +214,59 @@ class StaffModal(discord.ui.Modal, title="Candidature Staff"):
         if not allowed:
             minutes = int(remaining // 60)
             seconds = int(remaining % 60)
-            await interaction.followup.send(f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.", ephemeral=True)
+            await interaction.followup.send(
+                f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.",
+                ephemeral=True,
+            )
             return
         with contextlib.suppress(discord.Forbidden):
-            await interaction.user.send(embed=discord.Embed(title="✅ Candidature reçue !", description="Merci d'avoir postulé, nous analysons votre profil et nous revenons vers vous le plus vite possible.", color=0x2ecc71, timestamp=datetime.now(UTC)))
+            await interaction.user.send(
+                embed=discord.Embed(
+                    title="✅ Candidature reçue !",
+                    description="Merci d'avoir postulé, nous analysons votre profil et nous revenons vers vous le plus vite possible.",
+                    color=0x2ECC71,
+                    timestamp=datetime.now(UTC),
+                )
+            )
         channel = discord.utils.get(interaction.guild.text_channels, name=CANDIDATURE_CHANNEL)
         if not channel:
             await interaction.followup.send("Salon candidatures introuvable.", ephemeral=True)
             return
-        embed = discord.Embed(title="📋 Nouvelle candidature Staff", description="🎯 **Candidature Coach / Analyst / Manager**", color=0xe67e22, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="📋 Nouvelle candidature Staff",
+            description="🎯 **Candidature Coach / Analyst / Manager**",
+            color=0xE67E22,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.add_field(name="👤 Membre",      value=interaction.user.mention,                                    inline=True)
-        embed.add_field(name="🎮 Pseudo",       value=self.pseudo.value,                                          inline=True)
-        embed.add_field(name="💼 Poste",        value=self.poste.value,                                           inline=False)
-        embed.add_field(name="📋 Expériences",  value=self.experience.value if self.experience.value else "Aucune", inline=False)
+        embed.add_field(name="👤 Membre", value=interaction.user.mention, inline=True)
+        embed.add_field(name="🎮 Pseudo", value=self.pseudo.value, inline=True)
+        embed.add_field(name="💼 Poste", value=self.poste.value, inline=False)
+        embed.add_field(
+            name="📋 Expériences",
+            value=self.experience.value if self.experience.value else "Aucune",
+            inline=False,
+        )
         embed.set_footer(text=f"ID: {interaction.user.id}")
         msg = await channel.send(embed=embed, view=self.review_view)
         repository.register_application(
-            self.db, interaction.guild_id, msg.id, interaction.user.id, is_staff=True,
+            self.db,
+            interaction.guild_id,
+            msg.id,
+            interaction.user.id,
+            is_staff=True,
         )
         await interaction.followup.send("✅ Ta candidature a bien été envoyée !", ephemeral=True)
 
 
 class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
-    reason: discord.ui.TextInput = discord.ui.TextInput(label="Raison du refus (optionnel)", placeholder="Explique pourquoi...", style=discord.TextStyle.paragraph, required=False, max_length=500)
+    reason: discord.ui.TextInput = discord.ui.TextInput(
+        label="Raison du refus (optionnel)",
+        placeholder="Explique pourquoi...",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500,
+    )
 
     def __init__(self, db, applicant_id: int):
         super().__init__()
@@ -198,8 +276,11 @@ class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         claimed = repository.claim_application_decision(
-            self.db, interaction.guild_id, interaction.message.id,
-            status="refused", decided_by=interaction.user.id,
+            self.db,
+            interaction.guild_id,
+            interaction.message.id,
+            status="refused",
+            decided_by=interaction.user.id,
         )
         if not claimed:
             await interaction.followup.send(
@@ -211,7 +292,12 @@ class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
         reason_text = self.reason.value if self.reason.value else "Aucune raison fournie."
         if member:
             try:
-                embed_dm = discord.Embed(title="❌ Candidature refusée", description="Désolé, votre candidature n'a pas été retenue, merci de réessayer plus tard.", color=0xe74c3c, timestamp=datetime.now(UTC))
+                embed_dm = discord.Embed(
+                    title="❌ Candidature refusée",
+                    description="Désolé, votre candidature n'a pas été retenue, merci de réessayer plus tard.",
+                    color=0xE74C3C,
+                    timestamp=datetime.now(UTC),
+                )
                 embed_dm.add_field(name="📋 Raison", value=reason_text, inline=False)
                 await member.send(embed=embed_dm)
             except discord.Forbidden:
@@ -220,14 +306,16 @@ class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
                 await member.kick(reason=f"Candidature refusee : {reason_text}")
         try:
             embed = interaction.message.embeds[0]
-            embed.color = 0xe74c3c
+            embed.color = 0xE74C3C
             embed.add_field(name="Refuse par", value=interaction.user.mention, inline=True)
             embed.add_field(name="📋 Raison", value=reason_text, inline=True)
             await interaction.message.edit(embed=embed, view=None)
         except Exception:
             with contextlib.suppress(Exception):
                 await interaction.message.edit(view=None)
-        await interaction.followup.send("✅ Candidature refusée et utilisateur kické.", ephemeral=True)
+        await interaction.followup.send(
+            "✅ Candidature refusée et utilisateur kické.", ephemeral=True
+        )
 
 
 class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
@@ -305,7 +393,8 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
 
         try:
             ticket_channel = await guild.create_text_channel(
-                channel_name, category=category,
+                channel_name,
+                category=category,
             )
         except discord.Forbidden:
             await interaction.followup.send(
@@ -316,7 +405,7 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
 
         embed = discord.Embed(
             title=f"🎫 Nouveau report — {channel_name}",
-            color=0xe67e22,
+            color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Joueur reporte", value=self.cible.value, inline=False)
@@ -346,7 +435,8 @@ class ApplicationReviewView(discord.ui.View):
         self.db = db
 
     @discord.ui.button(
-        label="Accepter", style=discord.ButtonStyle.success,
+        label="Accepter",
+        style=discord.ButtonStyle.success,
         custom_id="application_accept",
     )
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -371,8 +461,11 @@ class ApplicationReviewView(discord.ui.View):
             return
         # 2) CAS atomique
         claimed = repository.claim_application_decision(
-            self.db, interaction.guild_id, interaction.message.id,
-            status="accepted", decided_by=interaction.user.id,
+            self.db,
+            interaction.guild_id,
+            interaction.message.id,
+            status="accepted",
+            decided_by=interaction.user.id,
         )
         if not claimed:
             await interaction.followup.send(
@@ -382,13 +475,24 @@ class ApplicationReviewView(discord.ui.View):
             return
         try:
             old_embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            new_embed = discord.Embed(title="📋 Candidature acceptée", color=0x2ecc71, timestamp=datetime.now(UTC))
+            new_embed = discord.Embed(
+                title="📋 Candidature acceptée", color=0x2ECC71, timestamp=datetime.now(UTC)
+            )
             new_embed.set_thumbnail(url=member.display_avatar.url)
             new_embed.add_field(name="👤 Membre", value=member.mention, inline=True)
             new_embed.add_field(name="🎮 Pseudo", value=pseudo, inline=True)
             if old_embed:
                 for field in old_embed.fields:
-                    if field.name in ("🔗 Tracker", "🏆 Tournois / LAN", "💼 Poste", "📋 Expériences", "Tracker", "Tournois / LAN", "Poste", "Experiences"):
+                    if field.name in (
+                        "🔗 Tracker",
+                        "🏆 Tournois / LAN",
+                        "💼 Poste",
+                        "📋 Expériences",
+                        "Tracker",
+                        "Tournois / LAN",
+                        "Poste",
+                        "Experiences",
+                    ):
                         new_embed.add_field(name=field.name, value=field.value, inline=False)
             new_embed.add_field(name="✅ Accepté par", value=interaction.user.mention, inline=False)
             await interaction.message.edit(embed=new_embed, view=None)
@@ -413,11 +517,19 @@ class ApplicationReviewView(discord.ui.View):
         with contextlib.suppress(Exception):
             await member.edit(nick=pseudo)
         with contextlib.suppress(discord.Forbidden):
-            await member.send(embed=discord.Embed(title="🎉 Candidature acceptée !", description="Bravo, vous avez été accepté, vous pouvez désormais faire des 10mans !", color=0x2ecc71, timestamp=datetime.now(UTC)))
+            await member.send(
+                embed=discord.Embed(
+                    title="🎉 Candidature acceptée !",
+                    description="Bravo, vous avez été accepté, vous pouvez désormais faire des 10mans !",
+                    color=0x2ECC71,
+                    timestamp=datetime.now(UTC),
+                )
+            )
         await interaction.followup.send("✅ Candidature acceptée !", ephemeral=True)
 
     @discord.ui.button(
-        label="Refuser", style=discord.ButtonStyle.danger,
+        label="Refuser",
+        style=discord.ButtonStyle.danger,
         custom_id="application_refuse",
     )
     async def refuse(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -434,7 +546,9 @@ class ApplicationReviewView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        await interaction.response.send_modal(RefuseReasonModal(db=self.db, applicant_id=applicant_id))
+        await interaction.response.send_modal(
+            RefuseReasonModal(db=self.db, applicant_id=applicant_id)
+        )
 
 
 class RoleChoiceView(discord.ui.View):
@@ -447,7 +561,9 @@ class RoleChoiceView(discord.ui.View):
 
     @discord.ui.button(label="Joueur", style=discord.ButtonStyle.primary)
     async def joueur_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(ApplicationModal(db=self.db, review_view=self.review_view))
+        await interaction.response.send_modal(
+            ApplicationModal(db=self.db, review_view=self.review_view)
+        )
 
     @discord.ui.button(label="Coach / Analyst / Manager", style=discord.ButtonStyle.secondary)
     async def staff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -462,7 +578,9 @@ class WelcomeView(discord.ui.View):
         self.db = db
         self.review_view = review_view
 
-    @discord.ui.button(label="Postuler", style=discord.ButtonStyle.primary, custom_id="postuler_btn")
+    @discord.ui.button(
+        label="Postuler", style=discord.ButtonStyle.primary, custom_id="postuler_btn"
+    )
     async def postuler(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Peek non-atomique : on ne consomme pas le cooldown ici (sinon
         # l'utilisateur qui ferme le modal sans submit serait bloque 1h
@@ -479,7 +597,10 @@ class WelcomeView(discord.ui.View):
                 remaining = CANDIDATURE_COOLDOWN_SECONDS - diff.total_seconds()
                 minutes = int(remaining // 60)
                 seconds = int(remaining % 60)
-                await interaction.response.send_message(f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.", ephemeral=True)
+                await interaction.response.send_message(
+                    f"⏳ Tu as déjà postulé récemment ! Réessaie dans **{minutes}min {seconds}s**.",
+                    ephemeral=True,
+                )
                 return
         await interaction.response.send_message(
             "## Pour quel poste souhaites-tu postuler ? 🎮",
@@ -503,12 +624,14 @@ class CloseTicketView(discord.ui.View):
         channel = interaction.channel
         if channel is None or not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "❌ Impossible de fermer ce salon ici.", ephemeral=True,
+                "❌ Impossible de fermer ce salon ici.",
+                ephemeral=True,
             )
             return
         with contextlib.suppress(discord.HTTPException):
             await interaction.response.send_message(
-                "🔒 Fermeture du ticket...", ephemeral=True,
+                "🔒 Fermeture du ticket...",
+                ephemeral=True,
             )
         try:
             await channel.delete(reason=f"Ticket ferme par {interaction.user}")
@@ -552,7 +675,9 @@ class ApplicationsCog(commands.Cog):
         self.welcome_view = WelcomeView(db=db, review_view=self.review_view)
         self.report_view = ReportView(db=db, close_view=self.close_view)
 
-    @app_commands.command(name="welcome", description="Envoie le message de bienvenue dans le salon verify")
+    @app_commands.command(
+        name="welcome", description="Envoie le message de bienvenue dans le salon verify"
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome(self, interaction: discord.Interaction) -> None:
         channel = discord.utils.get(interaction.guild.text_channels, name=WELCOME_CHANNEL)
@@ -562,19 +687,25 @@ class ApplicationsCog(commands.Cog):
         embed = discord.Embed(
             title="Bienvenu sur The Hub Matchmaking",
             description="Bienvenue sur un serveur de **10mans français** avec 3 queues :\n\n• **Pro Queue** — TOP VRC\n• **Open Queue** — Immortal peak\n• **GC Queue** — Ascendant peak\n\nPour pouvoir accéder au serveur, merci de cliquer sur le bouton **Postuler** juste en dessous.\n\n**Amusez-vous ! 🍀**",
-            color=0x5865f2,
+            color=0x5865F2,
             timestamp=datetime.now(UTC),
         )
         embed.set_footer(text=interaction.guild.name)
         await channel.send(embed=embed, view=self.welcome_view)
-        await interaction.response.send_message(f"Message envoye dans {channel.mention} !", ephemeral=True)
+        await interaction.response.send_message(
+            f"Message envoye dans {channel.mention} !", ephemeral=True
+        )
 
     @welcome.error
     async def _welcome_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True)
+            await interaction.response.send_message(
+                "Seuls les administrateurs peuvent utiliser cette commande.", ephemeral=True
+            )
 
-    @app_commands.command(name="report", description="Poste le message de report avec le bouton dans ce salon")
+    @app_commands.command(
+        name="report", description="Poste le message de report avec le bouton dans ce salon"
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def report(self, interaction: discord.Interaction) -> None:
         channel = interaction.channel
@@ -597,20 +728,22 @@ class ApplicationsCog(commands.Cog):
                 "• **Les preuves** (liens, clips, screenshots) — optionnel\n\n"
                 "Ton identite ne sera pas revelee au staff."
             ),
-            color=0xe67e22,
+            color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
         embed.set_footer(text=interaction.guild.name if interaction.guild else "Report")
         await channel.send(embed=embed, view=self.report_view)
         await interaction.response.send_message(
-            f"Message envoye dans {channel.mention} !", ephemeral=True,
+            f"Message envoye dans {channel.mention} !",
+            ephemeral=True,
         )
 
     @report.error
     async def _report_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
-                "🚫 Reservé aux administrateurs.", ephemeral=True,
+                "🚫 Reservé aux administrateurs.",
+                ephemeral=True,
             )
 
 

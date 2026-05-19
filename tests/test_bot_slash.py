@@ -26,6 +26,7 @@ from cogs.elo_admin import ELOAdminCog
 _elo_cog = ELOAdminCog(_bot_module.bot, _bot_module.db)
 _admin_cog = AdminCog(_bot_module.bot, _bot_module.db)
 
+
 # Re-expose les commandes du cog sur le module `bot` (avec auto-bind de
 # `self` via une closure) pour eviter de toucher 13 tests.
 class _BoundCommand:
@@ -38,11 +39,21 @@ class _BoundCommand:
         # Wrap pour que `.callback(inter, ...)` lie automatiquement self=cog.
         async def _bound(*args, **kwargs):
             return await self._cmd.callback(self._cog, *args, **kwargs)
+
         return _bound
 
 
-for _name in ("win", "lose", "leaderboard", "resetelo", "reset_queue",
-              "elomodify", "winmodify", "losemodify", "stats"):
+for _name in (
+    "win",
+    "lose",
+    "leaderboard",
+    "resetelo",
+    "reset_queue",
+    "elomodify",
+    "winmodify",
+    "losemodify",
+    "stats",
+):
     setattr(_bot_module, _name, _BoundCommand(_elo_cog, getattr(_elo_cog, _name)))
 for _name in ("map_pick", "coinflip", "clear", "help_cmd", "setup_bot", "bypass"):
     setattr(_bot_module, _name, _BoundCommand(_admin_cog, getattr(_admin_cog, _name)))
@@ -113,10 +124,17 @@ async def test_slash_stats_known_player():
     inter = _fake_interaction(user, guild)
 
     col = bot_module.get_elo_col()
-    col.insert_one({
-        "_id": "1:open", "user_id": "1", "queue_type": "open",
-        "name": "Alice", "elo": 200, "wins": 8, "losses": 2,
-    })
+    col.insert_one(
+        {
+            "_id": "1:open",
+            "user_id": "1",
+            "queue_type": "open",
+            "name": "Alice",
+            "elo": 200,
+            "wins": 8,
+            "losses": 2,
+        }
+    )
 
     await bot_module.stats.callback(inter, queue="open", joueur=user)
 
@@ -156,8 +174,11 @@ async def test_slash_win_5_players_distributes_elo_v2():
     await bot_module.win.callback(
         inter,
         queue="open",
-        joueur1=targets[0], joueur2=targets[1], joueur3=targets[2],
-        joueur4=targets[3], joueur5=targets[4],
+        joueur1=targets[0],
+        joueur2=targets[1],
+        joueur3=targets[2],
+        joueur4=targets[3],
+        joueur5=targets[4],
     )
 
     expected_gains = bot_module.WIN_DELTAS_BY_SLOT  # (20, 18, 17, 16, 15)
@@ -166,7 +187,9 @@ async def test_slash_win_5_players_distributes_elo_v2():
         doc = col.find_one({"_id": f"{t.id}:open"})
         gain = expected_gains[slot]
         expected_elo = 2000 + gain
-        assert doc["elo"] == expected_elo, f"{t.display_name}: attendu {expected_elo}, recu {doc['elo']}"
+        assert doc["elo"] == expected_elo, (
+            f"{t.display_name}: attendu {expected_elo}, recu {doc['elo']}"
+        )
         assert doc["wins"] == 1
 
 
@@ -182,11 +205,17 @@ async def test_slash_win_base_is_constant_regardless_of_avg():
     # Seed une ELO serveur de 3000 (Radiant) : les gains pondérés sont indépendants de l'avg.
     col = bot_module.get_elo_col()
     for t in targets:
-        col.insert_one({
-            "_id": f"{t.id}:open", "user_id": str(t.id), "queue_type": "open",
-            "name": t.display_name,
-            "elo": 3000, "wins": 0, "losses": 0,
-        })
+        col.insert_one(
+            {
+                "_id": f"{t.id}:open",
+                "user_id": str(t.id),
+                "queue_type": "open",
+                "name": t.display_name,
+                "elo": 3000,
+                "wins": 0,
+                "losses": 0,
+            }
+        )
 
     await bot_module.win.callback(inter, queue="open", joueur1=targets[0], joueur2=targets[1])
 
@@ -201,17 +230,35 @@ async def test_slash_win_base_is_constant_regardless_of_avg():
 async def test_slash_lose_floors_at_zero():
     import bot as bot_module
 
-    admin   = _fake_member(1, "Admin", manage_guild=True)
-    target  = _fake_member(2, "Bob")
+    admin = _fake_member(1, "Admin", manage_guild=True)
+    target = _fake_member(2, "Bob")
     partner = _fake_member(3, "Boost")
     guild = _fake_guild(42, members=[admin, target, partner])
     inter = _fake_interaction(admin, guild)
 
     col = bot_module.get_elo_col()
-    col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
-                    "name": "Bob",   "elo": 5,    "wins": 0, "losses": 0})
-    col.insert_one({"_id": "3:open", "user_id": "3", "queue_type": "open",
-                    "name": "Boost", "elo": 2995, "wins": 0, "losses": 0})
+    col.insert_one(
+        {
+            "_id": "2:open",
+            "user_id": "2",
+            "queue_type": "open",
+            "name": "Bob",
+            "elo": 5,
+            "wins": 0,
+            "losses": 0,
+        }
+    )
+    col.insert_one(
+        {
+            "_id": "3:open",
+            "user_id": "3",
+            "queue_type": "open",
+            "name": "Boost",
+            "elo": 2995,
+            "wins": 0,
+            "losses": 0,
+        }
+    )
 
     # /lose pondéré par position : slot 0 -> -10, slot 1 -> -10
     # Bob (slot 0)  : max(0, 5 - 10)    = 0
@@ -238,11 +285,17 @@ async def test_slash_leaderboard_creates_view_with_pagination():
 
     col = bot_module.get_elo_col()
     for i, m in enumerate(members):
-        col.insert_one({
-            "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
-            "name": m.display_name,
-            "elo": 100 + i, "wins": i, "losses": 0,
-        })
+        col.insert_one(
+            {
+                "_id": f"{m.id}:open",
+                "user_id": str(m.id),
+                "queue_type": "open",
+                "name": m.display_name,
+                "elo": 100 + i,
+                "wins": i,
+                "losses": 0,
+            }
+        )
 
     await bot_module.leaderboard.callback(inter, queue="open")
 
@@ -277,11 +330,17 @@ async def test_slash_leaderboard_next_button_navigates_to_page_2():
 
     col = bot_module.get_elo_col()
     for i, m in enumerate(members):
-        col.insert_one({
-            "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
-            "name": m.display_name,
-            "elo": 100 + i, "wins": 0, "losses": 0,
-        })
+        col.insert_one(
+            {
+                "_id": f"{m.id}:open",
+                "user_id": str(m.id),
+                "queue_type": "open",
+                "name": m.display_name,
+                "elo": 100 + i,
+                "wins": 0,
+                "losses": 0,
+            }
+        )
 
     # 1) Lance la commande pour obtenir la view
     await bot_module.leaderboard.callback(inter, queue="open")
@@ -304,7 +363,7 @@ async def test_slash_leaderboard_next_button_navigates_to_page_2():
 
     # 4) Boutons mis a jour : sur page 1 (=derniere), next desactive, prev actif
     assert view.children[0].disabled is False  # prev
-    assert view.children[2].disabled is True   # next
+    assert view.children[2].disabled is True  # next
 
 
 async def test_slash_leaderboard_clicking_next_past_last_page_is_noop():
@@ -319,11 +378,17 @@ async def test_slash_leaderboard_clicking_next_past_last_page_is_noop():
 
     col = bot_module.get_elo_col()
     for i, m in enumerate(members):
-        col.insert_one({
-            "_id": f"{m.id}:open", "user_id": str(m.id), "queue_type": "open",
-            "name": m.display_name,
-            "elo": 100 + i, "wins": 0, "losses": 0,
-        })
+        col.insert_one(
+            {
+                "_id": f"{m.id}:open",
+                "user_id": str(m.id),
+                "queue_type": "open",
+                "name": m.display_name,
+                "elo": 100 + i,
+                "wins": 0,
+                "losses": 0,
+            }
+        )
 
     await bot_module.leaderboard.callback(inter, queue="open")
     view = inter.followup.send.call_args.kwargs["view"]
@@ -349,7 +414,9 @@ async def test_slash_elomodify_add():
     guild = _fake_guild(42, members=[admin, target])
     inter = _fake_interaction(admin, guild)
 
-    await bot_module.elomodify.callback(inter, queue="open", joueur=target, action="add", montant=50)
+    await bot_module.elomodify.callback(
+        inter, queue="open", joueur=target, action="add", montant=50
+    )
 
     col = bot_module.get_elo_col()
     doc = col.find_one({"_id": "2:open"})
@@ -365,10 +432,21 @@ async def test_slash_elomodify_remove_floors_at_zero():
     inter = _fake_interaction(admin, guild)
 
     col = bot_module.get_elo_col()
-    col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
-                    "name": "Bob", "elo": 30, "wins": 0, "losses": 0})
+    col.insert_one(
+        {
+            "_id": "2:open",
+            "user_id": "2",
+            "queue_type": "open",
+            "name": "Bob",
+            "elo": 30,
+            "wins": 0,
+            "losses": 0,
+        }
+    )
 
-    await bot_module.elomodify.callback(inter, queue="open", joueur=target, action="remove", montant=100)
+    await bot_module.elomodify.callback(
+        inter, queue="open", joueur=target, action="remove", montant=100
+    )
 
     doc = col.find_one({"_id": "2:open"})
     assert doc["elo"] == 0  # max(0, 30 - 100)
@@ -384,8 +462,17 @@ async def test_slash_resetelo_single_player():
     inter = _fake_interaction(admin, guild)
 
     col = bot_module.get_elo_col()
-    col.insert_one({"_id": "2:open", "user_id": "2", "queue_type": "open",
-                    "name": "Bob", "elo": 999, "wins": 50, "losses": 5})
+    col.insert_one(
+        {
+            "_id": "2:open",
+            "user_id": "2",
+            "queue_type": "open",
+            "name": "Bob",
+            "elo": 999,
+            "wins": 50,
+            "losses": 5,
+        }
+    )
 
     await bot_module.resetelo.callback(inter, queue="open", joueur=target, all_players=False)
 
@@ -405,9 +492,17 @@ async def test_slash_resetelo_all_players():
 
     col = bot_module.get_elo_col()
     for t in targets:
-        col.insert_one({"_id": f"{t.id}:open", "user_id": str(t.id),
-                        "queue_type": "open", "name": t.display_name,
-                        "elo": 100, "wins": 5, "losses": 1})
+        col.insert_one(
+            {
+                "_id": f"{t.id}:open",
+                "user_id": str(t.id),
+                "queue_type": "open",
+                "name": t.display_name,
+                "elo": 100,
+                "wins": 5,
+                "losses": 1,
+            }
+        )
 
     await bot_module.resetelo.callback(inter, queue="open", joueur=None, all_players=True)
 
@@ -430,8 +525,9 @@ async def test_slash_map_returns_known_map():
     inter.response.send_message.assert_awaited_once()
     embed = inter.response.send_message.call_args.kwargs["embed"]
     # Le titre contient le nom de la map
-    assert any(m in embed.description for m in bot_module.MAPS), \
+    assert any(m in embed.description for m in bot_module.MAPS), (
         f"Map non reconnue : {embed.description}"
+    )
 
 
 # ── has_access ────────────────────────────────────────────────────

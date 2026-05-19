@@ -9,6 +9,7 @@ Module isole pour la pro queue uniquement. Contient :
 Open et GC queues n'utilisent PAS ce module : elles continuent
 de passer par plan_match (auto-balance).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +17,8 @@ import contextlib
 import logging
 import random
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Sequence
+from typing import Any, Literal
+from collections.abc import Sequence
 
 from services.team_balancer import Player
 
@@ -45,11 +47,18 @@ def pick_captains(
     return cap_a, cap_b
 
 
-# Snake order ABBAABBA. Sur 8 picks, capA pick aux indices 0, 3, 4, 7
-# et capB pick aux indices 1, 2, 5, 6. Avec les 2 captains deja en team,
+# Alternating order ABABABAB. Sur 8 picks, capA pick aux indices 0, 2, 4, 6
+# et capB pick aux indices 1, 3, 5, 7. Avec les 2 captains deja en team,
 # chaque equipe finit avec 5 joueurs (1 cap + 4 picks).
 PICK_SEQUENCE: tuple[Literal["A", "B"], ...] = (
-    "A", "B", "B", "A", "A", "B", "B", "A",
+    "A",
+    "B",
+    "A",
+    "B",
+    "A",
+    "B",
+    "A",
+    "B",
 )
 
 DraftStatus = Literal["picking", "complete", "cancelled"]
@@ -57,13 +66,13 @@ DraftStatus = Literal["picking", "complete", "cancelled"]
 
 @dataclass(frozen=True)
 class DraftState:
-    cap_a:       Player
-    cap_b:       Player
-    team_a:      tuple[Player, ...]
-    team_b:      tuple[Player, ...]
-    pool:        tuple[Player, ...]
-    turn_index:  int
-    status:      DraftStatus
+    cap_a: Player
+    cap_b: Player
+    team_a: tuple[Player, ...]
+    team_b: tuple[Player, ...]
+    pool: tuple[Player, ...]
+    turn_index: int
+    status: DraftStatus
 
     @classmethod
     def initial(
@@ -72,7 +81,7 @@ class DraftState:
         cap_a: Player,
         cap_b: Player,
         pool: tuple[Player, ...],
-    ) -> "DraftState":
+    ) -> DraftState:
         return cls(
             cap_a=cap_a,
             cap_b=cap_b,
@@ -94,7 +103,7 @@ class DraftState:
         side = PICK_SEQUENCE[self.turn_index]
         return self.cap_a if side == "A" else self.cap_b
 
-    def apply_pick(self, player: Player) -> "DraftState":
+    def apply_pick(self, player: Player) -> DraftState:
         """Retourne un nouvel etat avec `player` ajoute a l'equipe du cap courant.
 
         Raises:
@@ -108,11 +117,11 @@ class DraftState:
         side = PICK_SEQUENCE[self.turn_index]
         new_pool = tuple(p for p in self.pool if p.id != player.id)
         if side == "A":
-            new_team_a = self.team_a + (player,)
+            new_team_a = (*self.team_a, player)
             new_team_b = self.team_b
         else:
             new_team_a = self.team_a
-            new_team_b = self.team_b + (player,)
+            new_team_b = (*self.team_b, player)
         new_turn = self.turn_index + 1
         new_status: DraftStatus = "complete" if new_turn >= len(PICK_SEQUENCE) else "picking"
         return replace(
@@ -127,13 +136,13 @@ class DraftState:
 
 @dataclass(frozen=True)
 class DraftResult:
-    cap_a:  Player
-    cap_b:  Player
-    team_a: tuple[Player, ...]   # 5 joueurs incl. cap_a
-    team_b: tuple[Player, ...]   # 5 joueurs incl. cap_b
+    cap_a: Player
+    cap_b: Player
+    team_a: tuple[Player, ...]  # 5 joueurs incl. cap_a
+    team_b: tuple[Player, ...]  # 5 joueurs incl. cap_b
 
     @classmethod
-    def from_state(cls, state: DraftState) -> "DraftResult":
+    def from_state(cls, state: DraftState) -> DraftResult:
         if state.status != "complete":
             raise ValueError(f"Draft non termine (status={state.status}).")
         return cls(
@@ -180,7 +189,7 @@ def _build_pool_lines(pool: tuple[Player, ...]) -> str:
 
 
 def _build_sequence_marker(turn_index: int) -> str:
-    """Affiche la sequence ABBAABBA avec un curseur sur le pick courant."""
+    """Affiche la sequence ABABABAB avec un curseur sur le pick courant."""
     parts = []
     for i, side in enumerate(PICK_SEQUENCE):
         if i == turn_index:
@@ -232,12 +241,15 @@ class CaptainDraftSession:
         self.message = await self.prep_channel.send(content=content, embed=embed, view=view)
         logger.info(
             "[draft] init cap_a=%s cap_b=%s pool_size=%d",
-            self.state.cap_a.id, self.state.cap_b.id, len(self.state.pool),
+            self.state.cap_a.id,
+            self.state.cap_b.id,
+            len(self.state.pool),
         )
         return await self._done
 
     def _build_embed(self) -> Any:
         import discord
+
         e = discord.Embed(
             title="🎯 [PRO] Captain Draft",
             color=discord.Color.gold(),
@@ -291,20 +303,21 @@ class CaptainDraftSession:
                 )
                 for p in sorted(self.state.pool, key=lambda x: x.elo, reverse=True)
             ]
-            select = discord.ui.Select(
+            select: discord.ui.Select[Any] = discord.ui.Select(
                 custom_id="pro_draft_pick",
                 placeholder="Choisis ton joueur",
-                min_values=1, max_values=1,
+                min_values=1,
+                max_values=1,
                 options=options,
             )
 
             async def _select_cb(interaction: discord.Interaction) -> None:
                 await session._on_pick(interaction)
 
-            select.callback = _select_cb
+            select.callback = _select_cb  # type: ignore[method-assign]
             view.add_item(select)
 
-        cancel_btn = discord.ui.Button(
+        cancel_btn: discord.ui.Button[Any] = discord.ui.Button(
             custom_id="pro_draft_cancel",
             style=discord.ButtonStyle.danger,
             label="❌ Annuler le draft",
@@ -314,7 +327,7 @@ class CaptainDraftSession:
         async def _cancel_cb(interaction: discord.Interaction) -> None:
             await session._on_cancel(interaction)
 
-        cancel_btn.callback = _cancel_cb
+        cancel_btn.callback = _cancel_cb  # type: ignore[method-assign]
         view.add_item(cancel_btn)
         return view
 
@@ -326,15 +339,19 @@ class CaptainDraftSession:
             # lever un RuntimeError.
             if self.state.is_complete or interaction.user.id != self.state.current_captain.id:
                 await interaction.response.send_message(
-                    "⏳ Ce n'est pas ton tour.", ephemeral=True,
+                    "⏳ Ce n'est pas ton tour.",
+                    ephemeral=True,
                 )
                 return False
-        elif cid == "pro_draft_cancel":
-            if not _is_admin(interaction.user, self.admin_role_names):
-                await interaction.response.send_message(
-                    "❌ Reserve aux admins.", ephemeral=True,
-                )
-                return False
+        elif cid == "pro_draft_cancel" and not _is_admin(
+            interaction.user,
+            self.admin_role_names,
+        ):
+            await interaction.response.send_message(
+                "❌ Reserve aux admins.",
+                ephemeral=True,
+            )
+            return False
         return True
 
     async def _on_pick(self, interaction: Any) -> None:
@@ -353,13 +370,16 @@ class CaptainDraftSession:
             )
             if picked is None:
                 await interaction.response.send_message(
-                    "❌ Joueur deja drafte.", ephemeral=True,
+                    "❌ Joueur deja drafte.",
+                    ephemeral=True,
                 )
                 return
             self.state = self.state.apply_pick(picked)
             logger.info(
                 "[draft] pick turn=%d by=%s player=%s",
-                self.state.turn_index - 1, interaction.user.id, picked_id,
+                self.state.turn_index - 1,
+                interaction.user.id,
+                picked_id,
             )
             embed = self._build_embed()
             view = self._build_view()
@@ -372,9 +392,12 @@ class CaptainDraftSession:
             except Exception:
                 # Fallback si la response a deja ete consommee (cas extreme
                 # de double-click). On force l'etat correct via message.edit.
-                logger.exception("[draft] edit_message via interaction a leve, fallback message.edit")
-                with contextlib.suppress(Exception):
-                    await self.message.edit(embed=embed, view=view)
+                logger.exception(
+                    "[draft] edit_message via interaction a leve, fallback message.edit"
+                )
+                if self.message is not None:
+                    with contextlib.suppress(Exception):
+                        await self.message.edit(embed=embed, view=view)
             if self.state.is_complete and self._done is not None and not self._done.done():
                 self._done.set_result(DraftResult.from_state(self.state))
 
@@ -396,9 +419,12 @@ class CaptainDraftSession:
             try:
                 await interaction.response.edit_message(embed=embed, view=view)
             except Exception:
-                logger.exception("[draft] edit_message via interaction a leve, fallback message.edit")
-                with contextlib.suppress(Exception):
-                    await self.message.edit(embed=embed, view=view)
+                logger.exception(
+                    "[draft] edit_message via interaction a leve, fallback message.edit"
+                )
+                if self.message is not None:
+                    with contextlib.suppress(Exception):
+                        await self.message.edit(embed=embed, view=view)
             logger.info("[draft] cancelled by=%s", actor.id)
             if self._done is not None and not self._done.done():
                 self._done.set_exception(DraftCancelledError("admin", actor))

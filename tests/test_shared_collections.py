@@ -1,10 +1,12 @@
 """Verify that elo/riot/matches collections are shared across guilds (no guild_id suffix)."""
+
 from __future__ import annotations
 
 import mongomock
 import pytest
 
 from services import repository
+from datetime import UTC
 
 
 @pytest.fixture
@@ -78,22 +80,27 @@ def test_find_pending_match_role_cleanups_filters_by_origin_guild_id(db):
     revocations can land on the wrong guild. The CAS prevents data
     corruption but UX consequences still need this scoping.
     """
-    from datetime import datetime, timedelta, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime, timedelta
+
+    now = datetime.now(UTC)
     past = now - timedelta(hours=1)
     # Two matches, two origin guilds, both have a pending role-cleanup deadline
-    db["matches"].insert_one({
-        "_id": "m_a",
-        "origin_guild_id": 100,
-        "match_role_cleanup_at": past,
-        "match_role_cleanup_done": False,
-    })
-    db["matches"].insert_one({
-        "_id": "m_b",
-        "origin_guild_id": 200,
-        "match_role_cleanup_at": past,
-        "match_role_cleanup_done": False,
-    })
+    db["matches"].insert_one(
+        {
+            "_id": "m_a",
+            "origin_guild_id": 100,
+            "match_role_cleanup_at": past,
+            "match_role_cleanup_done": False,
+        }
+    )
+    db["matches"].insert_one(
+        {
+            "_id": "m_b",
+            "origin_guild_id": 200,
+            "match_role_cleanup_at": past,
+            "match_role_cleanup_done": False,
+        }
+    )
     res_a = repository.find_pending_match_role_cleanups(db, now, origin_guild_id=100)
     assert [d["_id"] for d in res_a] == ["m_a"]
     res_b = repository.find_pending_match_role_cleanups(db, now, origin_guild_id=200)

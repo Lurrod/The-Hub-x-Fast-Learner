@@ -42,7 +42,9 @@ def _fake_guild(guild_id: int = 42, name: str = "TestGuild"):
 
 
 def _fake_interaction(
-    user, guild_id: int = 42, channel_name: str = "open-queue",
+    user,
+    guild_id: int = 42,
+    channel_name: str = "open-queue",
 ):
     inter = MagicMock()
     inter.user = user
@@ -69,31 +71,48 @@ def _fake_interaction(
 
 def _seed_riot_link(db, guild_id: int, user_id: int, elo: int = 1500):
     repository.link_riot_account(
-        db, user_id=user_id,
-        riot_name=f"P{user_id}", riot_tag="EUW", riot_region="eu",
-        puuid=f"pu-{user_id}", peak_elo=elo, source="peak_recent",
+        db,
+        user_id=user_id,
+        riot_name=f"P{user_id}",
+        riot_tag="EUW",
+        riot_region="eu",
+        puuid=f"pu-{user_id}",
+        peak_elo=elo,
+        source="peak_recent",
     )
     # Compound _id pour matcher la nouvelle architecture per-queue.
-    repository.get_elo_col(db).insert_one({
-        "_id": f"{user_id}:open",
-        "name": f"P{user_id}",
-        "elo": elo, "wins": 0, "losses": 0,
-        "queue_type": "open", "user_id": str(user_id),
-    })
+    repository.get_elo_col(db).insert_one(
+        {
+            "_id": f"{user_id}:open",
+            "name": f"P{user_id}",
+            "elo": elo,
+            "wins": 0,
+            "losses": 0,
+            "queue_type": "open",
+            "user_id": str(user_id),
+        }
+    )
 
 
 def _seed_active_queue(db, guild_id: int = 42, queue_type: str = "open"):
     repository.setup_active_queue(
-        db, guild_id=guild_id, queue_type=queue_type,
-        channel_id=100, message_id=999,
+        db,
+        guild_id=guild_id,
+        queue_type=queue_type,
+        channel_id=100,
+        message_id=999,
     )
 
 
 # ── Repository : add/remove ───────────────────────────────────────
 def test_repo_add_player_to_no_queue():
     import bot as bot_module
+
     res = repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert not res.success
     assert res.reason == "no_queue"
@@ -101,9 +120,13 @@ def test_repo_add_player_to_no_queue():
 
 def test_repo_add_player_success():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     res = repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert res.success
     assert res.reason == "added"
@@ -112,12 +135,19 @@ def test_repo_add_player_success():
 
 def test_repo_add_player_already_in():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     res = repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert not res.success
     assert res.reason == "already_in"
@@ -125,13 +155,20 @@ def test_repo_add_player_already_in():
 
 def test_repo_add_player_queue_full():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     for i in range(10):
         repository.add_player_to_queue(
-            bot_module.db, guild_id=42, queue_type="open", user_id=i,
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+            user_id=i,
         )
     res = repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=99,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=99,
     )
     assert not res.success
     assert res.reason == "queue_full"
@@ -139,10 +176,14 @@ def test_repo_add_player_queue_full():
 
 def test_repo_add_player_when_closed():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     repository.close_active_queue(bot_module.db, guild_id=42, queue_type="open")
     res = repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert not res.success
     assert res.reason == "queue_closed"
@@ -150,9 +191,13 @@ def test_repo_add_player_when_closed():
 
 def test_repo_remove_player_not_in():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     res = repository.remove_player_from_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert not res.success
     assert res.reason == "not_in"
@@ -160,12 +205,19 @@ def test_repo_remove_player_not_in():
 
 def test_repo_remove_player_success():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     res = repository.remove_player_from_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     assert res.success
     assert res.reason == "removed"
@@ -174,13 +226,24 @@ def test_repo_remove_player_success():
 
 def test_repo_delete_active_queue():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
-    assert repository.delete_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is True
-    assert repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is None
+    assert (
+        repository.delete_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is True
+    )
+    assert (
+        repository.get_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is None
+    )
 
 
 # ── Embed ─────────────────────────────────────────────────────────
@@ -215,17 +278,18 @@ def test_embed_forming_queue():
 def test_embed_title_per_queue_type():
     """Chaque queue_type affiche son label dans le titre."""
     g = _fake_guild()
-    pro_embed  = build_queue_embed(None, g, "pro")
+    pro_embed = build_queue_embed(None, g, "pro")
     open_embed = build_queue_embed(None, g, "open")
-    gc_embed   = build_queue_embed(None, g, "gc")
-    assert "Pro Queue"  in pro_embed.title
+    gc_embed = build_queue_embed(None, g, "gc")
+    assert "Pro Queue" in pro_embed.title
     assert "Open Queue" in open_embed.title
-    assert "GC Queue"   in gc_embed.title
+    assert "GC Queue" in gc_embed.title
 
 
 # ── Bouton Rejoindre ──────────────────────────────────────────────
 async def test_join_without_riot_account_refuses():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     view = QueueView(bot_module.db, queue_type="open")
     inter = _fake_interaction(_fake_member(1))
@@ -241,6 +305,7 @@ async def test_join_without_riot_account_refuses():
 
 async def test_join_no_active_queue_refuses():
     import bot as bot_module
+
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     view = QueueView(bot_module.db, queue_type="open")
     inter = _fake_interaction(_fake_member(1))
@@ -252,6 +317,7 @@ async def test_join_no_active_queue_refuses():
 
 async def test_join_success_updates_message():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     view = QueueView(bot_module.db, queue_type="open")
@@ -266,6 +332,7 @@ async def test_join_success_updates_message():
 
 async def test_join_success_sends_ephemeral_confirmation():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     view = QueueView(bot_module.db, queue_type="open")
@@ -284,10 +351,14 @@ async def test_join_success_sends_ephemeral_confirmation():
 
 async def test_join_already_in_refuses():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
 
     view = QueueView(bot_module.db, queue_type="open")
@@ -300,16 +371,21 @@ async def test_join_already_in_refuses():
 
 async def test_join_10th_player_triggers_on_full():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     for i in range(10):
         _seed_riot_link(bot_module.db, guild_id=42, user_id=i, elo=1500 + i * 50)
     # 9 deja en queue
     for i in range(9):
         repository.add_player_to_queue(
-            bot_module.db, guild_id=42, queue_type="open", user_id=i,
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+            user_id=i,
         )
 
     triggered = []
+
     async def on_full(inter, queue_doc, queue_type):
         triggered.append((queue_doc, queue_type))
 
@@ -319,6 +395,7 @@ async def test_join_10th_player_triggers_on_full():
 
     # Laisse une chance a la task de tourner
     import asyncio
+
     await asyncio.sleep(0)
 
     assert len(triggered) == 1
@@ -327,13 +404,16 @@ async def test_join_10th_player_triggers_on_full():
     assert queue_type == "open"
     # La queue est passee en status "forming"
     queue = repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
     )
     assert queue["status"] == "forming"
 
 
 async def test_join_when_queue_forming_refuses():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     repository.close_active_queue(bot_module.db, guild_id=42, queue_type="open")
@@ -349,6 +429,7 @@ async def test_join_when_queue_forming_refuses():
 # ── Bouton Quitter ────────────────────────────────────────────────
 async def test_leave_when_not_in_queue_refuses():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     view = QueueView(bot_module.db, queue_type="open")
     inter = _fake_interaction(_fake_member(1))
@@ -360,10 +441,14 @@ async def test_leave_when_not_in_queue_refuses():
 
 async def test_leave_success_updates_message():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
 
     view = QueueView(bot_module.db, queue_type="open")
@@ -378,6 +463,7 @@ async def test_leave_success_updates_message():
 # ── /setup-queue ─────────────────────────────────────────────────
 async def test_setup_queue_creates_active_queue():
     import bot as bot_module
+
     cog = QueueCog(bot_module.bot, bot_module.db)
     inter = _fake_interaction(_fake_member(99))
 
@@ -385,7 +471,9 @@ async def test_setup_queue_creates_active_queue():
 
     inter.channel.send.assert_awaited_once()
     queue = repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
     )
     assert queue is not None
     assert queue["channel_id"] == 100
@@ -396,15 +484,21 @@ async def test_setup_queue_creates_active_queue():
 
 async def test_setup_queue_replaces_existing():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
 
     # Add a player to old queue
     _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
     repository.add_player_to_queue(
-        bot_module.db, guild_id=42, queue_type="open", user_id=1,
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
+        user_id=1,
     )
     old = repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
     )
     assert "1" in old["players"]
 
@@ -414,7 +508,9 @@ async def test_setup_queue_replaces_existing():
     await cog.setup_queue.callback(cog, inter, queue="open")
 
     new = repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
+        bot_module.db,
+        guild_id=42,
+        queue_type="open",
     )
     assert new["players"] == []  # reset
 
@@ -422,6 +518,7 @@ async def test_setup_queue_replaces_existing():
 # ── /close-queue ─────────────────────────────────────────────────
 async def test_close_queue_when_active():
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
     cog = QueueCog(bot_module.bot, bot_module.db)
     inter = _fake_interaction(_fake_member(99))
@@ -429,13 +526,19 @@ async def test_close_queue_when_active():
 
     args, _ = inter.response.send_message.call_args
     assert "supprimee" in args[0]
-    assert repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is None
+    assert (
+        repository.get_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is None
+    )
 
 
 async def test_close_queue_when_no_queue():
     import bot as bot_module
+
     cog = QueueCog(bot_module.bot, bot_module.db)
     inter = _fake_interaction(_fake_member(99))
     await cog.close_queue.callback(cog, inter, queue="open")
@@ -447,9 +550,11 @@ async def test_close_queue_when_no_queue():
 async def test_setup_queue_rejects_wrong_channel():
     """/setup-queue open dans un salon autre que #open-queue est refuse."""
     import bot as bot_module
+
     cog = QueueCog(bot_module.bot, bot_module.db)
     inter = _fake_interaction(
-        _fake_member(99), channel_name="general",
+        _fake_member(99),
+        channel_name="general",
     )
 
     await cog.setup_queue.callback(cog, inter, queue="open")
@@ -459,17 +564,24 @@ async def test_setup_queue_rejects_wrong_channel():
     assert "open-queue" in args[0]
     assert kwargs.get("ephemeral") is True
     inter.channel.send.assert_not_awaited()
-    assert repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is None
+    assert (
+        repository.get_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is None
+    )
 
 
 async def test_setup_queue_rejects_pro_in_open_channel():
     """/setup-queue pro dans #open-queue est refuse (par type de queue)."""
     import bot as bot_module
+
     cog = QueueCog(bot_module.bot, bot_module.db)
     inter = _fake_interaction(
-        _fake_member(99), channel_name="open-queue",
+        _fake_member(99),
+        channel_name="open-queue",
     )
 
     await cog.setup_queue.callback(cog, inter, queue="pro")
@@ -482,6 +594,7 @@ async def test_setup_queue_rejects_pro_in_open_channel():
 async def test_close_queue_deletes_persistent_message():
     """/close-queue supprime le message Rejoindre/Quitter dans Discord."""
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
 
     cog = QueueCog(bot_module.bot, bot_module.db)
@@ -498,9 +611,14 @@ async def test_close_queue_deletes_persistent_message():
     inter.guild.get_channel.assert_called_once_with(100)
     fake_channel.fetch_message.assert_awaited_once_with(999)
     fake_msg.delete.assert_awaited_once()
-    assert repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is None
+    assert (
+        repository.get_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is None
+    )
 
 
 async def test_close_queue_tolerates_missing_message():
@@ -508,6 +626,7 @@ async def test_close_queue_tolerates_missing_message():
     ne plante pas et retire quand meme la queue de la DB."""
     import discord as _discord
     import bot as bot_module
+
     _seed_active_queue(bot_module.db)
 
     cog = QueueCog(bot_module.bot, bot_module.db)
@@ -523,9 +642,14 @@ async def test_close_queue_tolerates_missing_message():
 
     args, _ = inter.response.send_message.call_args
     assert "supprimee" in args[0]
-    assert repository.get_active_queue(
-        bot_module.db, guild_id=42, queue_type="open",
-    ) is None
+    assert (
+        repository.get_active_queue(
+            bot_module.db,
+            guild_id=42,
+            queue_type="open",
+        )
+        is None
+    )
 
 
 # ── Custom IDs des boutons (pour persistance) ──────────────────────
@@ -533,15 +657,15 @@ async def test_button_custom_ids_per_queue_type():
     """Les custom_ids portent le queue_type pour permettre la cohabitation
     des 3 messages persistants apres restart du bot."""
     db = MagicMock()
-    pro    = QueueView(db, queue_type="pro")
+    pro = QueueView(db, queue_type="pro")
     open_v = QueueView(db, queue_type="open")
-    gc     = QueueView(db, queue_type="gc")
-    assert pro.join_btn.custom_id    == "queue_v2:join:pro"
-    assert pro.leave_btn.custom_id   == "queue_v2:leave:pro"
+    gc = QueueView(db, queue_type="gc")
+    assert pro.join_btn.custom_id == "queue_v2:join:pro"
+    assert pro.leave_btn.custom_id == "queue_v2:leave:pro"
     assert open_v.join_btn.custom_id == "queue_v2:join:open"
     assert open_v.leave_btn.custom_id == "queue_v2:leave:open"
-    assert gc.join_btn.custom_id     == "queue_v2:join:gc"
-    assert gc.leave_btn.custom_id    == "queue_v2:leave:gc"
+    assert gc.join_btn.custom_id == "queue_v2:join:gc"
+    assert gc.leave_btn.custom_id == "queue_v2:leave:gc"
 
 
 # ── Tests Task 9 : 3-queue system ────────────────────────────────
@@ -550,9 +674,14 @@ async def test_join_pro_queue_requires_role():
     import discord
     import bot as bot_module
     from cogs.queue_v2 import QueueView
+
     db = bot_module.db
     repository.setup_active_queue(
-        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999,
+        db,
+        guild_id=42,
+        queue_type="pro",
+        channel_id=100,
+        message_id=999,
     )
     _seed_riot_link(db, 42, 1)
 
@@ -575,15 +704,27 @@ async def test_cannot_join_two_queues_simultaneously():
     import discord
     import bot as bot_module
     from cogs.queue_v2 import QueueView
+
     db = bot_module.db
     repository.setup_active_queue(
-        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999,
+        db,
+        guild_id=42,
+        queue_type="pro",
+        channel_id=100,
+        message_id=999,
     )
     repository.setup_active_queue(
-        db, guild_id=42, queue_type="open", channel_id=200, message_id=888,
+        db,
+        guild_id=42,
+        queue_type="open",
+        channel_id=200,
+        message_id=888,
     )
     repository.add_player_to_queue(
-        db, guild_id=42, queue_type="pro", user_id=1,
+        db,
+        guild_id=42,
+        queue_type="pro",
+        user_id=1,
     )
     _seed_riot_link(db, 42, 1)
 
@@ -606,10 +747,14 @@ async def test_join_rejects_non_member_user():
     """Si inter.user n'est pas un Member, refus du join (fail-safe)."""
     import bot as bot_module
     from cogs.queue_v2 import QueueView
+
     db = bot_module.db
     repository.setup_active_queue(
-        db, guild_id=42, queue_type="open",
-        channel_id=100, message_id=999,
+        db,
+        guild_id=42,
+        queue_type="open",
+        channel_id=100,
+        message_id=999,
     )
     _seed_riot_link(db, 42, 1)
 
@@ -632,6 +777,7 @@ async def test_join_rejects_non_member_user():
 
 def test_waiting_room_name_per_queue_type():
     from cogs.queue_v2 import WAITING_ROOM_NAMES
+
     assert WAITING_ROOM_NAMES["pro"] == "Waiting Room Pro"
     assert WAITING_ROOM_NAMES["open"] == "Waiting Room Open"
     assert WAITING_ROOM_NAMES["gc"] == "Waiting Room GC"

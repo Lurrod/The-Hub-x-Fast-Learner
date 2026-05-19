@@ -13,4 +13,5 @@ def test_elo_start_is_2000():
     """Default starting ELO is 2000 (was 0). Players are seeded at 2000
     when they first appear in any queue."""
     from services.elo_calc import ELO_START
+
     assert ELO_START == 2000

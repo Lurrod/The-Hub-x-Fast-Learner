@@ -23,15 +23,18 @@ async def test_leaderboard_empty_says_no_player(discord_bot, fake_guild):
 
 async def test_leaderboard_shows_one_player(discord_bot, fake_guild):
     import bot as bot_module
+
     col = bot_module.get_elo_col()
     member = fake_guild.members[0]
-    col.insert_one({
-        "_id": str(member.id),
-        "name": member.display_name,
-        "elo": 100,
-        "wins": 5,
-        "losses": 2,
-    })
+    col.insert_one(
+        {
+            "_id": str(member.id),
+            "name": member.display_name,
+            "elo": 100,
+            "wins": 5,
+            "losses": 2,
+        }
+    )
 
     await dpytest.message("!leaderboard")
     msg = dpytest.get_message()
@@ -44,21 +47,22 @@ async def test_leaderboard_shows_one_player(discord_bot, fake_guild):
 
 async def test_leaderboard_orders_by_elo_desc(discord_bot, fake_guild):
     import bot as bot_module
+
     col = bot_module.get_elo_col()
 
     members = fake_guild.members[:3]
-    elos    = [50, 200, 100]
+    elos = [50, 200, 100]
     for m, e in zip(members, elos, strict=True):
         col.insert_one({"_id": str(m.id), "name": m.display_name, "elo": e, "wins": 0, "losses": 0})
 
     await dpytest.message("!leaderboard")
     embed = dpytest.get_message().embeds[0]
-    desc  = embed.description
+    desc = embed.description
 
     # Le joueur a 200 doit apparaitre avant celui a 100, qui apparait avant celui a 50
     pos_200 = desc.find(members[1].display_name)
     pos_100 = desc.find(members[2].display_name)
-    pos_50  = desc.find(members[0].display_name)
+    pos_50 = desc.find(members[0].display_name)
     assert pos_200 < pos_100 < pos_50, "L'ordre par ELO desc n'est pas respecte"
 
 
@@ -70,14 +74,17 @@ async def test_stats_for_unknown_player(discord_bot, fake_member):
 
 async def test_stats_shows_winrate(discord_bot, fake_guild, fake_member):
     import bot as bot_module
+
     col = bot_module.get_elo_col()
-    col.insert_one({
-        "_id": str(fake_member.id),
-        "name": fake_member.display_name,
-        "elo": 150,
-        "wins": 7,
-        "losses": 3,
-    })
+    col.insert_one(
+        {
+            "_id": str(fake_member.id),
+            "name": fake_member.display_name,
+            "elo": 150,
+            "wins": 7,
+            "losses": 3,
+        }
+    )
 
     await dpytest.message("!stats")
     embed = dpytest.get_message().embeds[0]
@@ -123,21 +130,37 @@ async def test_lose_floors_elo_at_zero(discord_bot, fake_guild):
     """Un joueur a 5 ELO qui perd ne doit pas descendre sous 0."""
     import bot as bot_module
 
-    admin   = fake_guild.members[0]
-    target  = fake_guild.members[1]
-    partner = fake_guild.members[2]   # 2eme slot (joueur2)
+    admin = fake_guild.members[0]
+    target = fake_guild.members[1]
+    partner = fake_guild.members[2]  # 2eme slot (joueur2)
     perms = discord.Permissions()
     perms.update(manage_guild=True)
     admin_role = await fake_guild.create_role(name="Admin", permissions=perms)
     await admin.add_roles(admin_role)
 
     col = bot_module.get_elo_col()
-    col.insert_one({"_id": f"{target.id}:open", "user_id": str(target.id),
-                    "queue_type": "open", "name": target.display_name,
-                    "elo": 5,    "wins": 0, "losses": 0})
-    col.insert_one({"_id": f"{partner.id}:open", "user_id": str(partner.id),
-                    "queue_type": "open", "name": partner.display_name,
-                    "elo": 2995, "wins": 0, "losses": 0})
+    col.insert_one(
+        {
+            "_id": f"{target.id}:open",
+            "user_id": str(target.id),
+            "queue_type": "open",
+            "name": target.display_name,
+            "elo": 5,
+            "wins": 0,
+            "losses": 0,
+        }
+    )
+    col.insert_one(
+        {
+            "_id": f"{partner.id}:open",
+            "user_id": str(partner.id),
+            "queue_type": "open",
+            "name": partner.display_name,
+            "elo": 2995,
+            "wins": 0,
+            "losses": 0,
+        }
+    )
 
     # /lose pondéré par position : slot 0 (target) -> loss=10 -> max(0, 5-10) = 0
     await dpytest.message(f"!lose {target.mention} {partner.mention}")

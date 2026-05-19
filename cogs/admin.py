@@ -43,7 +43,9 @@ class AdminCog(commands.Cog):
         self.db = db
 
     # ── /setup ─────────────────────────────────────────────────
-    @app_commands.command(name="setup", description="Crée la catégorie et les salons necessaires au bot")
+    @app_commands.command(
+        name="setup", description="Crée la catégorie et les salons necessaires au bot"
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup_bot(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -94,9 +96,7 @@ class AdminCog(commands.Cog):
                     await queue_cog.post_queue_message(chan, qt)  # type: ignore[attr-defined]
                     queue_status.append(f"🎯 Queue {qt.upper()} posée dans {chan.mention}")
                 except discord.Forbidden:
-                    queue_status.append(
-                        f"⚠️ Impossible d'envoyer dans {chan.mention} (permissions)"
-                    )
+                    queue_status.append(f"⚠️ Impossible d'envoyer dans {chan.mention} (permissions)")
 
         # 4) Pre-post les 3 leaderboards (skip silencieusement si 0 joueur)
         for qt in repository.QUEUE_TYPES:
@@ -120,11 +120,14 @@ class AdminCog(commands.Cog):
     async def _setup_perm_error(self, inter: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await inter.response.send_message(
-                "🚫 Reservé aux administrateurs.", ephemeral=True,
+                "🚫 Reservé aux administrateurs.",
+                ephemeral=True,
             )
 
     # ── /bypass ────────────────────────────────────────────────
-    @app_commands.command(name="bypass", description="Donne acces a toutes les commandes du bot a un role")
+    @app_commands.command(
+        name="bypass", description="Donne acces a toutes les commandes du bot a un role"
+    )
     @app_commands.describe(role="Le role qui aura acces a toutes les commandes")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def bypass(self, interaction: discord.Interaction, role: discord.Role):
@@ -144,7 +147,7 @@ class AdminCog(commands.Cog):
         embed = discord.Embed(
             title="🔓 Bypass activé !",
             description=f"Le role {role.mention} a maintenant acces a toutes les commandes du bot.",
-            color=0xe67e22,
+            color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
         embed.set_footer(text=f"Configuré par {interaction.user.display_name}")
@@ -153,16 +156,25 @@ class AdminCog(commands.Cog):
     @bypass.error
     async def _bypass_error(self, interaction: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("Seuls les administrateurs peuvent configurer le bypass.", ephemeral=True)
+            await interaction.response.send_message(
+                "Seuls les administrateurs peuvent configurer le bypass.", ephemeral=True
+            )
 
     # ── /map ───────────────────────────────────────────────────
     @app_commands.command(name="map", description="Sélectionne une map aléatoire pour la partie")
     async def map_pick(self, interaction: discord.Interaction):
         if not _has_access(interaction, self.db):
-            await interaction.response.send_message("🚫 Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
+            await interaction.response.send_message(
+                "🚫 Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True
+            )
             return
         chosen = random.choice(elo_calc.MAPS)
-        embed = discord.Embed(title="🗺️ Map sélectionnée !", description=f"## {chosen}", color=0x9b59b6, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="🗺️ Map sélectionnée !",
+            description=f"## {chosen}",
+            color=0x9B59B6,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_footer(text=f"Tirage par {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
@@ -170,7 +182,12 @@ class AdminCog(commands.Cog):
     @app_commands.command(name="coinflip", description="Fait un pile ou face")
     async def coinflip(self, interaction: discord.Interaction):
         result = random.choice(["Pile", "Face"])
-        embed  = discord.Embed(title="🪙 Pile ou Face !", description=f"## {result}", color=0xf1c40f, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="🪙 Pile ou Face !",
+            description=f"## {result}",
+            color=0xF1C40F,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_footer(text=f"Lancé par {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
@@ -182,47 +199,110 @@ class AdminCog(commands.Cog):
             await interaction.response.send_message("Pas la permission.", ephemeral=True)
             return
         if nombre < 1 or nombre > 100:
-            await interaction.response.send_message("Le nombre doit etre entre 1 et 100.", ephemeral=True)
+            await interaction.response.send_message(
+                "Le nombre doit etre entre 1 et 100.", ephemeral=True
+            )
             return
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=nombre)
-        embed = discord.Embed(title="🗑️ Messages supprimés", description=f"**{len(deleted)}** message(s) supprime(s).", color=0xe74c3c, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="🗑️ Messages supprimés",
+            description=f"**{len(deleted)}** message(s) supprime(s).",
+            color=0xE74C3C,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_footer(text=f"Par {interaction.user.display_name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /help ──────────────────────────────────────────────────
     @app_commands.command(name="help", description="Affiche la liste des commandes disponibles")
     @app_commands.describe(kind="Choisis le type d'aide")
-    @app_commands.choices(kind=[
-        app_commands.Choice(name="Commandes membres", value="membres"),
-        app_commands.Choice(name="Commandes admin", value="admin"),
-    ])
+    @app_commands.choices(
+        kind=[
+            app_commands.Choice(name="Commandes membres", value="membres"),
+            app_commands.Choice(name="Commandes admin", value="admin"),
+        ]
+    )
     @app_commands.rename(kind="type")
     async def help_cmd(self, interaction: discord.Interaction, kind: str = "membres"):
         if kind == "admin":
             if not _has_access(interaction, self.db):
                 await interaction.response.send_message("Pas la permission.", ephemeral=True)
                 return
-            embed = discord.Embed(title="⚙️ Commandes Admin", color=0xe74c3c, timestamp=datetime.now(UTC))
-            embed.add_field(name="/setup",               value="Crée la catégorie + 3 salons queue (`pro-queue`, `open-queue`, `gc-queue`) + `leaderboard` + `matchs` et pose les 3 messages de queue", inline=False)
-            embed.add_field(name="/setup-queue queue",   value="Repose le message persistant d'une queue (pro/open/gc)", inline=False)
-            embed.add_field(name="/close-queue queue",   value="Ferme la queue active d'un type", inline=False)
-            embed.add_field(name="/win queue @j1..@j5",  value="Victoire — Pro Queue : flat ±16 ; Open/GC : pondéré par position", inline=False)
-            embed.add_field(name="/lose queue @j1..@j5", value="Défaite — Pro Queue : flat ±16 ; Open/GC : pondéré par position", inline=False)
-            embed.add_field(name="/map",                 value="Map aleatoire", inline=False)
-            embed.add_field(name="/elomodify queue @j action montant", value="Ajoute ou enleve de l'ELO d'un joueur dans une queue", inline=False)
-            embed.add_field(name="/winmodify queue @j action montant", value="Ajoute ou enleve des victoires", inline=False)
-            embed.add_field(name="/losemodify queue @j action montant", value="Ajoute ou enleve des défaites", inline=False)
-            embed.add_field(name="/resetelo queue [@joueur|all]", value=f"Reset ELO d'un joueur (ou tous) a {elo_calc.ELO_START} dans une queue", inline=False)
-            embed.add_field(name="/reset-queue queue",   value="Drop complet d'une queue (ELO + matchs + leaderboard) — confirmation requise", inline=False)
-            embed.add_field(name="/bypass @role",        value="Donne acces aux commandes admin a un role", inline=False)
-            embed.add_field(name="/clear nombre",        value="Supprime des messages", inline=False)
+            embed = discord.Embed(
+                title="⚙️ Commandes Admin", color=0xE74C3C, timestamp=datetime.now(UTC)
+            )
+            embed.add_field(
+                name="/setup",
+                value="Crée la catégorie + 3 salons queue (`pro-queue`, `open-queue`, `gc-queue`) + `leaderboard` + `matchs` et pose les 3 messages de queue",
+                inline=False,
+            )
+            embed.add_field(
+                name="/setup-queue queue",
+                value="Repose le message persistant d'une queue (pro/open/gc)",
+                inline=False,
+            )
+            embed.add_field(
+                name="/close-queue queue", value="Ferme la queue active d'un type", inline=False
+            )
+            embed.add_field(
+                name="/win queue @j1..@j5",
+                value="Victoire — Pro Queue : flat ±16 ; Open/GC : pondéré par position",
+                inline=False,
+            )
+            embed.add_field(
+                name="/lose queue @j1..@j5",
+                value="Défaite — Pro Queue : flat ±16 ; Open/GC : pondéré par position",
+                inline=False,
+            )
+            embed.add_field(name="/map", value="Map aleatoire", inline=False)
+            embed.add_field(
+                name="/elomodify queue @j action montant",
+                value="Ajoute ou enleve de l'ELO d'un joueur dans une queue",
+                inline=False,
+            )
+            embed.add_field(
+                name="/winmodify queue @j action montant",
+                value="Ajoute ou enleve des victoires",
+                inline=False,
+            )
+            embed.add_field(
+                name="/losemodify queue @j action montant",
+                value="Ajoute ou enleve des défaites",
+                inline=False,
+            )
+            embed.add_field(
+                name="/resetelo queue [@joueur|all]",
+                value=f"Reset ELO d'un joueur (ou tous) a {elo_calc.ELO_START} dans une queue",
+                inline=False,
+            )
+            embed.add_field(
+                name="/reset-queue queue",
+                value="Drop complet d'une queue (ELO + matchs + leaderboard) — confirmation requise",
+                inline=False,
+            )
+            embed.add_field(
+                name="/bypass @role",
+                value="Donne acces aux commandes admin a un role",
+                inline=False,
+            )
+            embed.add_field(name="/clear nombre", value="Supprime des messages", inline=False)
             embed.set_footer(text=f"Demande par {interaction.user.display_name}")
             await interaction.response.send_message(embed=embed, ephemeral=True)
         else:
-            embed = discord.Embed(title="📖 Commandes disponibles", color=0x3498db, timestamp=datetime.now(UTC))
-            embed.add_field(name="/leaderboard queue", value="Classement ELO d'une queue (pro/open/gc)", inline=False)
-            embed.add_field(name="/stats queue [@joueur]", value="Stats d'un joueur dans une queue. Sans mention = tes propres stats", inline=False)
+            embed = discord.Embed(
+                title="📖 Commandes disponibles", color=0x3498DB, timestamp=datetime.now(UTC)
+            )
+            embed.add_field(
+                name="/leaderboard queue",
+                value="Classement ELO d'une queue (pro/open/gc)",
+                inline=False,
+            )
+            embed.add_field(
+                name="/stats queue [@joueur]",
+                value="Stats d'un joueur dans une queue. Sans mention = tes propres stats",
+                inline=False,
+            )
             embed.add_field(name="/help", value="Affiche cette aide", inline=False)
             embed.set_footer(text=f"Demande par {interaction.user.display_name}")
             await interaction.response.send_message(embed=embed, ephemeral=True)

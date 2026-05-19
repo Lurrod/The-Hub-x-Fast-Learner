@@ -34,6 +34,7 @@ _mongo_patcher.start()
 def clean_mongo():
     """Vide toutes les collections mongomock avant chaque test."""
     import bot
+
     for name in bot.db.list_collection_names():
         bot.db.drop_collection(name)
     yield
@@ -80,6 +81,7 @@ async def discord_bot():
 def fake_member(discord_bot):
     """Retourne le 1er membre du guild de test."""
     import discord.ext.test as dpytest
+
     config = dpytest.get_config()
     return config.members[0]
 
@@ -87,5 +89,6 @@ def fake_member(discord_bot):
 @pytest.fixture
 def fake_guild(discord_bot):
     import discord.ext.test as dpytest
+
     config = dpytest.get_config()
     return config.guilds[0]

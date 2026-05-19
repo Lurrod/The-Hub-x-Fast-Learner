@@ -87,7 +87,7 @@ def test_brute_force_better_than_snake_draft():
 
 # ── Determinisme ──────────────────────────────────────────────────
 def test_deterministic_same_input_same_output():
-    elos    = [1500, 1700, 1200, 1900, 1400, 1600, 1800, 1300, 1500, 1500]
+    elos = [1500, 1700, 1200, 1900, 1400, 1600, 1800, 1300, 1500, 1500]
     players = _players(elos)
     r1 = balance_teams(players)
     r2 = balance_teams(players)
@@ -98,9 +98,9 @@ def test_deterministic_same_input_same_output():
 
 
 def test_each_player_appears_exactly_once():
-    elos    = [1500, 1700, 1200, 1900, 1400, 1600, 1800, 1300, 1500, 1500]
+    elos = [1500, 1700, 1200, 1900, 1400, 1600, 1800, 1300, 1500, 1500]
     players = _players(elos)
-    result  = balance_teams(players)
+    result = balance_teams(players)
     all_ids = {p.id for p in result.team_a} | {p.id for p in result.team_b}
     assert all_ids == set(range(10))
     assert len(result.team_a) == 5
@@ -114,8 +114,8 @@ def test_tiebreaker_minimizes_peak_difference():
     Cas : 2 forts (3000) + 8 a 1000.
     Repartitions a elo_diff egal : on doit avoir 1 fort de chaque cote (pas les 2 ensemble).
     """
-    elos    = [3000, 3000] + [1000] * 8
-    result  = balance_teams(_players(elos))
+    elos = [3000, 3000] + [1000] * 8
+    result = balance_teams(_players(elos))
     # Si les 2 forts sont du meme cote : diff = 4000. Si separes : diff = 0.
     # Donc l'algo va separer -> peak_diff = 0
     assert result.peak_diff == 0
@@ -127,6 +127,7 @@ def test_tiebreaker_minimizes_peak_difference():
 # ── Performance ───────────────────────────────────────────────────
 def test_performance_under_50ms():
     import random
+
     random.seed(0)
     elos = [random.randint(500, 3500) for _ in range(10)]
     players = _players(elos)
@@ -136,7 +137,7 @@ def test_performance_under_50ms():
         balance_teams(players)
     elapsed = time.perf_counter() - start
 
-    assert elapsed < 0.5, f"100 iterations en {elapsed*1000:.1f}ms (>500ms)"
+    assert elapsed < 0.5, f"100 iterations en {elapsed * 1000:.1f}ms (>500ms)"
 
 
 # ── format_teams (smoke) ──────────────────────────────────────────

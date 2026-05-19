@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 LEADERBOARD_CHANNEL_NAME = "leaderboard"
-LEADERBOARD_FILENAME     = "leaderboard.png"
-PAGE_SIZE                = 15
+LEADERBOARD_FILENAME = "leaderboard.png"
+PAGE_SIZE = 15
 
 # Debounce per-guild : evite de regenerer + reposter le leaderboard
 # en rafale apres N modifs ELO consecutives (ex: /win + /lose + autres
@@ -53,7 +53,7 @@ _LAST_REFRESH_AT: OrderedDict[tuple[int, str], datetime] = OrderedDict()
 #
 # Cle  : (guild_id, queue_type, page_zero_indexed)
 # Val  : (png_bytes, total_pages_at_render_time)
-_PAGE_CACHE_MAXSIZE: int = 60   # ~3 queues * 20 pages worst case
+_PAGE_CACHE_MAXSIZE: int = 60  # ~3 queues * 20 pages worst case
 _PAGE_CACHE: OrderedDict[tuple[int, str, int], tuple[bytes, int]] = OrderedDict()
 
 
@@ -66,8 +66,11 @@ def _cache_get(guild_id: int, queue_type: str, page: int) -> tuple[bytes, int] |
 
 
 def _cache_set(
-    guild_id: int, queue_type: str, page: int,
-    png_bytes: bytes, total_pages: int,
+    guild_id: int,
+    queue_type: str,
+    page: int,
+    png_bytes: bytes,
+    total_pages: int,
 ) -> None:
     key = (guild_id, queue_type, page)
     _PAGE_CACHE[key] = (png_bytes, total_pages)
@@ -82,10 +85,7 @@ def _cache_invalidate(guild_id: int, queue_type: str) -> int:
     Appele depuis `refresh_leaderboard_channel` quand on vient d'apprendre
     qu'un ELO a change. Retourne le nombre d'entrees supprimees (utile
     pour le debug et les tests)."""
-    to_remove = [
-        k for k in _PAGE_CACHE
-        if k[0] == guild_id and k[1] == queue_type
-    ]
+    to_remove = [k for k in _PAGE_CACHE if k[0] == guild_id and k[1] == queue_type]
     for k in to_remove:
         del _PAGE_CACHE[k]
     return len(to_remove)
@@ -119,7 +119,8 @@ class LeaderboardView(discord.ui.View):
     """
 
     def __init__(
-        self, *,
+        self,
+        *,
         page: int = 0,
         total_pages: int = 1,
         queue_type: str | None = None,
@@ -135,7 +136,7 @@ class LeaderboardView(discord.ui.View):
         # 0=prev_btn, 1=page_btn, 2=next_btn.
         self.prev_btn.disabled = self.page == 0
         self.next_btn.disabled = self.page >= self.total_pages - 1
-        self.page_btn.label    = f"Page {self.page + 1} / {self.total_pages}"
+        self.page_btn.label = f"Page {self.page + 1} / {self.total_pages}"
 
     @staticmethod
     def _recover_state(message) -> tuple[str | None, int, int]:
@@ -207,7 +208,10 @@ class LeaderboardView(discord.ui.View):
             from bot import db as _db
 
             file, new_view = await build_leaderboard_payload(
-                inter.guild, _db, queue_type, page=new_page,
+                inter.guild,
+                _db,
+                queue_type,
+                page=new_page,
             )
             if file is None:
                 return
@@ -224,13 +228,16 @@ class LeaderboardView(discord.ui.View):
 
             await inter.followup.edit_message(
                 message_id=inter.message.id,
-                attachments=[file], view=new_view,
+                attachments=[file],
+                view=new_view,
             )
         except Exception:
             logger.exception("leaderboard_refresh exception")
 
     @discord.ui.button(
-        emoji="◀️", style=discord.ButtonStyle.secondary, custom_id="lb:prev",
+        emoji="◀️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="lb:prev",
     )
     async def prev_btn(self, inter, button):
         cur = self.page
@@ -244,15 +251,19 @@ class LeaderboardView(discord.ui.View):
         await self._go(inter, cur - 1)
 
     @discord.ui.button(
-        label="Page 1 / 1", style=discord.ButtonStyle.grey,
-        disabled=True, custom_id="lb:page",
+        label="Page 1 / 1",
+        style=discord.ButtonStyle.grey,
+        disabled=True,
+        custom_id="lb:page",
     )
     async def page_btn(self, inter, button):
         if not inter.response.is_done():
             await inter.response.defer()
 
     @discord.ui.button(
-        emoji="▶️", style=discord.ButtonStyle.secondary, custom_id="lb:next",
+        emoji="▶️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="lb:next",
     )
     async def next_btn(self, inter, button):
         cur = self.page
@@ -265,9 +276,13 @@ class LeaderboardView(discord.ui.View):
 
 
 async def build_leaderboard_payload(
-    guild: discord.Guild, db, queue_type: str, *,
+    guild: discord.Guild,
+    db,
+    queue_type: str,
+    *,
     with_view: bool = True,
-    view_timeout: float | None = None,   # conserve pour back-compat, ignore (vue toujours persistante)
+    view_timeout: float
+    | None = None,  # conserve pour back-compat, ignore (vue toujours persistante)
     page: int = 0,
 ) -> tuple[discord.File | None, discord.ui.View | None]:
     """Genere file/view pour le leaderboard du queue_type donne, page `page`.
@@ -287,17 +302,19 @@ async def build_leaderboard_payload(
     if cached is not None:
         png_bytes, total_pages_cached = cached
         file = discord.File(
-            BytesIO(png_bytes), filename=f"leaderboard_{queue_type}.png",
+            BytesIO(png_bytes),
+            filename=f"leaderboard_{queue_type}.png",
         )
         if not with_view:
             return file, None
         return file, LeaderboardView(
-            page=page, total_pages=total_pages_cached, queue_type=queue_type,
+            page=page,
+            total_pages=total_pages_cached,
+            queue_type=queue_type,
         )
 
-    col  = repository.get_elo_col(db)
-    docs = list(col.find({"queue_type": queue_type})
-                  .sort([("elo", -1), ("wins", -1), ("_id", 1)]))
+    col = repository.get_elo_col(db)
+    docs = list(col.find({"queue_type": queue_type}).sort([("elo", -1), ("wins", -1), ("_id", 1)]))
     if not docs:
         return None, None
 
@@ -313,16 +330,18 @@ async def build_leaderboard_payload(
             continue
         ava_url = str(member.display_avatar.replace(format="png", size=64).url)
         display_name = member.display_name or doc.get("name", uid)
-        all_players.append({
-            "rank":       rank,
-            "name":       display_name,
-            "elo":        doc["elo"],
-            "wins":       doc.get("wins", 0),
-            "losses":     doc.get("losses", 0),
-            "kills":      doc.get("kills", 0),
-            "deaths":     doc.get("deaths", 0),
-            "avatar_url": ava_url,
-        })
+        all_players.append(
+            {
+                "rank": rank,
+                "name": display_name,
+                "elo": doc["elo"],
+                "wins": doc.get("wins", 0),
+                "losses": doc.get("losses", 0),
+                "kills": doc.get("kills", 0),
+                "deaths": doc.get("deaths", 0),
+                "avatar_url": ava_url,
+            }
+        )
         rank += 1
 
     if not all_players:
@@ -333,7 +352,7 @@ async def build_leaderboard_payload(
 
     loop = asyncio.get_running_loop()
     start = page * PAGE_SIZE
-    chunk = all_players[start:start + PAGE_SIZE]
+    chunk = all_players[start : start + PAGE_SIZE]
     # Le titre du leaderboard inclut le queue_type pour distinguer les
     # 3 leaderboards qui cohabitent dans #leaderboard.
     title = f"Leaderboard {queue_type.upper()} Queue"
@@ -348,18 +367,23 @@ async def build_leaderboard_payload(
     _cache_set(guild.id, queue_type, page, png_bytes, total_pages)
 
     file = discord.File(
-        BytesIO(png_bytes), filename=f"leaderboard_{queue_type}.png",
+        BytesIO(png_bytes),
+        filename=f"leaderboard_{queue_type}.png",
     )
 
     if not with_view:
         return file, None
     return file, LeaderboardView(
-        page=page, total_pages=total_pages, queue_type=queue_type,
+        page=page,
+        total_pages=total_pages,
+        queue_type=queue_type,
     )
 
 
 async def refresh_leaderboard_channel(
-    guild: discord.Guild, db, queue_type: str,
+    guild: discord.Guild,
+    db,
+    queue_type: str,
 ) -> None:
     """Refresh le leaderboard du queue_type donne dans #leaderboard.
 
@@ -408,7 +432,10 @@ async def refresh_leaderboard_channel(
 
     try:
         file, view = await build_leaderboard_payload(
-            guild, db, queue_type, view_timeout=None,
+            guild,
+            db,
+            queue_type,
+            view_timeout=None,
         )
     except Exception:
         logger.exception("leaderboard_refresh exception")

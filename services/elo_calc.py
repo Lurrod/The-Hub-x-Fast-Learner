@@ -7,20 +7,26 @@ from typing import Final
 
 # ── Constantes ────────────────────────────────────────────────────
 ELO_START: Final[int] = 2000
-MAPS:      Final[tuple[str, ...]] = (
-    "Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven", "Pearl",
+MAPS: Final[tuple[str, ...]] = (
+    "Breeze",
+    "Ascent",
+    "Lotus",
+    "Fracture",
+    "Split",
+    "Haven",
+    "Pearl",
 )
 
 
 # ── V2 : ELO change proportionnel a la moyenne du match ──────────
 # Serveur reserve aux joueurs Immortal+ : la baseline est l'Immortal 1.
-IMMORTAL_FLOOR_ELO: Final[int] = 2400   # Immortal 1 (HenrikDev tier 24 * 100)
-ELO_REFERENCE:      Final[int] = IMMORTAL_FLOOR_ELO
+IMMORTAL_FLOOR_ELO: Final[int] = 2400  # Immortal 1 (HenrikDev tier 24 * 100)
+ELO_REFERENCE: Final[int] = IMMORTAL_FLOOR_ELO
 # Zero-sum strict : gain == loss. ELO injectee par match = 0.
-ELO_BASE_CHANGE:    Final[int] = 16     # gain et loss attendus a avg = ELO_REFERENCE
+ELO_BASE_CHANGE: Final[int] = 16  # gain et loss attendus a avg = ELO_REFERENCE
 # Alias retro-compatibles (utilises par tests/code legacy)
-ELO_BASE_GAIN:      Final[int] = ELO_BASE_CHANGE
-ELO_BASE_LOSS:      Final[int] = ELO_BASE_CHANGE
+ELO_BASE_GAIN: Final[int] = ELO_BASE_CHANGE
+ELO_BASE_LOSS: Final[int] = ELO_BASE_CHANGE
 
 
 def compute_team_avg_elo(players: list[dict]) -> int:

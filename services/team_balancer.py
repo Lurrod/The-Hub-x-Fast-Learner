@@ -19,23 +19,23 @@ from typing import Final
 from collections.abc import Iterable
 
 
-TEAM_SIZE:    Final[int] = 5
+TEAM_SIZE: Final[int] = 5
 TOTAL_PLAYERS: Final[int] = 10
 
 
 @dataclass(frozen=True)
 class Player:
-    id:   int        # Discord user id
+    id: int  # Discord user id
     name: str
-    elo:  int
+    elo: int
 
 
 @dataclass(frozen=True)
 class BalancedTeams:
-    team_a:    tuple[Player, ...]
-    team_b:    tuple[Player, ...]
-    elo_diff:  int   # |sum(A) - sum(B)|
-    peak_diff: int   # |max(A) - max(B)|
+    team_a: tuple[Player, ...]
+    team_b: tuple[Player, ...]
+    elo_diff: int  # |sum(A) - sum(B)|
+    peak_diff: int  # |max(A) - max(B)|
 
     @property
     def total_a(self) -> int:

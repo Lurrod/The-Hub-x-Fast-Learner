@@ -1,4 +1,5 @@
 """Tests d'integration pour CaptainDraftSession (UI Discord avec fakes)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -89,8 +90,8 @@ async def test_session_happy_path_8_picks_complete():
         await asyncio.sleep(0.01)
     assert session.message is not None, "Le message draft doit etre poste au demarrage"
 
-    # Ordre snake : A, B, B, A, A, B, B, A
-    pick_users = [cap_a, cap_b, cap_b, cap_a, cap_a, cap_b, cap_b, cap_a]
+    # Ordre alterne : A, B, A, B, A, B, A, B
+    pick_users = [cap_a, cap_b, cap_a, cap_b, cap_a, cap_b, cap_a, cap_b]
     for i, picker in enumerate(pick_users):
         inter = _fake_interaction(picker, "pro_draft_pick", values=[str(pool[i].id)])
         await session._on_pick(inter)
@@ -261,10 +262,7 @@ async def test_session_double_pick_same_player_is_idempotent():
     assert target in session.state.team_a
     assert target not in session.state.pool
     # Un des 2 a recu un ephemeral "deja drafte"
-    n_ephemeral = sum(
-        1 for i in (inter1, inter2)
-        if i.response.send_message.await_count > 0
-    )
+    n_ephemeral = sum(1 for i in (inter1, inter2) if i.response.send_message.await_count > 0)
     assert n_ephemeral == 1
 
     # Cleanup

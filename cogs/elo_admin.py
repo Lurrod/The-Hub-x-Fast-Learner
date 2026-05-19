@@ -30,7 +30,7 @@ ELO_START = elo_calc.ELO_START
 
 # Pondération ELO par position de joueur (slot 1..5) pour /win et /lose.
 # Le premier slot encaisse le plus gros gain / la plus petite perte.
-WIN_DELTAS_BY_SLOT:  tuple[int, ...] = (20, 18, 17, 16, 15)
+WIN_DELTAS_BY_SLOT: tuple[int, ...] = (20, 18, 17, 16, 15)
 LOSE_DELTAS_BY_SLOT: tuple[int, ...] = (10, 10, 12, 13, 15)
 
 # Mapping queue_type -> nom de salon ou poser le message persistant.
@@ -56,7 +56,11 @@ def _has_access(interaction: discord.Interaction, db) -> bool:
 
 def _get_player(col, member: discord.Member, queue_type: str):
     return repository.get_or_create_player(
-        col, member.id, queue_type, member.display_name, initial_elo=ELO_START,
+        col,
+        member.id,
+        queue_type,
+        member.display_name,
+        initial_elo=ELO_START,
     )
 
 
@@ -71,11 +75,14 @@ def _match_elo_for_member(db, guild_id: int, user_id: int, queue_type: str) -> i
 
 
 def _compute_match_change_for_members(
-    db, guild_id: int, members: list, queue_type: str,
+    db,
+    guild_id: int,
+    members: list,
+    queue_type: str,
 ) -> tuple[int, int, int]:
     """(avg_elo, gain, loss) pour la liste de joueurs dans la queue."""
     elos = [_match_elo_for_member(db, guild_id, m.id, queue_type) for m in members]
-    avg  = round(sum(elos) / len(elos)) if elos else elo_calc.ELO_REFERENCE
+    avg = round(sum(elos) / len(elos)) if elos else elo_calc.ELO_REFERENCE
     gain, loss = elo_calc.compute_match_elo_change(avg)
     return avg, gain, loss
 
@@ -120,7 +127,10 @@ class ELOAdminCog(commands.Cog):
         self.db = db
 
     # ── /win ───────────────────────────────────────────────────
-    @app_commands.command(name="win", description="Enregistre une victoire dans une queue (Pro=flat 16, autres=pondere)")
+    @app_commands.command(
+        name="win",
+        description="Enregistre une victoire dans une queue (Pro=flat 16, autres=pondere)",
+    )
     @app_commands.describe(
         queue="Type de queue",
         joueur1="Joueur gagnant 1",
@@ -150,16 +160,19 @@ class ELOAdminCog(commands.Cog):
             deltas = [16] * len(players)
             desc = "Pro Queue : +16 a plat pour chaque gagnant."
         else:
-            deltas = list(WIN_DELTAS_BY_SLOT)[:len(players)]
+            deltas = list(WIN_DELTAS_BY_SLOT)[: len(players)]
             avg_elo, _, _ = _compute_match_change_for_members(
-                self.db, interaction.guild_id, players, queue,
+                self.db,
+                interaction.guild_id,
+                players,
+                queue,
             )
             desc = f"Avg ELO du groupe : **{avg_elo}** -> gains ponderes par position."
 
         embed = discord.Embed(
             title=f"Resultats {queue.upper()} - Victoire enregistree !",
             description=desc,
-            color=0x2ecc71,
+            color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
         for slot, member in enumerate(players):
@@ -182,7 +195,10 @@ class ELOAdminCog(commands.Cog):
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /lose ──────────────────────────────────────────────────
-    @app_commands.command(name="lose", description="Enregistre une defaite dans une queue (Pro=flat 16, autres=pondere)")
+    @app_commands.command(
+        name="lose",
+        description="Enregistre une defaite dans une queue (Pro=flat 16, autres=pondere)",
+    )
     @app_commands.describe(
         queue="Type de queue",
         joueur1="Joueur perdant 1",
@@ -212,16 +228,19 @@ class ELOAdminCog(commands.Cog):
             deltas = [16] * len(players)
             desc = "Pro Queue : -16 a plat pour chaque perdant."
         else:
-            deltas = list(LOSE_DELTAS_BY_SLOT)[:len(players)]
+            deltas = list(LOSE_DELTAS_BY_SLOT)[: len(players)]
             avg_elo, _, _ = _compute_match_change_for_members(
-                self.db, interaction.guild_id, players, queue,
+                self.db,
+                interaction.guild_id,
+                players,
+                queue,
             )
             desc = f"Avg ELO du groupe : **{avg_elo}** -> pertes ponderees par position."
 
         embed = discord.Embed(
             title=f"Resultats {queue.upper()} - Defaite enregistree !",
             description=desc,
-            color=0xe74c3c,
+            color=0xE74C3C,
             timestamp=datetime.now(UTC),
         )
         for slot, member in enumerate(players):
@@ -229,10 +248,14 @@ class ELOAdminCog(commands.Cog):
             _get_player(col, member, queue)
             old_doc = col.find_one_and_update(
                 {"_id": repository.player_doc_id(member.id, queue)},
-                [{"$set": {
-                    "elo": {"$max": [0, {"$subtract": [{"$ifNull": ["$elo", 0]}, loss]}]},
-                    "losses": {"$add": [{"$ifNull": ["$losses", 0]}, 1]},
-                }}],
+                [
+                    {
+                        "$set": {
+                            "elo": {"$max": [0, {"$subtract": [{"$ifNull": ["$elo", 0]}, loss]}]},
+                            "losses": {"$add": [{"$ifNull": ["$losses", 0]}, 1]},
+                        }
+                    }
+                ],
                 return_document=ReturnDocument.BEFORE,
             )
             old = (old_doc or {}).get("elo", 0)
@@ -264,7 +287,10 @@ class ELOAdminCog(commands.Cog):
         await interaction.followup.send(file=file, view=view, ephemeral=ephemeral)
 
     # ── /resetelo ──────────────────────────────────────────────
-    @app_commands.command(name="resetelo", description=f"Remet l'ELO d'un joueur (ou de tous) a {ELO_START} dans une queue")
+    @app_commands.command(
+        name="resetelo",
+        description=f"Remet l'ELO d'un joueur (ou de tous) a {ELO_START} dans une queue",
+    )
     @app_commands.describe(
         queue="Type de queue",
         joueur="Le joueur a remettre a la valeur initiale",
@@ -292,7 +318,7 @@ class ELOAdminCog(commands.Cog):
             embed = discord.Embed(
                 title=f"🔄 Reset général {queue.upper()} !",
                 description=f"ELO de **{count} joueur(s)** remis a {ELO_START} dans la queue {queue.upper()}.",
-                color=0xe74c3c,
+                color=0xE74C3C,
                 timestamp=datetime.now(UTC),
             )
             embed.set_footer(text=f"Reset par {interaction.user.display_name}")
@@ -300,7 +326,9 @@ class ELOAdminCog(commands.Cog):
             await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
             return
         if joueur is None:
-            await interaction.response.send_message("Mentionne un joueur ou utilise `all:True`.", ephemeral=True)
+            await interaction.response.send_message(
+                "Mentionne un joueur ou utilise `all:True`.", ephemeral=True
+            )
             return
         doc = _get_player(col, joueur, queue)
         old = doc["elo"]
@@ -310,7 +338,7 @@ class ELOAdminCog(commands.Cog):
         )
         embed = discord.Embed(
             title=f"🔄 ELO {queue.upper()} réinitialisé !",
-            color=0x95a5a6,
+            color=0x95A5A6,
             timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Joueur", value=joueur.mention, inline=True)
@@ -322,7 +350,9 @@ class ELOAdminCog(commands.Cog):
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /reset-queue ───────────────────────────────────────────
-    @app_commands.command(name="reset-queue", description="Drop toutes les donnees d'une queue (admin)")
+    @app_commands.command(
+        name="reset-queue", description="Drop toutes les donnees d'une queue (admin)"
+    )
     @app_commands.describe(queue="Type de queue a reset")
     @app_commands.choices(queue=_QUEUE_CHOICES)
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -337,13 +367,14 @@ class ELOAdminCog(commands.Cog):
                 f"- L'état du leaderboard de la queue {queue.upper()}\n\n"
                 f"Les autres queues ne sont pas touchées. **Confirmer ?**"
             ),
-            color=0xe74c3c,
+            color=0xE74C3C,
         )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         await view.wait()
         if not view.confirmed:
             await interaction.followup.send(
-                "Reset annulé (timeout ou non-confirmé).", ephemeral=True,
+                "Reset annulé (timeout ou non-confirmé).",
+                ephemeral=True,
             )
             return
 
@@ -369,7 +400,7 @@ class ELOAdminCog(commands.Cog):
         audit = discord.Embed(
             title=f"🔄 Queue {queue.upper()} reset",
             description=f"Reset effectue par {interaction.user.mention}",
-            color=0x2ecc71,
+            color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
         try:
@@ -377,19 +408,28 @@ class ELOAdminCog(commands.Cog):
         except Exception:
             logger.exception("[reset-queue] audit log a leve")
         await interaction.followup.send(
-            f"✅ Queue {queue.upper()} reset.", ephemeral=True,
+            f"✅ Queue {queue.upper()} reset.",
+            ephemeral=True,
         )
 
     @reset_queue.error
     async def _reset_queue_perm_error(self, inter: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             await inter.response.send_message(
-                "🚫 Réservé aux administrateurs.", ephemeral=True,
+                "🚫 Réservé aux administrateurs.",
+                ephemeral=True,
             )
 
     # ── /elomodify ─────────────────────────────────────────────
-    @app_commands.command(name="elomodify", description="Ajoute ou enleve de l'ELO a un joueur dans une queue")
-    @app_commands.describe(queue="Type de queue", joueur="Le joueur", action="Ajouter ou enlever", montant="Nombre d'ELO")
+    @app_commands.command(
+        name="elomodify", description="Ajoute ou enleve de l'ELO a un joueur dans une queue"
+    )
+    @app_commands.describe(
+        queue="Type de queue",
+        joueur="Le joueur",
+        action="Ajouter ou enlever",
+        montant="Nombre d'ELO",
+    )
     @app_commands.choices(
         queue=_QUEUE_CHOICES,
         action=[
@@ -397,7 +437,14 @@ class ELOAdminCog(commands.Cog):
             app_commands.Choice(name="- Enlever", value="remove"),
         ],
     )
-    async def elomodify(self, interaction: discord.Interaction, queue: str, joueur: discord.Member, action: str, montant: int):
+    async def elomodify(
+        self,
+        interaction: discord.Interaction,
+        queue: str,
+        joueur: discord.Member,
+        action: str,
+        montant: int,
+    ):
         if not _has_access(interaction, self.db):
             await interaction.response.send_message("Pas la permission.", ephemeral=True)
             return
@@ -418,24 +465,31 @@ class ELOAdminCog(commands.Cog):
         old = (old_doc or {}).get("elo", 0)
         new = max(0, old + delta)
         if action == "add":
-            color = 0x2ecc71
+            color = 0x2ECC71
             label = f"+{montant}"
             title = f"➕ ELO {queue.upper()} ajouté"
         else:
-            color = 0xe74c3c
+            color = 0xE74C3C
             label = f"-{montant}"
             title = f"➖ ELO {queue.upper()} retiré"
         embed = discord.Embed(title=title, color=color, timestamp=datetime.now(UTC))
-        embed.add_field(name="Joueur",       value=joueur.mention,                    inline=True)
-        embed.add_field(name="Modification", value=label,                             inline=True)
-        embed.add_field(name="Nouvel ELO",   value=f"**{new}** (etait {old})",        inline=True)
+        embed.add_field(name="Joueur", value=joueur.mention, inline=True)
+        embed.add_field(name="Modification", value=label, inline=True)
+        embed.add_field(name="Nouvel ELO", value=f"**{new}** (etait {old})", inline=True)
         embed.set_footer(text=f"Par {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /winmodify ─────────────────────────────────────────────
-    @app_commands.command(name="winmodify", description="Ajoute ou enleve des victoires a un joueur dans une queue")
-    @app_commands.describe(queue="Type de queue", joueur="Le joueur", action="Ajouter ou enlever", montant="Nombre de victoires")
+    @app_commands.command(
+        name="winmodify", description="Ajoute ou enleve des victoires a un joueur dans une queue"
+    )
+    @app_commands.describe(
+        queue="Type de queue",
+        joueur="Le joueur",
+        action="Ajouter ou enlever",
+        montant="Nombre de victoires",
+    )
     @app_commands.choices(
         queue=_QUEUE_CHOICES,
         action=[
@@ -443,12 +497,21 @@ class ELOAdminCog(commands.Cog):
             app_commands.Choice(name="- Enlever", value="remove"),
         ],
     )
-    async def winmodify(self, interaction: discord.Interaction, queue: str, joueur: discord.Member, action: str, montant: int):
+    async def winmodify(
+        self,
+        interaction: discord.Interaction,
+        queue: str,
+        joueur: discord.Member,
+        action: str,
+        montant: int,
+    ):
         if not _has_access(interaction, self.db):
             await interaction.response.send_message("Pas la permission.", ephemeral=True)
             return
         if montant <= 0:
-            await interaction.response.send_message("❌ Le montant doit etre strictement positif.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Le montant doit etre strictement positif.", ephemeral=True
+            )
             return
         col = repository.get_elo_col(self.db)
         _get_player(col, joueur, queue)
@@ -461,24 +524,31 @@ class ELOAdminCog(commands.Cog):
         old = (old_doc or {}).get("wins", 0)
         new = max(0, old + delta)
         if action == "add":
-            color = 0x2ecc71
+            color = 0x2ECC71
             label = f"+{montant}"
             title = f"➕ Victoires {queue.upper()} ajoutées"
         else:
-            color = 0xe74c3c
+            color = 0xE74C3C
             label = f"-{montant}"
             title = f"➖ Victoires {queue.upper()} retirées"
         embed = discord.Embed(title=title, color=color, timestamp=datetime.now(UTC))
-        embed.add_field(name="Joueur",        value=joueur.mention,             inline=True)
-        embed.add_field(name="Modification",  value=label,                      inline=True)
+        embed.add_field(name="Joueur", value=joueur.mention, inline=True)
+        embed.add_field(name="Modification", value=label, inline=True)
         embed.add_field(name="Nouveau total", value=f"**{new}** (etait {old})", inline=True)
         embed.set_footer(text=f"Par {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /losemodify ────────────────────────────────────────────
-    @app_commands.command(name="losemodify", description="Ajoute ou enleve des defaites a un joueur dans une queue")
-    @app_commands.describe(queue="Type de queue", joueur="Le joueur", action="Ajouter ou enlever", montant="Nombre de defaites")
+    @app_commands.command(
+        name="losemodify", description="Ajoute ou enleve des defaites a un joueur dans une queue"
+    )
+    @app_commands.describe(
+        queue="Type de queue",
+        joueur="Le joueur",
+        action="Ajouter ou enlever",
+        montant="Nombre de defaites",
+    )
     @app_commands.choices(
         queue=_QUEUE_CHOICES,
         action=[
@@ -486,12 +556,21 @@ class ELOAdminCog(commands.Cog):
             app_commands.Choice(name="- Enlever", value="remove"),
         ],
     )
-    async def losemodify(self, interaction: discord.Interaction, queue: str, joueur: discord.Member, action: str, montant: int):
+    async def losemodify(
+        self,
+        interaction: discord.Interaction,
+        queue: str,
+        joueur: discord.Member,
+        action: str,
+        montant: int,
+    ):
         if not _has_access(interaction, self.db):
             await interaction.response.send_message("Pas la permission.", ephemeral=True)
             return
         if montant <= 0:
-            await interaction.response.send_message("❌ Le montant doit etre strictement positif.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Le montant doit etre strictement positif.", ephemeral=True
+            )
             return
         col = repository.get_elo_col(self.db)
         _get_player(col, joueur, queue)
@@ -504,11 +583,11 @@ class ELOAdminCog(commands.Cog):
         old = (old_doc or {}).get("losses", 0)
         new = max(0, old + delta)
         if action == "add":
-            color = 0xe74c3c
+            color = 0xE74C3C
             label = f"+{montant}"
             title = f"➕ Défaites {queue.upper()} ajoutées"
         else:
-            color = 0x2ecc71
+            color = 0x2ECC71
             label = f"-{montant}"
             title = f"➖ Défaites {queue.upper()} retirées"
         embed = discord.Embed(title=title, color=color, timestamp=datetime.now(UTC))
@@ -520,10 +599,14 @@ class ELOAdminCog(commands.Cog):
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /stats ─────────────────────────────────────────────────
-    @app_commands.command(name="stats", description="Affiche les statistiques ELO d'un joueur dans une queue")
+    @app_commands.command(
+        name="stats", description="Affiche les statistiques ELO d'un joueur dans une queue"
+    )
     @app_commands.describe(queue="Type de queue", joueur="Le joueur dont tu veux voir les stats")
     @app_commands.choices(queue=_QUEUE_CHOICES)
-    async def stats(self, interaction: discord.Interaction, queue: str, joueur: discord.Member = None):
+    async def stats(
+        self, interaction: discord.Interaction, queue: str, joueur: discord.Member = None
+    ):
         if joueur is None:
             joueur = interaction.user
         col = repository.get_elo_col(self.db)
@@ -535,27 +618,36 @@ class ELOAdminCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        elo     = doc["elo"]
-        wins    = doc.get("wins", 0)
-        losses  = doc.get("losses", 0)
-        total   = wins + losses
+        elo = doc["elo"]
+        wins = doc.get("wins", 0)
+        losses = doc.get("losses", 0)
+        total = wins + losses
         winrate = round((wins / total) * 100, 1) if total > 0 else 0
-        rank = col.count_documents({
-            "queue_type": queue,
-            "$or": [
-                {"elo": {"$gt": elo}},
-                {"elo": elo, "wins": {"$gt": wins}},
-                {"elo": elo, "wins": wins, "_id": {"$lt": doc_id}},
-            ],
-        }) + 1
-        embed = discord.Embed(title=f"📊 Stats {queue.upper()} de {joueur.display_name}", color=0x3498db, timestamp=datetime.now(UTC))
+        rank = (
+            col.count_documents(
+                {
+                    "queue_type": queue,
+                    "$or": [
+                        {"elo": {"$gt": elo}},
+                        {"elo": elo, "wins": {"$gt": wins}},
+                        {"elo": elo, "wins": wins, "_id": {"$lt": doc_id}},
+                    ],
+                }
+            )
+            + 1
+        )
+        embed = discord.Embed(
+            title=f"📊 Stats {queue.upper()} de {joueur.display_name}",
+            color=0x3498DB,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_thumbnail(url=joueur.display_avatar.url)
-        embed.add_field(name="🏅 ELO",       value=f"**{elo}**",            inline=True)
-        embed.add_field(name="🏆 Rang",      value=f"**#{rank}**",          inline=True)
-        embed.add_field(name="📈 Winrate",   value=f"**{winrate}%**",       inline=True)
-        embed.add_field(name="✅ Victoires", value=f"**{wins}**",           inline=True)
-        embed.add_field(name="❌ Défaites",  value=f"**{losses}**",         inline=True)
-        embed.add_field(name="🎮 Parties",   value=f"**{total}**",          inline=True)
+        embed.add_field(name="🏅 ELO", value=f"**{elo}**", inline=True)
+        embed.add_field(name="🏆 Rang", value=f"**#{rank}**", inline=True)
+        embed.add_field(name="📈 Winrate", value=f"**{winrate}%**", inline=True)
+        embed.add_field(name="✅ Victoires", value=f"**{wins}**", inline=True)
+        embed.add_field(name="❌ Défaites", value=f"**{losses}**", inline=True)
+        embed.add_field(name="🎮 Parties", value=f"**{total}**", inline=True)
         embed.set_footer(text=interaction.guild.name)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

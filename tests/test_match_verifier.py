@@ -28,16 +28,27 @@ from services.riot_api import MatchPlayerStats, MatchSummary, RiotApiError
 # ── Helpers ──────────────────────────────────────────────────────
 def _stats(puuid: str, team: str, score: int = 100, name: str = "P") -> MatchPlayerStats:
     return MatchPlayerStats(
-        puuid=puuid, name=name, tag="EUW", team=team,
-        score=score, kills=0, deaths=0, assists=0,
+        puuid=puuid,
+        name=name,
+        tag="EUW",
+        team=team,
+        score=score,
+        kills=0,
+        deaths=0,
+        assists=0,
     )
 
 
-def _summary(*, matchid: str = "M1", mode: str = "Custom Game",
-             started_at: datetime | None = None,
-             rounds: int = 24, rounds_red: int = 13, rounds_blue: int = 11,
-             players: tuple[MatchPlayerStats, ...] = (),
-             ) -> MatchSummary:
+def _summary(
+    *,
+    matchid: str = "M1",
+    mode: str = "Custom Game",
+    started_at: datetime | None = None,
+    rounds: int = 24,
+    rounds_red: int = 13,
+    rounds_blue: int = 11,
+    players: tuple[MatchPlayerStats, ...] = (),
+) -> MatchSummary:
     return MatchSummary(
         matchid=matchid,
         mode=mode,
@@ -63,8 +74,12 @@ def test_find_custom_returns_match_when_puuids_match():
     client.get_match_history.return_value = [target]
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids=expected, after=started - timedelta(minutes=5),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids=expected,
+        after=started - timedelta(minutes=5),
     )
     assert result is not None
     assert result.matchid == "M_OK"
@@ -75,15 +90,21 @@ def test_find_custom_skips_non_custom_mode():
     expected = {"a", "b"}
     # Mode "Competitive" mais contient les bons puuids
     wrong_mode = _summary(
-        matchid="M_COMP", mode="Competitive", started_at=started,
+        matchid="M_COMP",
+        mode="Competitive",
+        started_at=started,
         players=tuple(_stats(p, "Red") for p in "ab"),
     )
     client = MagicMock()
     client.get_match_history.return_value = [wrong_mode]
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids=expected, after=started - timedelta(minutes=5),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids=expected,
+        after=started - timedelta(minutes=5),
     )
     assert result is None
 
@@ -99,8 +120,12 @@ def test_find_custom_skips_matches_before_after():
     client.get_match_history.return_value = [too_old]
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids=expected, after=datetime.now(UTC) - timedelta(minutes=30),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids=expected,
+        after=datetime.now(UTC) - timedelta(minutes=30),
     )
     assert result is None
 
@@ -110,15 +135,20 @@ def test_find_custom_skips_when_puuids_incomplete():
     expected = {"a", "b", "c"}  # 3 attendus
     # Le match n'a que 2 des 3 puuids
     partial = _summary(
-        matchid="M_PARTIAL", started_at=started,
+        matchid="M_PARTIAL",
+        started_at=started,
         players=tuple(_stats(p, "Red") for p in "ab"),
     )
     client = MagicMock()
     client.get_match_history.return_value = [partial]
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids=expected, after=started - timedelta(minutes=5),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids=expected,
+        after=started - timedelta(minutes=5),
     )
     assert result is None
 
@@ -128,8 +158,12 @@ def test_find_custom_returns_none_on_riot_error():
     client.get_match_history.side_effect = RiotApiError("HenrikDev 503")
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids={"a"}, after=datetime.now(UTC),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids={"a"},
+        after=datetime.now(UTC),
     )
     assert result is None
 
@@ -140,19 +174,25 @@ def test_find_custom_returns_first_matching_in_history():
     started = datetime.now(UTC)
     expected = {"a", "b"}
     newer = _summary(
-        matchid="M_NEW", started_at=started,
+        matchid="M_NEW",
+        started_at=started,
         players=tuple(_stats(p, "Red") for p in "ab"),
     )
     older = _summary(
-        matchid="M_OLD", started_at=started - timedelta(minutes=10),
+        matchid="M_OLD",
+        started_at=started - timedelta(minutes=10),
         players=tuple(_stats(p, "Red") for p in "ab"),
     )
     client = MagicMock()
     client.get_match_history.return_value = [newer, older]
 
     result = find_henrik_custom_match(
-        client, region="eu", leader_name="L", leader_tag="T",
-        expected_puuids=expected, after=started - timedelta(hours=1),
+        client,
+        region="eu",
+        leader_name="L",
+        leader_tag="T",
+        expected_puuids=expected,
+        after=started - timedelta(hours=1),
     )
     assert result is not None
     assert result.matchid == "M_NEW"
@@ -218,7 +258,7 @@ def test_acs_top_frag_gets_higher_multiplier():
 def test_acs_bottom_frag_clamped_to_min():
     """Un joueur avec ACS quasi-nul doit etre clampe a 0.7."""
     players = (
-        _stats("a1", "Red", score=0),     # bottom frag
+        _stats("a1", "Red", score=0),  # bottom frag
         _stats("a2", "Red", score=3000),
         _stats("a3", "Red", score=3000),
         _stats("a4", "Red", score=3000),
@@ -242,10 +282,10 @@ def test_acs_mixed_team_labels_skipped():
     """Si les joueurs Team A du bot sont eparpilles entre Red et Blue cote
     Henrik (lobby ou les joueurs ont switche A/D), on skip cette equipe."""
     players = (
-        _stats("a1", "Red", score=2400),    # 3 Red
+        _stats("a1", "Red", score=2400),  # 3 Red
         _stats("a2", "Red", score=2400),
         _stats("a3", "Red", score=2400),
-        _stats("a4", "Blue", score=2400),   # mais 2 Blue !
+        _stats("a4", "Blue", score=2400),  # mais 2 Blue !
         _stats("a5", "Blue", score=2400),
         _stats("b1", "Blue", score=2400),
         _stats("b2", "Blue", score=2400),

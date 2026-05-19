@@ -49,12 +49,14 @@ def _fake_interaction(user, guild, message_id: int = 555):
     return inter
 
 
-def _seed_match(db, guild_id: int = 42, message_id: int = 555,
-                team_a_ids=range(0, 5), team_b_ids=range(5, 10)):
+def _seed_match(
+    db, guild_id: int = 42, message_id: int = 555, team_a_ids=range(0, 5), team_b_ids=range(5, 10)
+):
     return repository.create_match(
-        db, origin_guild_id=guild_id,
-        team_a=[{"id": i, "name": f"P{i}", "elo": 1500 + i*50} for i in team_a_ids],
-        team_b=[{"id": i, "name": f"P{i}", "elo": 1500 + i*50} for i in team_b_ids],
+        db,
+        origin_guild_id=guild_id,
+        team_a=[{"id": i, "name": f"P{i}", "elo": 1500 + i * 50} for i in team_a_ids],
+        team_b=[{"id": i, "name": f"P{i}", "elo": 1500 + i * 50} for i in team_b_ids],
         map_name="Ascent",
         lobby_leader_id=0,
         category_name="Match #1",
@@ -67,6 +69,7 @@ def _seed_match(db, guild_id: int = 42, message_id: int = 555,
 # ── Vote : refus ──────────────────────────────────────────────────
 async def test_vote_when_no_match_for_message():
     import bot as bot_module
+
     view = VoteView(bot_module.db)
     inter = _fake_interaction(_fake_member(0), _fake_guild(), message_id=999)
 
@@ -79,6 +82,7 @@ async def test_vote_when_no_match_for_message():
 
 async def test_vote_when_user_did_not_play_match_refused():
     import bot as bot_module
+
     _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
     # User 99 n'a pas joue
@@ -93,6 +97,7 @@ async def test_vote_when_user_did_not_play_match_refused():
 
 async def test_vote_on_validated_match_refused():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
 
@@ -107,6 +112,7 @@ async def test_vote_on_validated_match_refused():
 # ── Vote : enregistrement ─────────────────────────────────────────
 async def test_vote_recorded_in_db():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
 
     view = VoteView(bot_module.db)
@@ -121,6 +127,7 @@ async def test_vote_recorded_in_db():
 
 async def test_vote_can_be_changed():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
@@ -138,6 +145,7 @@ async def test_vote_can_be_changed():
 # ── Majorite ──────────────────────────────────────────────────────
 async def test_six_votes_for_a_keeps_pending():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
@@ -153,9 +161,11 @@ async def test_six_votes_for_a_keeps_pending():
 
 async def test_seven_votes_for_a_validates_match():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
 
     triggered = []
+
     async def on_validated(inter, match_doc):
         triggered.append(match_doc)
 
@@ -176,6 +186,7 @@ async def test_seven_votes_for_a_validates_match():
 
 async def test_seven_votes_for_b_validates_b():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
@@ -190,6 +201,7 @@ async def test_seven_votes_for_b_validates_b():
 async def test_validated_view_removed_from_message():
     """Apres validation : view=None passe a edit_message (boutons enleves)."""
     import bot as bot_module
+
     _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
@@ -206,6 +218,7 @@ async def test_validated_view_removed_from_message():
 # ── Embed : reflete les votes ─────────────────────────────────────
 async def test_embed_shows_current_vote_counts():
     import bot as bot_module
+
     _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
@@ -302,10 +315,12 @@ async def test_timeout_self_heals_pending_with_majority_a():
     match_id = _seed_match(bot_module.db)
     bot_module.db["matches"].update_one(
         {"_id": match_id},
-        {"$set": {
-            "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
-            "votes": {str(i): "a" for i in range(MAJORITY_THRESHOLD)},
-        }},
+        {
+            "$set": {
+                "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
+                "votes": {str(i): "a" for i in range(MAJORITY_THRESHOLD)},
+            }
+        },
     )
 
     channel = MagicMock()
@@ -332,10 +347,12 @@ async def test_timeout_self_heals_pending_with_majority_b():
     match_id = _seed_match(bot_module.db)
     bot_module.db["matches"].update_one(
         {"_id": match_id},
-        {"$set": {
-            "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
-            "votes": {str(i): "b" for i in range(MAJORITY_THRESHOLD)},
-        }},
+        {
+            "$set": {
+                "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
+                "votes": {str(i): "b" for i in range(MAJORITY_THRESHOLD)},
+            }
+        },
     )
 
     channel = MagicMock()
@@ -359,14 +376,15 @@ async def test_timeout_still_marks_contested_when_no_majority():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    split_votes = {**{str(i): "a" for i in range(4)},
-                   **{str(i): "b" for i in range(4, 7)}}
+    split_votes = {**{str(i): "a" for i in range(4)}, **{str(i): "b" for i in range(4, 7)}}
     bot_module.db["matches"].update_one(
         {"_id": match_id},
-        {"$set": {
-            "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
-            "votes": split_votes,
-        }},
+        {
+            "$set": {
+                "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
+                "votes": split_votes,
+            }
+        },
     )
 
     channel = MagicMock()
@@ -398,10 +416,12 @@ async def test_timeout_does_not_affect_validated():
     match_id = _seed_match(bot_module.db)
     bot_module.db["matches"].update_one(
         {"_id": match_id},
-        {"$set": {
-            "status": "validated_a",
-            "created_at": datetime.now(UTC) - timedelta(minutes=20),
-        }},
+        {
+            "$set": {
+                "status": "validated_a",
+                "created_at": datetime.now(UTC) - timedelta(minutes=20),
+            }
+        },
     )
 
     channel = MagicMock()
@@ -437,6 +457,7 @@ async def test_timeout_does_not_affect_recent_match():
 async def test_timeout_with_injectable_now():
     """Permet de simuler le passage du temps dans les tests."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
 
     channel = MagicMock()
@@ -455,6 +476,7 @@ async def test_timeout_with_injectable_now():
 async def test_timeout_falls_back_when_no_admin_role():
     """Si aucun role 'Admin' n'existe : on ping `@admin` en plain text."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     bot_module.db["matches"].update_one(
         {"_id": match_id},
@@ -486,7 +508,8 @@ def test_timeout_minutes_is_5():
 # ── Phase 6 : MAJ ELO apres validation ────────────────────────────
 def _seed_match_with_avg_2400(db, guild_id: int = 42, message_id: int = 555):
     return repository.create_match(
-        db, origin_guild_id=guild_id,
+        db,
+        origin_guild_id=guild_id,
         team_a=[{"id": i, "name": f"P{i}", "elo": 2400} for i in range(0, 5)],
         team_b=[{"id": i, "name": f"P{i}", "elo": 2400} for i in range(5, 10)],
         map_name="Ascent",
@@ -504,10 +527,15 @@ def _seed_db_elos(db, guild_id: int = 42, baseline: int = 2000) -> None:
     le plancher zero-sum qui neutraliserait les gains gagnants."""
     col = repository.get_elo_col(db)
     for i in range(10):
-        col.insert_one({
-            "_id": f"{i}:open", "name": f"P{i}",
-            "elo": baseline, "wins": 0, "losses": 0,
-        })
+        col.insert_one(
+            {
+                "_id": f"{i}:open",
+                "name": f"P{i}",
+                "elo": baseline,
+                "wins": 0,
+                "losses": 0,
+            }
+        )
 
 
 async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: int = 42):
@@ -584,7 +612,8 @@ async def test_validation_with_high_elo_match_bigger_gain():
     from cogs.match import MatchCog
 
     match_id = repository.create_match(
-        bot_module.db, origin_guild_id=42,
+        bot_module.db,
+        origin_guild_id=42,
         team_a=[{"id": i, "name": f"P{i}", "elo": 3000} for i in range(0, 5)],
         team_b=[{"id": i, "name": f"P{i}", "elo": 3000} for i in range(5, 10)],
         map_name="Ascent",
@@ -657,10 +686,13 @@ async def test_vote_validation_does_not_touch_elo():
 # ── Atomicite : transition_match_status (fix audit #2) ────────────
 def test_transition_match_status_succeeds_from_pending():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     res = repository.transition_match_status(
-        bot_module.db, match_id,
-        from_status="pending", to_status="validated_a",
+        bot_module.db,
+        match_id,
+        from_status="pending",
+        to_status="validated_a",
     )
     assert res is not None
     assert res["status"] == "validated_a"
@@ -671,12 +703,15 @@ def test_transition_match_status_fails_when_already_validated():
     """Garantie d'atomicite : si un autre vote concurrent a deja valide,
     une seconde transition ne reussit pas (renvoie None)."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
 
     res = repository.transition_match_status(
-        bot_module.db, match_id,
-        from_status="pending", to_status="validated_b",
+        bot_module.db,
+        match_id,
+        from_status="pending",
+        to_status="validated_b",
     )
     assert res is None
 
@@ -685,9 +720,11 @@ async def test_concurrent_votes_only_fire_on_validated_once():
     """Deux votes votant simultanement pour des camps opposes au seuil
     ne doivent declencher `on_validated` qu'une seule fois."""
     import bot as bot_module
+
     _seed_match(bot_module.db)
 
     fired = []
+
     async def on_validated(inter, match_doc):
         fired.append(match_doc.get("status"))
 
@@ -711,6 +748,7 @@ async def test_concurrent_votes_only_fire_on_validated_once():
 # ── Idempotence ELO : claim_match_for_elo (fix audit #3) ──────────
 def test_claim_match_for_elo_succeeds_first_time():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
 
@@ -722,6 +760,7 @@ def test_claim_match_for_elo_succeeds_first_time():
 def test_claim_match_for_elo_returns_none_when_already_claimed():
     """Empeche la double-application d'ELO : seul le premier claim passe."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
 
@@ -733,6 +772,7 @@ def test_claim_match_for_elo_returns_none_when_already_claimed():
 
 def test_claim_match_for_elo_rejects_non_validated_match():
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     # Status reste 'pending', pas de claim possible
     claim = repository.claim_match_for_elo(bot_module.db, match_id)
@@ -742,6 +782,7 @@ def test_claim_match_for_elo_rejects_non_validated_match():
 def test_release_elo_claim_allows_retry():
     """Si l'application ELO leve, on relache le claim pour re-essayer."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
 
@@ -755,6 +796,7 @@ def test_find_validated_unverified_excludes_elo_applied():
     """Un match dont l'ELO est deja applique ne doit pas re-apparaitre dans
     la queue de verification (eviter le double credit)."""
     import bot as bot_module
+
     match_id = _seed_match(bot_module.db)
     repository.set_match_status(bot_module.db, match_id, "validated_a")
     repository.claim_match_for_elo(bot_module.db, match_id)

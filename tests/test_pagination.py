@@ -36,17 +36,20 @@ def clamp_page(new_page: int, total: int) -> int | None:
 
 
 # ── Tests : nombre de pages ───────────────────────────────────────
-@pytest.mark.parametrize("n,expected", [
-    (0,  1),    # liste vide -> 1 page (default)
-    (1,  1),    # 1 joueur -> 1 page
-    (15, 1),    # exactement PAGE_SIZE -> 1 page
-    (16, 2),    # 1 de plus -> 2 pages
-    (29, 2),
-    (30, 2),
-    (31, 3),
-    (100, 7),
-    (150, 10),
-])
+@pytest.mark.parametrize(
+    "n,expected",
+    [
+        (0, 1),  # liste vide -> 1 page (default)
+        (1, 1),  # 1 joueur -> 1 page
+        (15, 1),  # exactement PAGE_SIZE -> 1 page
+        (16, 2),  # 1 de plus -> 2 pages
+        (29, 2),
+        (30, 2),
+        (31, 3),
+        (100, 7),
+        (150, 10),
+    ],
+)
 def test_total_pages(n, expected):
     assert total_pages(n) == expected
 
@@ -102,14 +105,14 @@ def test_clamp_above_total_rejected():
 def test_chunk_first_page():
     players = list(range(30))
     page = 0
-    chunk = players[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+    chunk = players[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
     assert chunk == list(range(15))
 
 
 def test_chunk_second_page():
     players = list(range(30))
     page = 1
-    chunk = players[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+    chunk = players[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
     assert chunk == list(range(15, 30))
 
 
@@ -138,12 +141,28 @@ async def test_build_leaderboard_payload_filters_by_queue_type():
 
     db = mongomock.MongoClient(tz_aware=True).db
     col = get_elo_col(db)
-    col.insert_many([
-        {"_id": player_doc_id(1, "pro"), "user_id": "1", "name": "A",
-         "elo": 2500, "wins": 5, "losses": 1, "queue_type": "pro"},
-        {"_id": player_doc_id(1, "open"), "user_id": "1", "name": "A",
-         "elo": 1500, "wins": 1, "losses": 5, "queue_type": "open"},
-    ])
+    col.insert_many(
+        [
+            {
+                "_id": player_doc_id(1, "pro"),
+                "user_id": "1",
+                "name": "A",
+                "elo": 2500,
+                "wins": 5,
+                "losses": 1,
+                "queue_type": "pro",
+            },
+            {
+                "_id": player_doc_id(1, "open"),
+                "user_id": "1",
+                "name": "A",
+                "elo": 1500,
+                "wins": 1,
+                "losses": 5,
+                "queue_type": "open",
+            },
+        ]
+    )
 
     guild = MagicMock()
     guild.id = 42
@@ -182,6 +201,7 @@ def _make_guild_with_member(guild_id: int = 99):
 
 def _seed_pro_open(db, guild_id: int, n: int = 1) -> None:
     from services.repository import get_elo_col, player_doc_id
+
     col = get_elo_col(db)
     docs = []
     # User IDs offset par guild pour eviter les collisions dans la collection
@@ -189,16 +209,28 @@ def _seed_pro_open(db, guild_id: int, n: int = 1) -> None:
     offset = guild_id * 1000
     for i in range(1, n + 1):
         uid = offset + i
-        docs.append({
-            "_id": player_doc_id(uid, "pro"), "user_id": str(uid),
-            "name": f"P{uid}", "elo": 2500 + i, "wins": 1, "losses": 0,
-            "queue_type": "pro",
-        })
-        docs.append({
-            "_id": player_doc_id(uid, "open"), "user_id": str(uid),
-            "name": f"P{uid}", "elo": 2000 + i, "wins": 1, "losses": 0,
-            "queue_type": "open",
-        })
+        docs.append(
+            {
+                "_id": player_doc_id(uid, "pro"),
+                "user_id": str(uid),
+                "name": f"P{uid}",
+                "elo": 2500 + i,
+                "wins": 1,
+                "losses": 0,
+                "queue_type": "pro",
+            }
+        )
+        docs.append(
+            {
+                "_id": player_doc_id(uid, "open"),
+                "user_id": str(uid),
+                "name": f"P{uid}",
+                "elo": 2000 + i,
+                "wins": 1,
+                "losses": 0,
+                "queue_type": "open",
+            }
+        )
     col.insert_many(docs)
 
 
@@ -265,7 +297,9 @@ async def test_page_cache_invalidation_clears_queue_entries():
     (guild, queue_type), peu importe la page."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload, _cache_invalidate, _PAGE_CACHE,
+        build_leaderboard_payload,
+        _cache_invalidate,
+        _PAGE_CACHE,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -290,7 +324,9 @@ async def test_page_cache_invalidation_is_per_queue():
     """Invalider Pro ne doit PAS toucher Open ou GC."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload, _cache_invalidate, _PAGE_CACHE,
+        build_leaderboard_payload,
+        _cache_invalidate,
+        _PAGE_CACHE,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -315,7 +351,9 @@ async def test_page_cache_invalidation_is_per_guild():
     """Invalider guild 99 ne doit PAS toucher guild 100."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload, _cache_invalidate, _PAGE_CACHE,
+        build_leaderboard_payload,
+        _cache_invalidate,
+        _PAGE_CACHE,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -326,21 +364,21 @@ async def test_page_cache_invalidation_is_per_guild():
 
     await build_leaderboard_payload(_make_guild_with_member(99), db, queue_type="pro")
     await build_leaderboard_payload(_make_guild_with_member(100), db, queue_type="pro")
-    assert (99,  "pro", 0) in _PAGE_CACHE
+    assert (99, "pro", 0) in _PAGE_CACHE
     assert (100, "pro", 0) in _PAGE_CACHE
 
     _cache_invalidate(99, "pro")
-    assert (99,  "pro", 0) not in _PAGE_CACHE
-    assert (100, "pro", 0) in _PAGE_CACHE, (
-        "Le cache d'une autre guild ne doit pas etre touche"
-    )
+    assert (99, "pro", 0) not in _PAGE_CACHE
+    assert (100, "pro", 0) in _PAGE_CACHE, "Le cache d'une autre guild ne doit pas etre touche"
 
 
 def test_page_cache_lru_eviction():
     """Au-dela de _PAGE_CACHE_MAXSIZE, le plus ancien (FIFO) est evicte."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        _cache_set, _PAGE_CACHE, _PAGE_CACHE_MAXSIZE,
+        _cache_set,
+        _PAGE_CACHE,
+        _PAGE_CACHE_MAXSIZE,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -362,7 +400,9 @@ def test_page_cache_get_promotes_lru_order():
     """Un cache hit doit promouvoir la cle au plus recent (anti-eviction)."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        _cache_set, _cache_get, _PAGE_CACHE,
+        _cache_set,
+        _cache_get,
+        _PAGE_CACHE,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()

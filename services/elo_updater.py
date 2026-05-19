@@ -30,22 +30,22 @@ FLAT_FALLBACK_ELO_CHANGE: Final[int] = 16
 
 @dataclass(frozen=True)
 class PlayerEloChange:
-    user_id:    str
-    name:       str
-    old_elo:    int
-    new_elo:    int
-    delta:      int
-    win:        bool
+    user_id: str
+    name: str
+    old_elo: int
+    new_elo: int
+    delta: int
+    win: bool
     multiplier: float = 1.0
 
 
 @dataclass(frozen=True)
 class MatchEloOutcome:
-    avg_elo:     int
-    gain:        int
-    loss:        int
-    changes:     tuple[PlayerEloChange, ...]
-    weighted:    bool = False  # True si appel avec multipliers Henrik
+    avg_elo: int
+    gain: int
+    loss: int
+    changes: tuple[PlayerEloChange, ...]
+    weighted: bool = False  # True si appel avec multipliers Henrik
 
 
 def apply_match_validation(
@@ -101,17 +101,15 @@ def apply_match_validation(
     elo_col = repository.get_elo_col(db)
 
     winner_mults = [float(mults.get(str(p["id"]), 1.0)) for p in winners]
-    loser_mults  = [float(mults.get(str(p["id"]), 1.0)) for p in losers]
+    loser_mults = [float(mults.get(str(p["id"]), 1.0)) for p in losers]
 
     winner_deltas = [round(+base_gain * m) for m in winner_mults]
-    loser_deltas  = [round(-base_loss * (2.0 - m)) for m in loser_mults]
+    loser_deltas = [round(-base_loss * (2.0 - m)) for m in loser_mults]
 
     # Clamp a 0 ELO pour les perdants (compound _id pour le lookup).
     loser_old_elos: list[int] = []
     for p in losers:
-        doc = elo_col.find_one(
-            {"_id": repository.player_doc_id(p["id"], queue_type)}
-        )
+        doc = elo_col.find_one({"_id": repository.player_doc_id(p["id"], queue_type)})
         loser_old_elos.append(
             int(doc.get("elo", elo_calc.ELO_START)) if doc else elo_calc.ELO_START
         )
@@ -122,15 +120,29 @@ def apply_match_validation(
     match_id = match_doc.get("_id")
     changes: list[PlayerEloChange] = []
     for p, delta, mult in zip(winners, winner_deltas, winner_mults, strict=True):
-        changes.append(_apply_player(
-            elo_col, p, queue_type=queue_type, match_id=match_id,
-            delta=delta, win=True, multiplier=mult,
-        ))
+        changes.append(
+            _apply_player(
+                elo_col,
+                p,
+                queue_type=queue_type,
+                match_id=match_id,
+                delta=delta,
+                win=True,
+                multiplier=mult,
+            )
+        )
     for p, delta, mult in zip(losers, clamped_loser_deltas, loser_mults, strict=True):
-        changes.append(_apply_player(
-            elo_col, p, queue_type=queue_type, match_id=match_id,
-            delta=delta, win=False, multiplier=mult,
-        ))
+        changes.append(
+            _apply_player(
+                elo_col,
+                p,
+                queue_type=queue_type,
+                match_id=match_id,
+                delta=delta,
+                win=False,
+                multiplier=mult,
+            )
+        )
 
     return MatchEloOutcome(
         avg_elo=avg_elo,
@@ -142,28 +154,36 @@ def apply_match_validation(
 
 
 def _apply_player(
-    col, player: dict, *, queue_type: str, match_id, delta: int,
-    win: bool, multiplier: float = 1.0,
+    col,
+    player: dict,
+    *,
+    queue_type: str,
+    match_id,
+    delta: int,
+    win: bool,
+    multiplier: float = 1.0,
 ) -> PlayerEloChange:
     """Applique le delta ELO de maniere idempotente par match.
 
     Le doc joueur est identifie par compound _id `<user_id>:<queue_type>`.
     L'idempotence par match est preservee via `processed_matches`."""
-    uid  = str(player["id"])
+    uid = str(player["id"])
     name = player.get("name", uid)
     doc_id = repository.player_doc_id(uid, queue_type)
     match_id_str = str(match_id) if match_id is not None else None
 
     col.update_one(
         {"_id": doc_id},
-        {"$setOnInsert": {
-            "name":       name,
-            "elo":        elo_calc.ELO_START,
-            "wins":       0,
-            "losses":     0,
-            "queue_type": queue_type,
-            "user_id":    uid,
-        }},
+        {
+            "$setOnInsert": {
+                "name": name,
+                "elo": elo_calc.ELO_START,
+                "wins": 0,
+                "losses": 0,
+                "queue_type": queue_type,
+                "user_id": uid,
+            }
+        },
         upsert=True,
     )
 
@@ -179,20 +199,32 @@ def _apply_player(
         filter_q = {"_id": doc_id}
 
     pre = col.find_one_and_update(
-        filter_q, update, return_document=ReturnDocument.BEFORE,
+        filter_q,
+        update,
+        return_document=ReturnDocument.BEFORE,
     )
 
     if pre is None:
         cur_doc = col.find_one({"_id": doc_id})
         cur_elo = int(cur_doc.get("elo", 0)) if cur_doc else 0
         return PlayerEloChange(
-            user_id=uid, name=name, old_elo=cur_elo, new_elo=cur_elo,
-            delta=0, win=win, multiplier=multiplier,
+            user_id=uid,
+            name=name,
+            old_elo=cur_elo,
+            new_elo=cur_elo,
+            delta=0,
+            win=win,
+            multiplier=multiplier,
         )
 
     old_elo = int(pre.get("elo", 0))
     new_elo = old_elo + delta
     return PlayerEloChange(
-        user_id=uid, name=name, old_elo=old_elo, new_elo=new_elo,
-        delta=delta, win=win, multiplier=multiplier,
+        user_id=uid,
+        name=name,
+        old_elo=old_elo,
+        new_elo=new_elo,
+        delta=delta,
+        win=win,
+        multiplier=multiplier,
     )

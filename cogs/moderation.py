@@ -29,9 +29,7 @@ WARN_ROLE_NAMES: tuple[str, ...] = (
     "THE HUB",
 )
 
-WARN_MESSAGE = (
-    "Vous venez de recevoir un warn, au prochain, vous serez sanctionner."
-)
+WARN_MESSAGE = "Vous venez de recevoir un warn, au prochain, vous serez sanctionné."
 
 WARN_LIST_PAGE_SIZE = 10
 
@@ -118,12 +116,12 @@ class ModerationCog(commands.Cog):
                 interaction.user.display_name,
             )
         except discord.HTTPException:
-            logger.exception("[warn] echec envoi DM a %s", member.id)
-            await interaction.response.send_message(
-                f"❌ Echec de l'envoi du DM a {member.mention}.",
-                ephemeral=True,
-            )
-            return
+            # Erreur transitoire (rate-limit, 5xx) : on log et on persiste
+            # quand meme — perdre le warn pour un blip reseau serait pire
+            # que ne pas avoir prevenu l'utilisateur. dm_failed=True =>
+            # message final indique l'echec DM.
+            dm_failed = True
+            logger.exception("[warn] echec envoi DM a %s (HTTP)", member.id)
 
         try:
             repository.add_warn(
@@ -197,9 +195,7 @@ class ModerationCog(commands.Cog):
         )
 
         title = (
-            f"📋 Warns de {member.display_name}"
-            if member is not None
-            else "📋 Warns du serveur"
+            f"📋 Warns de {member.display_name}" if member is not None else "📋 Warns du serveur"
         )
 
         if not warns:
@@ -227,9 +223,7 @@ class ModerationCog(commands.Cog):
 
         for warn in warns:
             ts = warn.get("timestamp")
-            ts_str = (
-                f"<t:{int(ts.timestamp())}:f>" if isinstance(ts, datetime) else "?"
-            )
+            ts_str = f"<t:{int(ts.timestamp())}:f>" if isinstance(ts, datetime) else "?"
             target = f"<@{warn['member_id']}>"
             moderator = warn.get("moderator_name", "?")
             reason = _truncate(str(warn.get("reason", "")), 200)

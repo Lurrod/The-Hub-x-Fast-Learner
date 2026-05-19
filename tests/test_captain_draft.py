@@ -1,4 +1,5 @@
 """Tests purs pour le draft capitaine de la Pro Queue."""
+
 from __future__ import annotations
 
 import random
@@ -21,8 +22,16 @@ def _p(uid: int, elo: int) -> Player:
 def test_pick_captains_returns_two_distinct_players_from_pool():
     """Les capitaines sont 2 joueurs distincts tires de la liste, peu importe l'ELO."""
     players = [
-        _p(1, 1000), _p(2, 1100), _p(3, 1200), _p(4, 1300), _p(5, 1400),
-        _p(6, 1500), _p(7, 1600), _p(8, 1700), _p(9, 1800), _p(10, 1900),
+        _p(1, 1000),
+        _p(2, 1100),
+        _p(3, 1200),
+        _p(4, 1300),
+        _p(5, 1400),
+        _p(6, 1500),
+        _p(7, 1600),
+        _p(8, 1700),
+        _p(9, 1800),
+        _p(10, 1900),
     ]
     rng = random.Random(42)
     cap_a, cap_b = pick_captains(players, rng=rng)
@@ -67,8 +76,8 @@ def test_pick_captains_raises_if_empty():
         pick_captains([], rng=random.Random(0))
 
 
-def test_pick_sequence_is_snake_ABBAABBA():
-    assert PICK_SEQUENCE == ("A", "B", "B", "A", "A", "B", "B", "A")
+def test_pick_sequence_is_alternating_ABABABAB():
+    assert PICK_SEQUENCE == ("A", "B", "A", "B", "A", "B", "A", "B")
 
 
 def test_draft_state_initial():
@@ -105,9 +114,9 @@ def test_draft_state_apply_pick_is_immutable():
     assert state2.turn_index == 1
 
 
-def test_draft_state_apply_pick_follows_ABBAABBA():
+def test_draft_state_apply_pick_follows_ABABABAB():
     state, pool = _make_state_with_8_pool()
-    expected_sides = ["A", "B", "B", "A", "A", "B", "B", "A"]
+    expected_sides = ["A", "B", "A", "B", "A", "B", "A", "B"]
     for i, side in enumerate(expected_sides):
         assert state.current_captain.id == (state.cap_a.id if side == "A" else state.cap_b.id), (
             f"turn {i}: expected side {side}"
@@ -200,7 +209,9 @@ def test_build_plan_from_draft_uses_capA_as_leader():
         state = state.apply_pick(p)
     result = DraftResult.from_state(state)
     plan = build_plan_from_draft(
-        result, free_category="Match #1", rng=random.Random(42),
+        result,
+        free_category="Match #1",
+        rng=random.Random(42),
     )
     assert plan.category_name == "Match #1"
     assert plan.lobby_leader is state.cap_a

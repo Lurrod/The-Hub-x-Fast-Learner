@@ -31,17 +31,17 @@ DEFAULT_MULT_MAX: Final[float] = 1.3
 
 @dataclass(frozen=True)
 class PlayerPerformance:
-    user_id:    str
-    puuid:      str
-    acs:        float
+    user_id: str
+    puuid: str
+    acs: float
     multiplier: float
-    win:        bool
+    win: bool
 
 
 @dataclass(frozen=True)
 class VerifiedMatch:
-    matchid:      str
-    started_at:   datetime
+    matchid: str
+    started_at: datetime
     winning_team: str  # "Red" ou "Blue" (vide si nul)
     performances: tuple[PlayerPerformance, ...]
 
@@ -51,7 +51,7 @@ def find_henrik_custom_match(
     *,
     region: str,
     leader_name: str,
-    leader_tag:  str,
+    leader_tag: str,
     expected_puuids: set[str],
     after: datetime,
     history_size: int = 10,
@@ -61,8 +61,11 @@ def find_henrik_custom_match(
     """
     try:
         history = client.get_match_history(
-            region, leader_name, leader_tag,
-            size=history_size, mode="custom",
+            region,
+            leader_name,
+            leader_tag,
+            size=history_size,
+            mode="custom",
         )
     except RiotApiError:
         return None
@@ -106,9 +109,7 @@ def compute_acs_multipliers(
             continue  # equipe incoherente cote Henrik
         side = next(iter(labels))
 
-        team_acs = [
-            by_puuid[pu].score / rounds for pu in team_uids if pu in by_puuid
-        ]
+        team_acs = [by_puuid[pu].score / rounds for pu in team_uids if pu in by_puuid]
         if not team_acs:
             continue
         avg_acs = sum(team_acs) / len(team_acs)
@@ -119,16 +120,18 @@ def compute_acs_multipliers(
             stats = by_puuid.get(pu)
             if stats is None:
                 continue
-            acs  = stats.score / rounds
-            raw  = acs / avg_acs
+            acs = stats.score / rounds
+            raw = acs / avg_acs
             mult = max(mult_min, min(mult_max, raw))
-            perfs.append(PlayerPerformance(
-                user_id=uid,
-                puuid=pu,
-                acs=acs,
-                multiplier=mult,
-                win=(side == winning),
-            ))
+            perfs.append(
+                PlayerPerformance(
+                    user_id=uid,
+                    puuid=pu,
+                    acs=acs,
+                    multiplier=mult,
+                    win=(side == winning),
+                )
+            )
 
     return VerifiedMatch(
         matchid=match.matchid,

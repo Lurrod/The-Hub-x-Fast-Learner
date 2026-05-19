@@ -43,12 +43,14 @@ DEFAULT_REGION = "eu"
 
 class RiotLinkCog(commands.Cog):
     def __init__(self, bot: commands.Bot, db, riot_client: HenrikDevClient) -> None:
-        self.bot         = bot
-        self.db          = db
+        self.bot = bot
+        self.db = db
         self.riot_client = riot_client
 
     # ── /link-riot ────────────────────────────────────────────────
-    @app_commands.command(name="link-riot", description="Lie ton compte Discord a ton compte Riot (EU)")
+    @app_commands.command(
+        name="link-riot", description="Lie ton compte Discord a ton compte Riot (EU)"
+    )
     @app_commands.describe(
         riot_id="Ton Riot ID au format Pseudo#TAG (ex: Player#EUW)",
     )
@@ -73,18 +75,24 @@ class RiotLinkCog(commands.Cog):
         # thread pour preserver la reactivite du bot.
         try:
             account = await asyncio.to_thread(self.riot_client.get_account, name, tag)
-            mmr     = await asyncio.to_thread(self.riot_client.get_current_mmr, region, name, tag)
+            mmr = await asyncio.to_thread(self.riot_client.get_current_mmr, region, name, tag)
         except PlayerNotFoundError:
-            await interaction.followup.send(f"❌ Joueur **{name}#{tag}** introuvable.", ephemeral=True)
+            await interaction.followup.send(
+                f"❌ Joueur **{name}#{tag}** introuvable.", ephemeral=True
+            )
             return
         except RateLimitedError:
-            await interaction.followup.send("⏳ API HenrikDev rate-limited, reessaie dans 1 minute.", ephemeral=True)
+            await interaction.followup.send(
+                "⏳ API HenrikDev rate-limited, reessaie dans 1 minute.", ephemeral=True
+            )
             return
         except RiotApiError as e:
             # Ne pas leak la reponse brute de l'API (contient potentiellement
             # des details internes ou des extraits HTML d'erreur). On log
             # cote serveur et on remonte un message generique a l'utilisateur.
-            logger.error(f"[link-riot] RiotApiError pour user={interaction.user.id} : {e!r}", exc_info=True)
+            logger.error(
+                f"[link-riot] RiotApiError pour user={interaction.user.id} : {e!r}", exc_info=True
+            )
             await interaction.followup.send(
                 "❌ Erreur API Riot temporaire. Reessaie dans quelques instants.",
                 ephemeral=True,
@@ -97,7 +105,8 @@ class RiotLinkCog(commands.Cog):
         # comptes Discord lies au meme PUUID.
         existing = await asyncio.to_thread(
             repository.find_riot_account_by_puuid,
-            self.db, account.puuid,
+            self.db,
+            account.puuid,
         )
         if existing is not None and str(existing.get("_id")) != str(interaction.user.id):
             await interaction.followup.send(
@@ -138,12 +147,12 @@ class RiotLinkCog(commands.Cog):
         # 5) Embed de confirmation
         embed = discord.Embed(
             title="🎯 Compte Riot lie !",
-            color=0x2ecc71,
+            color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Riot ID", value=f"**{name}#{tag}**", inline=True)
-        embed.add_field(name="Region", value=region.upper(),       inline=True)
-        embed.add_field(name="Rang actuel", value=mmr.tier_name,   inline=True)
+        embed.add_field(name="Region", value=region.upper(), inline=True)
+        embed.add_field(name="Rang actuel", value=mmr.tier_name, inline=True)
         embed.set_footer(text=f"Discord: {interaction.user.display_name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -151,12 +160,14 @@ class RiotLinkCog(commands.Cog):
     @app_commands.command(name="unlink-riot", description="Supprime le lien avec ton compte Riot")
     async def unlink_riot(self, interaction: discord.Interaction) -> None:
         ok = repository.unlink_riot_account(
-            self.db, interaction.user.id,
+            self.db,
+            interaction.user.id,
         )
         if ok:
             await interaction.response.send_message("✅ Compte Riot delie.", ephemeral=True)
         else:
             await interaction.response.send_message("ℹ️ Aucun compte Riot lie.", ephemeral=True)
+
 
 async def setup(bot: commands.Bot, db, riot_client: HenrikDevClient) -> None:
     await bot.add_cog(RiotLinkCog(bot, db, riot_client))

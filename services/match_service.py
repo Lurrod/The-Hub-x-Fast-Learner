@@ -28,17 +28,17 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class MatchPlan:
-    teams:           BalancedTeams
-    map_name:        str
-    lobby_leader:    Player
-    category_name:   str | None  # None si aucune categorie libre
+    teams: BalancedTeams
+    map_name: str
+    lobby_leader: Player
+    category_name: str | None  # None si aucune categorie libre
 
 
 def build_players(
-    player_ids:     Sequence[str],
-    riot_accounts:  dict[str, dict],
-    member_names:   dict[str, str],
-    bot_elos:       dict[str, int] | None = None,
+    player_ids: Sequence[str],
+    riot_accounts: dict[str, dict],
+    member_names: dict[str, str],
+    bot_elos: dict[str, int] | None = None,
 ) -> list[Player]:
     """
     Construit les Player en croisant queue + Riot + ELO serveur + display_names.
@@ -61,19 +61,21 @@ def build_players(
         if riot is None:
             continue
         name = member_names.get(uid, riot.get("riot_name", "Unknown"))
-        out.append(Player(
-            id=int(uid),
-            name=name,
-            elo=int(bot_elos.get(uid, 0)),
-        ))
+        out.append(
+            Player(
+                id=int(uid),
+                name=name,
+                elo=int(bot_elos.get(uid, 0)),
+            )
+        )
     return out
 
 
 def plan_match(
-    players:       Sequence[Player],
+    players: Sequence[Player],
     *,
     free_category: str | None,
-    rng:           random.Random | None = None,
+    rng: random.Random | None = None,
 ) -> MatchPlan:
     """
     Etape pure : equilibre + map + lobby leader.
@@ -87,8 +89,8 @@ def plan_match(
         raise ValueError(f"Il faut 10 joueurs, recu {len(players)}")
 
     rng = rng or random.Random()
-    teams        = balance_teams(players)
-    map_name     = rng.choice(elo_calc.MAPS)
+    teams = balance_teams(players)
+    map_name = rng.choice(elo_calc.MAPS)
     lobby_leader = rng.choice(players)
     return MatchPlan(
         teams=teams,
@@ -99,10 +101,10 @@ def plan_match(
 
 
 def build_plan_from_draft(
-    result,           # services.captain_draft.DraftResult (typed via duck typing pour eviter import cycle)
+    result,  # services.captain_draft.DraftResult (typed via duck typing pour eviter import cycle)
     *,
     free_category: str,
-    rng:           random.Random,
+    rng: random.Random,
 ) -> MatchPlan:
     """Construit un MatchPlan a partir d'un DraftResult capitaine.
 
@@ -154,6 +156,7 @@ def find_free_match_prep(guild) -> tuple[str, discord.TextChannel] | None:
         avec un salon 'match-preparation' configure.
     """
     import discord  # import local pour ne pas alourdir l'import du module
+
     for i in range(1, 6):
         cat_name = f"Match #{i}"
         category = discord.utils.get(guild.categories, name=cat_name)

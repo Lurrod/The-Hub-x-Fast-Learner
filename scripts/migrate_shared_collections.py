@@ -12,11 +12,12 @@ Notes:
 - riot était historiquement nommée `riot_accounts_<guild>`, pas `riot_<guild>`.
 - elo et matches suivent le pattern `<name>_<guild>`.
 """
+
 from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from pymongo import MongoClient
 
@@ -32,10 +33,10 @@ def main() -> int:
         return 1
     source_guild_id = int(raw_guild)
 
-    client = MongoClient(mongo_url)
+    client: MongoClient = MongoClient(mongo_url)
     db = client["elobot"]
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
     mappings = {
         "elo": f"elo_{source_guild_id}",

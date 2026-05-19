@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 # Pondération ELO par position (cohérent avec /win, /lose slash).
-WIN_DELTAS_BY_SLOT:  tuple[int, ...] = (20, 18, 17, 16, 15)
+WIN_DELTAS_BY_SLOT: tuple[int, ...] = (20, 18, 17, 16, 15)
 LOSE_DELTAS_BY_SLOT: tuple[int, ...] = (10, 10, 12, 13, 15)
 
 
@@ -70,23 +70,30 @@ class PrefixLegacyCog(commands.Cog):
 
     @commands.command(name="leaderboard")
     async def leaderboard_prefix(self, ctx: commands.Context):
-        col  = repository.get_elo_col(self.db)
+        col = repository.get_elo_col(self.db)
         docs = list(col.find().sort([("elo", -1), ("wins", -1), ("_id", 1)]).limit(10))
         if not docs:
             await ctx.send("Aucun joueur enregistre.")
             return
         lines = []
         for i, doc in enumerate(docs):
-            uid    = doc["_id"]
+            uid = doc["_id"]
             member = ctx.guild.get_member(int(uid))
             if member is None:
                 continue
-            medal  = ["1er", "2e", "3e"][i] if i < 3 else f"#{i+1}"
-            lines.append(f"{medal} **{doc.get('name', uid)}** - {doc['elo']} ELO (W:{doc.get('wins',0)} / L:{doc.get('losses',0)})")
+            medal = ["1er", "2e", "3e"][i] if i < 3 else f"#{i + 1}"
+            lines.append(
+                f"{medal} **{doc.get('name', uid)}** - {doc['elo']} ELO (W:{doc.get('wins', 0)} / L:{doc.get('losses', 0)})"
+            )
         if not lines:
             await ctx.send("Aucun joueur enregistre.")
             return
-        embed = discord.Embed(title="Classement ELO", description="\n".join(lines), color=0xf1c40f, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="Classement ELO",
+            description="\n".join(lines),
+            color=0xF1C40F,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_footer(text=ctx.guild.name)
         await ctx.send(embed=embed)
 
@@ -99,34 +106,45 @@ class PrefixLegacyCog(commands.Cog):
         if not doc:
             await ctx.send(f"{member.display_name} n'a pas encore joue.")
             return
-        elo     = doc["elo"]
-        wins    = doc.get("wins", 0)
-        losses  = doc.get("losses", 0)
-        total   = wins + losses
+        elo = doc["elo"]
+        wins = doc.get("wins", 0)
+        losses = doc.get("losses", 0)
+        total = wins + losses
         winrate = round((wins / total) * 100, 1) if total > 0 else 0
-        rank    = col.count_documents({
-            "$or": [
-                {"elo": {"$gt": elo}},
-                {"elo": elo, "wins": {"$gt": wins}},
-                {"elo": elo, "wins": wins, "_id": {"$lt": str(member.id)}},
-            ],
-        }) + 1
-        embed = discord.Embed(title=f"Stats de {member.display_name}", color=0x3498db, timestamp=datetime.now(UTC))
+        rank = (
+            col.count_documents(
+                {
+                    "$or": [
+                        {"elo": {"$gt": elo}},
+                        {"elo": elo, "wins": {"$gt": wins}},
+                        {"elo": elo, "wins": wins, "_id": {"$lt": str(member.id)}},
+                    ],
+                }
+            )
+            + 1
+        )
+        embed = discord.Embed(
+            title=f"Stats de {member.display_name}", color=0x3498DB, timestamp=datetime.now(UTC)
+        )
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="🏅 ELO",       value=f"**{elo}**",            inline=True)
-        embed.add_field(name="🏆 Rang",      value=f"**#{rank}**",          inline=True)
-        embed.add_field(name="📈 Winrate",   value=f"**{winrate}%**",       inline=True)
-        embed.add_field(name="✅ Victoires", value=f"**{wins}**",           inline=True)
-        embed.add_field(name="❌ Défaites",  value=f"**{losses}**",         inline=True)
-        embed.add_field(name="🎮 Parties",   value=f"**{total}**",          inline=True)
+        embed.add_field(name="🏅 ELO", value=f"**{elo}**", inline=True)
+        embed.add_field(name="🏆 Rang", value=f"**#{rank}**", inline=True)
+        embed.add_field(name="📈 Winrate", value=f"**{winrate}%**", inline=True)
+        embed.add_field(name="✅ Victoires", value=f"**{wins}**", inline=True)
+        embed.add_field(name="❌ Défaites", value=f"**{losses}**", inline=True)
+        embed.add_field(name="🎮 Parties", value=f"**{total}**", inline=True)
         embed.set_footer(text=ctx.guild.name)
         await ctx.send(embed=embed)
 
     @commands.command(name="win")
-    async def win_prefix(self, ctx: commands.Context,
+    async def win_prefix(
+        self,
+        ctx: commands.Context,
         joueur1: discord.Member,
-        joueur2: discord.Member = None, joueur3: discord.Member = None,
-        joueur4: discord.Member = None, joueur5: discord.Member = None,
+        joueur2: discord.Member = None,
+        joueur3: discord.Member = None,
+        joueur4: discord.Member = None,
+        joueur5: discord.Member = None,
     ):
         """Prefix legacy : applique sur la queue Open par defaut."""
         if not _has_prefix_access(ctx, self.db):
@@ -139,13 +157,17 @@ class PrefixLegacyCog(commands.Cog):
         embed = discord.Embed(
             title="🏆 Résultats Open — Victoire enregistrée !",
             description=f"Avg ELO du groupe : **{avg_elo}** -> gains pondérés par position (joueur1→joueur5)",
-            color=0x2ecc71,
+            color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
         for slot, member in enumerate(players):
             gain = WIN_DELTAS_BY_SLOT[slot]
             repository.get_or_create_player(
-                col, member.id, queue, member.display_name, initial_elo=elo_calc.ELO_START,
+                col,
+                member.id,
+                queue,
+                member.display_name,
+                initial_elo=elo_calc.ELO_START,
             )
             old_doc = col.find_one_and_update(
                 {"_id": repository.player_doc_id(member.id, queue)},
@@ -154,16 +176,22 @@ class PrefixLegacyCog(commands.Cog):
             )
             old = (old_doc or {}).get("elo", 0)
             new = old + gain
-            embed.add_field(name=member.display_name, value=f"+{gain} ELO -> **{new}**", inline=False)
+            embed.add_field(
+                name=member.display_name, value=f"+{gain} ELO -> **{new}**", inline=False
+            )
         embed.set_footer(text=f"Enregistre par {ctx.author.display_name}")
         await ctx.send(embed=embed)
         await _refresh_leaderboard_safe(ctx.guild, self.db, queue)
 
     @commands.command(name="lose")
-    async def lose_prefix(self, ctx: commands.Context,
+    async def lose_prefix(
+        self,
+        ctx: commands.Context,
         joueur1: discord.Member,
-        joueur2: discord.Member = None, joueur3: discord.Member = None,
-        joueur4: discord.Member = None, joueur5: discord.Member = None,
+        joueur2: discord.Member = None,
+        joueur3: discord.Member = None,
+        joueur4: discord.Member = None,
+        joueur5: discord.Member = None,
     ):
         """Prefix legacy : applique sur la queue Open par defaut."""
         if not _has_prefix_access(ctx, self.db):
@@ -176,25 +204,35 @@ class PrefixLegacyCog(commands.Cog):
         embed = discord.Embed(
             title="💀 Résultats — Défaite enregistrée !",
             description=f"Avg ELO du groupe : **{avg_elo}** -> pertes pondérées par position (joueur1→joueur5)",
-            color=0xe74c3c,
+            color=0xE74C3C,
             timestamp=datetime.now(UTC),
         )
         for slot, member in enumerate(players):
             loss = LOSE_DELTAS_BY_SLOT[slot]
             repository.get_or_create_player(
-                col, member.id, queue, member.display_name, initial_elo=elo_calc.ELO_START,
+                col,
+                member.id,
+                queue,
+                member.display_name,
+                initial_elo=elo_calc.ELO_START,
             )
             old_doc = col.find_one_and_update(
                 {"_id": repository.player_doc_id(member.id, queue)},
-                [{"$set": {
-                    "elo": {"$max": [0, {"$subtract": [{"$ifNull": ["$elo", 0]}, loss]}]},
-                    "losses": {"$add": [{"$ifNull": ["$losses", 0]}, 1]},
-                }}],
+                [
+                    {
+                        "$set": {
+                            "elo": {"$max": [0, {"$subtract": [{"$ifNull": ["$elo", 0]}, loss]}]},
+                            "losses": {"$add": [{"$ifNull": ["$losses", 0]}, 1]},
+                        }
+                    }
+                ],
                 return_document=ReturnDocument.BEFORE,
             )
             old = (old_doc or {}).get("elo", 0)
             new = max(0, old - loss)
-            embed.add_field(name=member.display_name, value=f"-{loss} ELO -> **{new}**", inline=False)
+            embed.add_field(
+                name=member.display_name, value=f"-{loss} ELO -> **{new}**", inline=False
+            )
         embed.set_footer(text=f"Enregistre par {ctx.author.display_name}")
         await ctx.send(embed=embed)
         await _refresh_leaderboard_safe(ctx.guild, self.db, queue)
@@ -205,7 +243,12 @@ class PrefixLegacyCog(commands.Cog):
             await ctx.send("Pas la permission.")
             return
         chosen = random.choice(elo_calc.MAPS)
-        embed = discord.Embed(title="🗺️ Map sélectionnée !", description=f"## {chosen}", color=0x9b59b6, timestamp=datetime.now(UTC))
+        embed = discord.Embed(
+            title="🗺️ Map sélectionnée !",
+            description=f"## {chosen}",
+            color=0x9B59B6,
+            timestamp=datetime.now(UTC),
+        )
         embed.set_footer(text=f"Tirage par {ctx.author.display_name}")
         await ctx.send(embed=embed)
 

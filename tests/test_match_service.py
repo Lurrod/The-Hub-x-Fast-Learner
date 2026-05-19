@@ -16,8 +16,12 @@ from services.team_balancer import Player
 
 def _riot_doc(name: str = "X") -> dict:
     return {
-        "riot_name": name, "riot_tag": "EUW", "riot_region": "eu",
-        "puuid": "p", "peak_elo": 2500, "source": "peak_recent",
+        "riot_name": name,
+        "riot_tag": "EUW",
+        "riot_region": "eu",
+        "puuid": "p",
+        "peak_elo": 2500,
+        "source": "peak_recent",
     }
 
 
@@ -60,9 +64,9 @@ def test_build_players_uses_bot_elo_not_riot():
     """L'ELO de matchmaking provient de la collection partagée `elo`, jamais des riot_accounts."""
     players = build_players(
         player_ids=["1"],
-        riot_accounts={"1": _riot_doc()},   # peak_elo 2500 ignore
+        riot_accounts={"1": _riot_doc()},  # peak_elo 2500 ignore
         member_names={"1": "A"},
-        bot_elos={"1": 1234},               # source de verite
+        bot_elos={"1": 1234},  # source de verite
     )
     assert players[0].elo == 1234
 
@@ -86,7 +90,7 @@ def test_plan_match_rejects_wrong_size():
 
 
 def test_plan_match_returns_balanced_teams_and_random_choices():
-    players = [Player(id=i, name=f"P{i}", elo=1500 + i*50) for i in range(10)]
+    players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
     rng = random.Random(42)  # deterministe pour le test
 
     plan = plan_match(players, free_category="Match #1", rng=rng)
@@ -115,8 +119,10 @@ def test_plan_match_lobby_leader_is_one_of_the_players():
 
 def test_plan_match_balance_optimal():
     """Cas connu : avec 10 elos varies, l'algo brute force trouve le mieux."""
-    players = [Player(id=i, name=f"P{i}", elo=elo)
-               for i, elo in enumerate([3000, 2500, 2000, 1800, 1500, 1300, 1200, 900, 500, 300])]
+    players = [
+        Player(id=i, name=f"P{i}", elo=elo)
+        for i, elo in enumerate([3000, 2500, 2000, 1800, 1500, 1300, 1200, 900, 500, 300])
+    ]
     plan = plan_match(players, free_category=None)
     assert plan.teams.elo_diff <= 200
 

@@ -25,8 +25,12 @@ from cogs.applications import (
 
 
 # ── _parse_application_embed ─────────────────────────────────────
-def _embed_with(*, title: str = "📋 Nouvelle candidature", footer_id: int | str | None = 42,
-                fields: list[tuple[str, str]] | None = None) -> MagicMock:
+def _embed_with(
+    *,
+    title: str = "📋 Nouvelle candidature",
+    footer_id: int | str | None = 42,
+    fields: list[tuple[str, str]] | None = None,
+) -> MagicMock:
     embed = MagicMock()
     embed.title = title
     footer = MagicMock()
@@ -178,6 +182,7 @@ def _fake_guild(guild_id: int, members: list[MagicMock] | None = None) -> MagicM
 
 async def test_accept_happy_path_grants_role_and_validates():
     from services import repository
+
     db = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     applicant = _fake_member(42, "Alice", manage_guild=False)
@@ -241,6 +246,7 @@ async def test_accept_bails_on_corrupted_embed_without_cas():
     l'etat coince. Verifie qu'un embed sans applicant_id ne consomme PAS
     le CAS DB."""
     from services import repository
+
     db = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     guild = _fake_guild(99, members=[admin])
@@ -273,6 +279,7 @@ async def test_accept_bails_on_corrupted_embed_without_cas():
 async def test_accept_bails_on_missing_member_without_cas():
     """Meme principe : si get_member renvoie None, pas de CAS consume."""
     from services import repository
+
     db = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     # Pas de membre 42 dans la guild -> applicant manque
@@ -300,6 +307,7 @@ async def test_accept_bails_on_missing_member_without_cas():
 async def test_accept_rejects_double_claim_via_cas():
     """Deux admins cliquent en concurrence : seul un wins le CAS."""
     from services import repository
+
     db = mongomock.MongoClient(tz_aware=True).db
     admin1 = _fake_member(1, "Admin1", manage_guild=True)
     admin2 = _fake_member(2, "Admin2", manage_guild=True)
@@ -319,8 +327,11 @@ async def test_accept_rejects_double_claim_via_cas():
     # Pre-claim par admin2 : la candidature est deja "refused" en DB.
     repository.register_application(db, guild.id, message.id, applicant.id, is_staff=False)
     claimed = repository.claim_application_decision(
-        db, guild.id, message.id,
-        status="refused", decided_by=admin2.id,
+        db,
+        guild.id,
+        message.id,
+        status="refused",
+        decided_by=admin2.id,
     )
     assert claimed is not None
 
@@ -343,6 +354,7 @@ async def test_refuse_modal_skips_dm_kick_when_member_gone():
     soumission du modal, le DM/kick sont gracieusement skip et l'embed
     est quand meme update (etat DB + message coherents)."""
     from services import repository
+
     db = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     # Pas de candidat 42 dans la guild

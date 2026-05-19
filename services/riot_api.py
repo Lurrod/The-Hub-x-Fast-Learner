@@ -28,7 +28,7 @@ import requests
 BASE_URL: Final[str] = "https://api.henrikdev.xyz/valorant"
 DEFAULT_TIMEOUT: Final[int] = 10
 CACHE_TTL_SECONDS: Final[int] = 3600  # 1h
-RETRY_ATTEMPTS:    Final[int] = 3      # 1 essai initial + 2 retries
+RETRY_ATTEMPTS: Final[int] = 3  # 1 essai initial + 2 retries
 RETRY_BACKOFF_BASE: Final[float] = 1.0  # delais : 1s, 2s, 4s
 
 
@@ -49,51 +49,51 @@ class RateLimitedError(RiotApiError):
 
 @dataclass(frozen=True)
 class Account:
-    puuid:  str
-    name:   str
-    tag:    str
+    puuid: str
+    name: str
+    tag: str
     region: str
 
 
 @dataclass(frozen=True)
 class CurrentMMR:
-    elo:                 int
-    tier:                int
-    tier_name:           str
-    ranking_in_tier:     int
-    mmr_change_last:     int
+    elo: int
+    tier: int
+    tier_name: str
+    ranking_in_tier: int
+    mmr_change_last: int
 
 
 @dataclass(frozen=True)
 class HistoricalMatch:
-    elo:        int
-    tier:       int
-    date:       datetime
+    elo: int
+    tier: int
+    date: datetime
     mmr_change: int
 
 
 @dataclass(frozen=True)
 class MatchPlayerStats:
-    puuid:  str
-    name:   str
-    tag:    str
-    team:   str           # "Red" ou "Blue"
-    score:  int           # combat score total
-    kills:  int
+    puuid: str
+    name: str
+    tag: str
+    team: str  # "Red" ou "Blue"
+    score: int  # combat score total
+    kills: int
     deaths: int
     assists: int
 
 
 @dataclass(frozen=True)
 class MatchSummary:
-    matchid:       str
-    mode:          str    # "Custom Game", "Competitive", etc.
-    map_name:      str
-    started_at:    datetime
+    matchid: str
+    mode: str  # "Custom Game", "Competitive", etc.
+    map_name: str
+    started_at: datetime
     rounds_played: int
-    players:       tuple[MatchPlayerStats, ...]
-    rounds_red:    int
-    rounds_blue:   int
+    players: tuple[MatchPlayerStats, ...]
+    rounds_red: int
+    rounds_blue: int
 
 
 # ── Cache TTL simple ──────────────────────────────────────────────
@@ -102,9 +102,9 @@ class _TTLCache:
     depuis plusieurs `asyncio.to_thread`."""
 
     def __init__(self, ttl: int) -> None:
-        self._ttl   = ttl
+        self._ttl = ttl
         self._store: dict[str, tuple[float, Any]] = {}
-        self._lock  = threading.Lock()
+        self._lock = threading.Lock()
 
     def get(self, key: str) -> Any | None:
         with self._lock:
@@ -138,7 +138,7 @@ class HenrikDevClient:
     ) -> None:
         self.api_key = api_key or os.environ.get("HENRIK_API_KEY")
         self.session = session or requests.Session()
-        self._cache  = _TTLCache(cache_ttl)
+        self._cache = _TTLCache(cache_ttl)
         # `requests.Session` n'est pas safe pour des appels concurrents
         # multi-thread (le pool de connexions urllib3 peut se corrompre).
         # Le bot exporte plusieurs appels Henrik via `asyncio.to_thread`,
@@ -174,7 +174,7 @@ class HenrikDevClient:
             except requests.RequestException as e:
                 last_err = e
                 if attempt < RETRY_ATTEMPTS - 1:
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                    time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 raise RiotApiError(f"Erreur reseau apres {RETRY_ATTEMPTS} tentatives : {e}") from e
 
@@ -185,7 +185,7 @@ class HenrikDevClient:
             if 500 <= resp.status_code < 600:
                 last_err = RiotApiError(f"HTTP {resp.status_code} : {resp.text[:200]}")
                 if attempt < RETRY_ATTEMPTS - 1:
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                    time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 raise last_err
             if resp.status_code >= 400:
@@ -200,7 +200,7 @@ class HenrikDevClient:
                 # Si HenrikDev renvoie un status applicatif 5xx, on retry aussi.
                 if 500 <= int(data["status"]) < 600 and attempt < RETRY_ATTEMPTS - 1:
                     last_err = RiotApiError(f"API status {data['status']}")
-                    time.sleep(RETRY_BACKOFF_BASE * (2 ** attempt))
+                    time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 raise RiotApiError(f"API status {data['status']}")
 
@@ -238,7 +238,10 @@ class HenrikDevClient:
         )
 
     def get_mmr_history(
-        self, region: str, name: str, tag: str,
+        self,
+        region: str,
+        name: str,
+        tag: str,
     ) -> list[HistoricalMatch]:
         if region not in VALID_REGIONS:
             raise ValueError(f"Region invalide : {region}")
@@ -248,12 +251,14 @@ class HenrikDevClient:
             ts = entry.get("date_raw")
             if ts is None:
                 continue
-            out.append(HistoricalMatch(
-                elo=int(entry.get("elo") or 0),
-                tier=int(entry.get("currenttier") or 0),
-                date=datetime.fromtimestamp(int(ts), tz=UTC),
-                mmr_change=int(entry.get("mmr_change_to_last_game") or 0),
-            ))
+            out.append(
+                HistoricalMatch(
+                    elo=int(entry.get("elo") or 0),
+                    tier=int(entry.get("currenttier") or 0),
+                    date=datetime.fromtimestamp(int(ts), tz=UTC),
+                    mmr_change=int(entry.get("mmr_change_to_last_game") or 0),
+                )
+            )
         return out
 
     def get_match_history(
@@ -299,26 +304,28 @@ class HenrikDevClient:
 
 
 def _parse_match(entry: dict) -> MatchSummary:
-    meta    = entry.get("metadata", {}) or {}
-    teams   = entry.get("teams", {}) or {}
+    meta = entry.get("metadata", {}) or {}
+    teams = entry.get("teams", {}) or {}
     players = (entry.get("players", {}) or {}).get("all_players", []) or []
 
     started_raw = meta.get("game_start") or 0
-    started_at  = datetime.fromtimestamp(int(started_raw), tz=UTC)
+    started_at = datetime.fromtimestamp(int(started_raw), tz=UTC)
 
     parsed_players: list[MatchPlayerStats] = []
     for p in players:
         stats = p.get("stats", {}) or {}
-        parsed_players.append(MatchPlayerStats(
-            puuid=p.get("puuid", ""),
-            name=p.get("name", ""),
-            tag=p.get("tag", ""),
-            team=str(p.get("team", "")),
-            score=int(stats.get("score") or 0),
-            kills=int(stats.get("kills") or 0),
-            deaths=int(stats.get("deaths") or 0),
-            assists=int(stats.get("assists") or 0),
-        ))
+        parsed_players.append(
+            MatchPlayerStats(
+                puuid=p.get("puuid", ""),
+                name=p.get("name", ""),
+                tag=p.get("tag", ""),
+                team=str(p.get("team", "")),
+                score=int(stats.get("score") or 0),
+                kills=int(stats.get("kills") or 0),
+                deaths=int(stats.get("deaths") or 0),
+                assists=int(stats.get("assists") or 0),
+            )
+        )
 
     return MatchSummary(
         matchid=str(meta.get("matchid", "")),
@@ -327,6 +334,6 @@ def _parse_match(entry: dict) -> MatchSummary:
         started_at=started_at,
         rounds_played=int(meta.get("rounds_played") or 0),
         players=tuple(parsed_players),
-        rounds_red=int((teams.get("red")  or {}).get("rounds_won") or 0),
+        rounds_red=int((teams.get("red") or {}).get("rounds_won") or 0),
         rounds_blue=int((teams.get("blue") or {}).get("rounds_won") or 0),
     )

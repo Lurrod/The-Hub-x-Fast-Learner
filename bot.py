@@ -30,12 +30,13 @@ logger = logging.getLogger(__name__)
 # ── Charge .env si present (sans planter si python-dotenv absent) ──
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
 
 # ── Configuration ──────────────────────────────────────────────
-TOKEN     = os.environ.get("DISCORD_TOKEN")
+TOKEN = os.environ.get("DISCORD_TOKEN")
 MONGO_URL = os.environ.get("MONGO_URL")
 
 # Fail-fast au demarrage si MONGO_URL est absent ou vide. Sans cette
@@ -48,11 +49,11 @@ if not MONGO_URL:
     raise RuntimeError("MONGO_URL environment variable not set")
 
 ELO_START = elo_calc.ELO_START
-MAPS      = list(elo_calc.MAPS)
+MAPS = list(elo_calc.MAPS)
 
 # Pondération ELO par position de joueur (slot 1..5) pour /win et /lose.
 # Le premier slot encaisse le plus gros gain / la plus petite perte.
-WIN_DELTAS_BY_SLOT:  tuple[int, ...] = (20, 18, 17, 16, 15)
+WIN_DELTAS_BY_SLOT: tuple[int, ...] = (20, 18, 17, 16, 15)
 LOSE_DELTAS_BY_SLOT: tuple[int, ...] = (10, 10, 12, 13, 15)
 
 # ── MongoDB ────────────────────────────────────────────────────
@@ -69,17 +70,24 @@ client: MongoClient = MongoClient(
     serverSelectionTimeoutMS=5000,
     connectTimeoutMS=5000,
 )
-db     = client["elobot"]
+db = client["elobot"]
+
 
 def get_elo_col() -> Collection:
     return repository.get_elo_col(db)
 
+
 def get_bypass_col() -> Collection:
     return repository.get_bypass_col(db)
 
+
 def get_player(col, member: discord.Member, queue_type: str):
     return repository.get_or_create_player(
-        col, member.id, queue_type, member.display_name, initial_elo=ELO_START,
+        col,
+        member.id,
+        queue_type,
+        member.display_name,
+        initial_elo=ELO_START,
     )
 
 
@@ -90,11 +98,14 @@ _QUEUE_CHOICES = [
     app_commands.Choice(name="GC", value="gc"),
 ]
 
+
 def get_bypass_role(guild_id):
     return repository.get_bypass_role(db, guild_id)
 
+
 def set_bypass_role(guild_id, role_id):
     repository.set_bypass_role(db, guild_id, role_id)
+
 
 def has_access(interaction: discord.Interaction) -> bool:
     if interaction.user.guild_permissions.manage_guild:
@@ -102,12 +113,13 @@ def has_access(interaction: discord.Interaction) -> bool:
     role_id = get_bypass_role(interaction.guild_id)
     return bool(role_id and any(r.id == role_id for r in interaction.user.roles))
 
+
 # ── Bot ────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.members = True
 intents.voice_states = True
 intents.message_content = True
-bot  = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 
@@ -119,7 +131,7 @@ async def _load_v2_cogs() -> None:
     from cogs.admin import setup as setup_admin
     from cogs.applications import setup as setup_applications
     from cogs.elo_admin import setup as setup_elo_admin
-    from cogs.match    import setup as setup_match
+    from cogs.match import setup as setup_match
     from cogs.moderation import setup as setup_moderation
     from cogs.prefix_legacy import setup as setup_prefix_legacy
     from cogs.queue_v2 import setup as setup_queue_v2
@@ -187,8 +199,11 @@ async def on_ready():
     else:
         synced = await tree.sync()
         logger.info("Bot connecte : %s (ID: %s)", bot.user, bot.user.id)
-        logger.info("%d commandes slash synchronisees (global, propagation jusqu'a 1h).", len(synced))
+        logger.info(
+            "%d commandes slash synchronisees (global, propagation jusqu'a 1h).", len(synced)
+        )
     _synced_once = True
+
 
 if __name__ == "__main__":
     # Configuration logging : niveau INFO + format avec timestamp et logger
@@ -197,9 +212,7 @@ if __name__ == "__main__":
     # Split stdout / stderr : DEBUG+INFO -> stdout, WARNING+ -> stderr.
     # PM2 capture stdout -> out.log et stderr -> error.log, donc tant que
     # rien n'est anormal seul out.log se remplit.
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
-    )
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.DEBUG)
     stdout_handler.addFilter(lambda r: r.levelno < logging.WARNING)

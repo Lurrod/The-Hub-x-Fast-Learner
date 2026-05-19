@@ -35,12 +35,16 @@ def _fake_interaction(user, guild_id: int = 42):
 def _fake_riot_client(*, account=None, mmr=None, history=None, raises=None):
     client = MagicMock()
     if raises:
-        client.get_account.side_effect       = raises
-        client.get_current_mmr.side_effect   = raises
-        client.get_mmr_history.side_effect   = raises
+        client.get_account.side_effect = raises
+        client.get_current_mmr.side_effect = raises
+        client.get_mmr_history.side_effect = raises
     else:
-        client.get_account.return_value     = account or Account(puuid="p1", name="X", tag="EUW", region="eu")
-        client.get_current_mmr.return_value = mmr or CurrentMMR(elo=1500, tier=14, tier_name="Platinum 3", ranking_in_tier=50, mmr_change_last=0)
+        client.get_account.return_value = account or Account(
+            puuid="p1", name="X", tag="EUW", region="eu"
+        )
+        client.get_current_mmr.return_value = mmr or CurrentMMR(
+            elo=1500, tier=14, tier_name="Platinum 3", ranking_in_tier=50, mmr_change_last=0
+        )
         client.get_mmr_history.return_value = history or []
     return client
 
@@ -52,9 +56,10 @@ def _now() -> datetime:
 # ── /link-riot ────────────────────────────────────────────────────
 async def test_link_riot_invalid_format():
     import bot as bot_module
+
     cog = RiotLinkCog(bot_module.bot, bot_module.db, _fake_riot_client())
 
-    user  = _fake_member(1)
+    user = _fake_member(1)
     inter = _fake_interaction(user)
 
     await cog.link_riot.callback(cog, inter, riot_id="no-tag-here")
@@ -67,10 +72,11 @@ async def test_link_riot_invalid_format():
 
 async def test_link_riot_player_not_found():
     import bot as bot_module
+
     client = _fake_riot_client(raises=PlayerNotFoundError("nope"))
     cog = RiotLinkCog(bot_module.bot, bot_module.db, client)
 
-    user  = _fake_member(1)
+    user = _fake_member(1)
     inter = _fake_interaction(user)
 
     await cog.link_riot.callback(cog, inter, riot_id="Ghost#404")
@@ -83,6 +89,7 @@ async def test_link_riot_player_not_found():
 
 async def test_link_riot_rate_limited():
     import bot as bot_module
+
     cog = RiotLinkCog(bot_module.bot, bot_module.db, _fake_riot_client(raises=RateLimitedError()))
 
     inter = _fake_interaction(_fake_member(1))
@@ -94,9 +101,12 @@ async def test_link_riot_rate_limited():
 
 async def test_link_riot_persists_metadata_without_seeding_elo():
     import bot as bot_module
+
     client = _fake_riot_client(
         account=Account(puuid="abc", name="Player", tag="EUW", region="eu"),
-        mmr=CurrentMMR(elo=2450, tier=24, tier_name="Immortal 1", ranking_in_tier=50, mmr_change_last=0),
+        mmr=CurrentMMR(
+            elo=2450, tier=24, tier_name="Immortal 1", ranking_in_tier=50, mmr_change_last=0
+        ),
     )
     cog = RiotLinkCog(bot_module.bot, bot_module.db, client)
     inter = _fake_interaction(_fake_member(1, "Jet"), guild_id=42)
@@ -104,13 +114,14 @@ async def test_link_riot_persists_metadata_without_seeding_elo():
     await cog.link_riot.callback(cog, inter, riot_id="Player#EUW")
 
     from services import repository
+
     doc = repository.get_riot_account(bot_module.db, 1)
     assert doc is not None
-    assert doc["riot_name"]   == "Player"
-    assert doc["riot_tag"]    == "EUW"
+    assert doc["riot_name"] == "Player"
+    assert doc["riot_tag"] == "EUW"
     assert doc["riot_region"] == "eu"
-    assert doc["puuid"]       == "abc"
-    assert doc["source"]      == "link_base"
+    assert doc["puuid"] == "abc"
+    assert doc["source"] == "link_base"
 
     # Aucun seed ELO : la collection partagée `elo` reste vide tant que le
     # joueur n'a pas joue dans une queue.
@@ -126,6 +137,7 @@ async def test_link_riot_persists_metadata_without_seeding_elo():
 async def test_link_riot_accepts_any_rank():
     """Aucun gate-keeping rang : link sans condition de rang Riot."""
     import bot as bot_module
+
     client = _fake_riot_client(
         account=Account(puuid="abc", name="Iron", tag="EUW", region="eu"),
         mmr=CurrentMMR(elo=300, tier=3, tier_name="Iron 3", ranking_in_tier=0, mmr_change_last=0),
@@ -136,6 +148,7 @@ async def test_link_riot_accepts_any_rank():
     await cog.link_riot.callback(cog, inter, riot_id="Iron#EUW")
 
     from services import repository
+
     assert repository.get_riot_account(bot_module.db, 1) is not None
     # Aucun seed ELO meme pour un Iron : on persiste seulement la metadata.
     assert repository.get_elo_col(bot_module.db).count_documents({}) == 0
@@ -148,14 +161,23 @@ async def test_link_riot_does_not_touch_existing_elo():
     from services import repository
 
     # ELO existante dans la queue Open (compound _id <user>:open)
-    repository.get_elo_col(bot_module.db).insert_one({
-        "_id": "1:open", "user_id": "1", "queue_type": "open",
-        "name": "Jet", "elo": 2200, "wins": 5, "losses": 2,
-    })
+    repository.get_elo_col(bot_module.db).insert_one(
+        {
+            "_id": "1:open",
+            "user_id": "1",
+            "queue_type": "open",
+            "name": "Jet",
+            "elo": 2200,
+            "wins": 5,
+            "losses": 2,
+        }
+    )
 
     client = _fake_riot_client(
         account=Account(puuid="abc", name="Player", tag="EUW", region="eu"),
-        mmr=CurrentMMR(elo=2450, tier=24, tier_name="Immortal 1", ranking_in_tier=50, mmr_change_last=0),
+        mmr=CurrentMMR(
+            elo=2450, tier=24, tier_name="Immortal 1", ranking_in_tier=50, mmr_change_last=0
+        ),
     )
     cog = RiotLinkCog(bot_module.bot, bot_module.db, client)
     inter = _fake_interaction(_fake_member(1, "Jet"), guild_id=42)
@@ -164,8 +186,8 @@ async def test_link_riot_does_not_touch_existing_elo():
 
     # Le doc ELO existant n'a pas bouge.
     elo_doc = repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})
-    assert elo_doc["elo"]    == 2200
-    assert elo_doc["wins"]   == 5
+    assert elo_doc["elo"] == 2200
+    assert elo_doc["wins"] == 5
     assert elo_doc["losses"] == 2
 
 
@@ -174,10 +196,17 @@ async def test_link_unlink_relink_does_not_change_elo():
     import bot as bot_module
     from services import repository
 
-    repository.get_elo_col(bot_module.db).insert_one({
-        "_id": "1:open", "user_id": "1", "queue_type": "open",
-        "name": "Jet", "elo": 2200, "wins": 5, "losses": 2,
-    })
+    repository.get_elo_col(bot_module.db).insert_one(
+        {
+            "_id": "1:open",
+            "user_id": "1",
+            "queue_type": "open",
+            "name": "Jet",
+            "elo": 2200,
+            "wins": 5,
+            "losses": 2,
+        }
+    )
 
     client = _fake_riot_client()
     cog = RiotLinkCog(bot_module.bot, bot_module.db, client)
@@ -198,10 +227,16 @@ async def test_link_unlink_relink_does_not_change_elo():
 async def test_unlink_riot_when_linked():
     import bot as bot_module
     from services import repository
+
     repository.link_riot_account(
-        bot_module.db, user_id=1,
-        riot_name="X", riot_tag="1", riot_region="eu",
-        puuid="abc", peak_elo=1500, source="peak_recent",
+        bot_module.db,
+        user_id=1,
+        riot_name="X",
+        riot_tag="1",
+        riot_region="eu",
+        puuid="abc",
+        peak_elo=1500,
+        source="peak_recent",
     )
 
     cog = RiotLinkCog(bot_module.bot, bot_module.db, _fake_riot_client())
@@ -215,6 +250,7 @@ async def test_unlink_riot_when_linked():
 
 async def test_unlink_riot_when_not_linked():
     import bot as bot_module
+
     cog = RiotLinkCog(bot_module.bot, bot_module.db, _fake_riot_client())
     inter = _fake_interaction(_fake_member(99), guild_id=42)
     await cog.unlink_riot.callback(cog, inter)

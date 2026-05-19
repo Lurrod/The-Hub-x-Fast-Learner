@@ -25,9 +25,7 @@ def is_valid_queue_type(queue_type: str) -> bool:
 
 def _check_queue_type(queue_type: str) -> None:
     if not is_valid_queue_type(queue_type):
-        raise ValueError(
-            f"queue_type invalide : {queue_type!r}. Attendus : {QUEUE_TYPES}"
-        )
+        raise ValueError(f"queue_type invalide : {queue_type!r}. Attendus : {QUEUE_TYPES}")
 
 
 def player_doc_id(user_id: int | str, queue_type: str) -> str:
@@ -124,11 +122,11 @@ def get_or_create_player(
         {
             "$set": {"name": display_name},
             "$setOnInsert": {
-                "elo":         initial_elo,
-                "wins":        0,
-                "losses":      0,
-                "queue_type":  queue_type,
-                "user_id":     str(user_id),
+                "elo": initial_elo,
+                "wins": 0,
+                "losses": 0,
+                "queue_type": queue_type,
+                "user_id": str(user_id),
             },
         },
         upsert=True,
@@ -145,7 +143,8 @@ def get_riot_col(db: Database) -> Collection:
 
 
 def find_riot_account_by_puuid(
-    db: Database, puuid: str,
+    db: Database,
+    puuid: str,
 ) -> Mapping[str, Any] | None:
     """Renvoie le doc riot_account ayant ce puuid, ou None.
 
@@ -174,17 +173,20 @@ def link_riot_account(
     (b) afficher le rang Riot de reference.
     """
     from datetime import datetime
+
     get_riot_col(db).update_one(
         {"_id": str(user_id)},
-        {"$set": {
-            "riot_name":     riot_name,
-            "riot_tag":      riot_tag,
-            "riot_region":   riot_region,
-            "puuid":         puuid,
-            "peak_elo":      peak_elo,
-            "source":        source,
-            "fetched_at":    datetime.now(UTC),
-        }},
+        {
+            "$set": {
+                "riot_name": riot_name,
+                "riot_tag": riot_tag,
+                "riot_region": riot_region,
+                "puuid": puuid,
+                "peak_elo": peak_elo,
+                "source": source,
+                "fetched_at": datetime.now(UTC),
+            }
+        },
         upsert=True,
     )
 
@@ -207,7 +209,9 @@ def get_queue_col(db: Database, guild_id: int | str) -> Collection:
     return db[f"queue_{guild_id}"]
 
 
-def get_active_queue(db: Database, guild_id: int | str, queue_type: str) -> Mapping[str, Any] | None:
+def get_active_queue(
+    db: Database, guild_id: int | str, queue_type: str
+) -> Mapping[str, Any] | None:
     _check_queue_type(queue_type)
     return get_queue_col(db, guild_id).find_one({"_id": active_queue_id(queue_type)})
 
@@ -222,16 +226,19 @@ def setup_active_queue(
     """Cree (ou remplace) la queue active de ce type pour ce guild."""
     _check_queue_type(queue_type)
     from datetime import datetime
+
     get_queue_col(db, guild_id).update_one(
         {"_id": active_queue_id(queue_type)},
-        {"$set": {
-            "channel_id": int(channel_id),
-            "message_id": int(message_id),
-            "players":    [],
-            "status":     "open",
-            "queue_type": queue_type,
-            "created_at": datetime.now(UTC),
-        }},
+        {
+            "$set": {
+                "channel_id": int(channel_id),
+                "message_id": int(message_id),
+                "players": [],
+                "status": "open",
+                "queue_type": queue_type,
+                "created_at": datetime.now(UTC),
+            }
+        },
         upsert=True,
     )
 
@@ -243,7 +250,9 @@ def delete_active_queue(db: Database, guild_id: int | str, queue_type: str) -> b
 
 
 def close_active_queue(
-    db: Database, guild_id: int | str, queue_type: str,
+    db: Database,
+    guild_id: int | str,
+    queue_type: str,
 ) -> Mapping[str, Any] | None:
     """Marque la queue de ce type comme 'forming' et renvoie le doc mis a jour.
 
@@ -261,15 +270,15 @@ def close_active_queue(
 @dataclass(frozen=True)
 class QueueResult:
     success: bool
-    reason:  str
-    queue:   Mapping[str, Any] | None
+    reason: str
+    queue: Mapping[str, Any] | None
 
 
 def add_player_to_queue(
     db: Database,
     guild_id: int | str,
     queue_type: str,
-    user_id:  int | str,
+    user_id: int | str,
     *,
     max_size: int = QUEUE_SIZE_DEFAULT,
 ) -> QueueResult:
@@ -292,10 +301,12 @@ def add_player_to_queue(
             "_id": qid,
             "status": "open",
             "players": {"$nin": [uid_str]},
-            "$expr": {"$lt": [
-                {"$size": {"$ifNull": ["$players", []]}},
-                max_size,
-            ]},
+            "$expr": {
+                "$lt": [
+                    {"$size": {"$ifNull": ["$players", []]}},
+                    max_size,
+                ]
+            },
         },
         {"$push": {"players": uid_str}},
         return_document=ReturnDocument.AFTER,
@@ -309,7 +320,7 @@ def remove_player_from_queue(
     db: Database,
     guild_id: int | str,
     queue_type: str,
-    user_id:  int | str,
+    user_id: int | str,
 ) -> QueueResult:
     _check_queue_type(queue_type)
     col = get_queue_col(db, guild_id)
@@ -329,7 +340,9 @@ def remove_player_from_queue(
 
 
 def find_player_in_any_queue(
-    db: Database, guild_id: int | str, user_id: int | str,
+    db: Database,
+    guild_id: int | str,
+    user_id: int | str,
 ) -> str | None:
     """Renvoie le queue_type ou le user est present, ou None."""
     uid_str = str(user_id)
@@ -357,13 +370,13 @@ def create_match(
     *,
     queue_type: str,
     origin_guild_id: int,
-    team_a:        list[dict],
-    team_b:        list[dict],
-    map_name:      str,
+    team_a: list[dict],
+    team_b: list[dict],
+    map_name: str,
     lobby_leader_id: int | str,
     category_name: str | None,
-    message_id:    int | None,
-    channel_id:    int | None,
+    message_id: int | None,
+    channel_id: int | None,
 ) -> Any:
     """Insere un nouveau match. Renvoie son _id (ObjectId).
 
@@ -375,20 +388,21 @@ def create_match(
     la traçabilité cross-guild (la collection `matches` est partagée)."""
     _check_queue_type(queue_type)
     from datetime import datetime
+
     doc: dict[str, Any] = {
-        "team_a":          team_a,
-        "team_b":          team_b,
-        "map":             map_name,
-        "queue_type":      queue_type,
+        "team_a": team_a,
+        "team_b": team_b,
+        "map": map_name,
+        "queue_type": queue_type,
         "origin_guild_id": int(origin_guild_id),
         "lobby_leader_id": str(lobby_leader_id),
-        "category_name":   category_name,
-        "status":          "pending",
-        "votes":           {},
-        "created_at":      datetime.now(UTC),
-        "validated_at":    None,
-        "message_id":      int(message_id) if message_id else None,
-        "channel_id":      int(channel_id) if channel_id else None,
+        "category_name": category_name,
+        "status": "pending",
+        "votes": {},
+        "created_at": datetime.now(UTC),
+        "validated_at": None,
+        "message_id": int(message_id) if message_id else None,
+        "channel_id": int(channel_id) if channel_id else None,
     }
     res = get_matches_col(db).insert_one(doc)
     return res.inserted_id
@@ -429,6 +443,7 @@ def set_match_status(
     status: str,
 ) -> None:
     from datetime import datetime
+
     update: dict[str, Any] = {"status": status}
     if status in ("validated_a", "validated_b"):
         update["validated_at"] = datetime.now(UTC)
@@ -452,6 +467,7 @@ def transition_match_status(
     l'auto-reparation de `check_vote_timeouts` pour referencer le moment
     ou la majorite a ete reellement atteinte plutot que `now`)."""
     from datetime import datetime
+
     update: dict[str, Any] = {"status": to_status}
     if to_status in ("validated_a", "validated_b"):
         update["validated_at"] = validated_at or datetime.now(UTC)
@@ -475,16 +491,19 @@ def claim_match_for_elo(
         Le doc apres claim si on a bien obtenu le verrou, None si deja claime.
     """
     from datetime import datetime
+
     return get_matches_col(db).find_one_and_update(
         {
-            "_id":         match_id,
-            "status":      {"$in": ["validated_a", "validated_b"]},
+            "_id": match_id,
+            "status": {"$in": ["validated_a", "validated_b"]},
             "elo_applied": {"$ne": True},
         },
-        {"$set": {
-            "elo_applied":    True,
-            "elo_applied_at": datetime.now(UTC),
-        }},
+        {
+            "$set": {
+                "elo_applied": True,
+                "elo_applied_at": datetime.now(UTC),
+            }
+        },
         return_document=ReturnDocument.AFTER,
     )
 
@@ -501,7 +520,10 @@ def release_elo_claim(
 
 
 def find_validated_unverified(
-    db: Database, cutoff_dt, *, origin_guild_id: int | None = None,
+    db: Database,
+    cutoff_dt,
+    *,
+    origin_guild_id: int | None = None,
 ) -> list[Mapping[str, Any]]:
     """Matches validated_a/b avec validated_at <= cutoff_dt, sans Henrik
     verifie ET sans ELO deja applique (elo_applied != True).
@@ -514,9 +536,9 @@ def find_validated_unverified(
     guild (multi-guild scoping). Sinon, scanne toutes les guilds (compat
     tests / deploiement single-guild)."""
     filt: dict[str, Any] = {
-        "status":       {"$in": ["validated_a", "validated_b"]},
+        "status": {"$in": ["validated_a", "validated_b"]},
         "validated_at": {"$lte": cutoff_dt},
-        "elo_applied":  {"$ne": True},
+        "elo_applied": {"$ne": True},
         "$or": [
             {"henrik_verified": {"$exists": False}},
             {"henrik_verified": False},
@@ -531,17 +553,18 @@ def set_match_henrik_verified(
     db: Database,
     match_id: Any,
     *,
-    found:       bool,
+    found: bool,
     multipliers: dict[str, float] | None = None,
 ) -> None:
     update: dict[str, Any] = {
         "henrik_verified": True,
-        "henrik_found":    bool(found),
+        "henrik_found": bool(found),
     }
     if multipliers is not None:
         update["henrik_multipliers"] = {str(k): float(v) for k, v in multipliers.items()}
     get_matches_col(db).update_one(
-        {"_id": match_id}, {"$set": update},
+        {"_id": match_id},
+        {"$set": update},
     )
 
 
@@ -555,7 +578,9 @@ def get_leaderboard_state_col(db: Database, guild_id: int | str) -> Collection:
 
 
 def get_leaderboard_message_id(
-    db: Database, guild_id: int | str, queue_type: str,
+    db: Database,
+    guild_id: int | str,
+    queue_type: str,
 ) -> int | None:
     _check_queue_type(queue_type)
     doc = get_leaderboard_state_col(db, guild_id).find_one(
@@ -568,7 +593,10 @@ def get_leaderboard_message_id(
 
 
 def set_leaderboard_message_id(
-    db: Database, guild_id: int | str, queue_type: str, message_id: int,
+    db: Database,
+    guild_id: int | str,
+    queue_type: str,
+    message_id: int,
 ) -> None:
     _check_queue_type(queue_type)
     get_leaderboard_state_col(db, guild_id).update_one(
@@ -579,12 +607,12 @@ def set_leaderboard_message_id(
 
 
 def clear_leaderboard_message_id(
-    db: Database, guild_id: int | str, queue_type: str,
+    db: Database,
+    guild_id: int | str,
+    queue_type: str,
 ) -> None:
     _check_queue_type(queue_type)
-    get_leaderboard_state_col(db, guild_id).delete_one(
-        {"_id": leaderboard_state_id(queue_type)}
-    )
+    get_leaderboard_state_col(db, guild_id).delete_one({"_id": leaderboard_state_id(queue_type)})
 
 
 def get_applications_col(db: Database, guild_id: int | str) -> Collection:
@@ -603,14 +631,17 @@ def register_application(
     """Enregistre une candidature en etat `pending`. `_id` est le message
     Discord (qui porte les boutons accept/refuse). Idempotent via $setOnInsert."""
     from datetime import datetime
+
     get_applications_col(db, guild_id).update_one(
         {"_id": str(message_id)},
-        {"$setOnInsert": {
-            "applicant_id": str(applicant_id),
-            "is_staff":     bool(is_staff),
-            "status":       "pending",
-            "created_at":   datetime.now(UTC),
-        }},
+        {
+            "$setOnInsert": {
+                "applicant_id": str(applicant_id),
+                "is_staff": bool(is_staff),
+                "status": "pending",
+                "created_at": datetime.now(UTC),
+            }
+        },
         upsert=True,
     )
 
@@ -628,15 +659,18 @@ def claim_application_decision(
     False si un autre admin a deja decide (evite double-traitement :
     role grant + kick concurrents, double DM, etc.)."""
     from datetime import datetime
+
     if status not in ("accepted", "refused"):
         raise ValueError(f"status invalide : {status}")
     res = get_applications_col(db, guild_id).update_one(
         {"_id": str(message_id), "status": "pending"},
-        {"$set": {
-            "status":      status,
-            "decided_by":  str(decided_by),
-            "decided_at":  datetime.now(UTC),
-        }},
+        {
+            "$set": {
+                "status": status,
+                "decided_by": str(decided_by),
+                "decided_at": datetime.now(UTC),
+            }
+        },
     )
     return res.modified_count == 1
 
@@ -680,15 +714,20 @@ def schedule_role_cleanups(
     bot (sinon les `asyncio.create_task` sont perdues)."""
     get_matches_col(db).update_one(
         {"_id": match_id},
-        {"$set": {
-            "match_role_cleanup_at": match_role_at,
-            "host_role_cleanup_at":  host_role_at,
-        }},
+        {
+            "$set": {
+                "match_role_cleanup_at": match_role_at,
+                "host_role_cleanup_at": host_role_at,
+            }
+        },
     )
 
 
 def find_pending_match_role_cleanups(
-    db: Database, now, *, origin_guild_id: int | None = None,
+    db: Database,
+    now,
+    *,
+    origin_guild_id: int | None = None,
 ) -> list[Mapping[str, Any]]:
     """Matches dont le cleanup du role Match #N est du et pas encore fait.
 
@@ -697,7 +736,7 @@ def find_pending_match_role_cleanups(
     tests / deploiement single-guild).
     """
     filt: dict[str, Any] = {
-        "match_role_cleanup_at":   {"$lte": now},
+        "match_role_cleanup_at": {"$lte": now},
         "match_role_cleanup_done": {"$ne": True},
     }
     if origin_guild_id is not None:
@@ -706,7 +745,10 @@ def find_pending_match_role_cleanups(
 
 
 def find_pending_host_role_cleanups(
-    db: Database, now, *, origin_guild_id: int | None = None,
+    db: Database,
+    now,
+    *,
+    origin_guild_id: int | None = None,
 ) -> list[Mapping[str, Any]]:
     """Matches dont le cleanup du role Match Host est du et pas encore fait.
 
@@ -715,7 +757,7 @@ def find_pending_host_role_cleanups(
     tests / deploiement single-guild).
     """
     filt: dict[str, Any] = {
-        "host_role_cleanup_at":   {"$lte": now},
+        "host_role_cleanup_at": {"$lte": now},
         "host_role_cleanup_done": {"$ne": True},
     }
     if origin_guild_id is not None:
@@ -724,7 +766,8 @@ def find_pending_host_role_cleanups(
 
 
 def claim_match_role_cleanup(
-    db: Database, match_id: Any,
+    db: Database,
+    match_id: Any,
 ) -> bool:
     """CAS atomique : marque le cleanup du role Match #N en cours.
 
@@ -738,7 +781,8 @@ def claim_match_role_cleanup(
 
 
 def claim_host_role_cleanup(
-    db: Database, match_id: Any,
+    db: Database,
+    match_id: Any,
 ) -> bool:
     """CAS atomique : marque le cleanup du role Match Host en cours."""
     res = get_matches_col(db).update_one(
@@ -750,6 +794,7 @@ def claim_host_role_cleanup(
 
 # ── Warns (moderation) ────────────────────────────────────────────────
 # Stockage par guild : chaque serveur a son propre historique de warns.
+
 
 def get_warns_col(db: Database, guild_id: int | str) -> Collection:
     return db[f"warns_{guild_id}"]
@@ -766,14 +811,17 @@ def add_warn(
     reason: str,
 ) -> None:
     from datetime import datetime
-    get_warns_col(db, guild_id).insert_one({
-        "member_id": int(member_id),
-        "member_name": member_name,
-        "moderator_id": int(moderator_id),
-        "moderator_name": moderator_name,
-        "reason": reason,
-        "timestamp": datetime.now(UTC),
-    })
+
+    get_warns_col(db, guild_id).insert_one(
+        {
+            "member_id": int(member_id),
+            "member_name": member_name,
+            "moderator_id": int(moderator_id),
+            "moderator_name": moderator_name,
+            "reason": reason,
+            "timestamp": datetime.now(UTC),
+        }
+    )
 
 
 def list_warns(
@@ -790,10 +838,5 @@ def list_warns(
     filt: dict[str, Any] = {}
     if member_id is not None:
         filt["member_id"] = int(member_id)
-    cursor = (
-        get_warns_col(db, guild_id)
-        .find(filt)
-        .sort("timestamp", -1)
-        .limit(limit)
-    )
+    cursor = get_warns_col(db, guild_id).find(filt).sort("timestamp", -1).limit(limit)
     return list(cursor)

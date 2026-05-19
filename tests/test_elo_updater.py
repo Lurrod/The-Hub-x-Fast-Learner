@@ -50,12 +50,14 @@ def _make_match(status="validated_a", elo=2400):
 
 def test_invalid_status_raises():
     import bot as bot_module
+
     with pytest.raises(ValueError):
         apply_match_validation(bot_module.db, _make_match(status="pending"))
 
 
 def test_validated_a_winners_get_gain():
     import bot as bot_module
+
     match = _make_match(status="validated_a", elo=2400)
     outcome = apply_match_validation(bot_module.db, match)
 
@@ -66,15 +68,16 @@ def test_validated_a_winners_get_gain():
 
     # Toutes les changes : team_a (0..4) gagne, team_b (5..9) perd
     winners = [c for c in outcome.changes if c.win]
-    losers  = [c for c in outcome.changes if not c.win]
+    losers = [c for c in outcome.changes if not c.win]
     assert len(winners) == 5
-    assert len(losers)  == 5
+    assert len(losers) == 5
     assert {c.user_id for c in winners} == {"0", "1", "2", "3", "4"}
-    assert {c.user_id for c in losers}  == {"5", "6", "7", "8", "9"}
+    assert {c.user_id for c in losers} == {"5", "6", "7", "8", "9"}
 
 
 def test_validated_b_swaps_winners_losers():
     import bot as bot_module
+
     match = _make_match(status="validated_b", elo=2400)
     outcome = apply_match_validation(bot_module.db, match)
 
@@ -84,6 +87,7 @@ def test_validated_b_swaps_winners_losers():
 
 def test_winners_get_plus_gain_in_db():
     import bot as bot_module
+
     # Seed pre-prod : en prod chaque joueur a au moins LINK_BASE_ELO=2000
     # via /link-riot. Sans seed, la nouvelle distribution zero-sum
     # constate que les perdants (a 0 ELO) ne peuvent rien perdre, et
@@ -102,6 +106,7 @@ def test_winners_get_plus_gain_in_db():
 
 def test_losers_get_minus_loss_in_db():
     import bot as bot_module
+
     match = _make_match(elo=2400)
     apply_match_validation(bot_module.db, match)
 
@@ -116,9 +121,19 @@ def test_losers_get_minus_loss_in_db():
 
 def test_loser_existing_elo_decreases_correctly():
     import bot as bot_module
+
     elo_col = repository.get_elo_col(bot_module.db)
-    elo_col.insert_one({"_id": "5:open", "name": "B0", "elo": 50, "wins": 0, "losses": 0,
-                        "queue_type": "open", "user_id": "5"})
+    elo_col.insert_one(
+        {
+            "_id": "5:open",
+            "name": "B0",
+            "elo": 50,
+            "wins": 0,
+            "losses": 0,
+            "queue_type": "open",
+            "user_id": "5",
+        }
+    )
 
     match = _make_match(elo=2400)  # sans multipliers -> flat loss=16
     apply_match_validation(bot_module.db, match)
@@ -130,9 +145,19 @@ def test_loser_existing_elo_decreases_correctly():
 
 def test_loser_floored_at_zero():
     import bot as bot_module
+
     elo_col = repository.get_elo_col(bot_module.db)
-    elo_col.insert_one({"_id": "5:open", "name": "B0", "elo": 5, "wins": 0, "losses": 0,
-                        "queue_type": "open", "user_id": "5"})
+    elo_col.insert_one(
+        {
+            "_id": "5:open",
+            "name": "B0",
+            "elo": 5,
+            "wins": 0,
+            "losses": 0,
+            "queue_type": "open",
+            "user_id": "5",
+        }
+    )
 
     match = _make_match(elo=2400)  # loss=16 mais courrant=5 -> 0
     apply_match_validation(bot_module.db, match)
@@ -143,6 +168,7 @@ def test_loser_floored_at_zero():
 
 def test_base_is_constant_with_multipliers_high_avg():
     import bot as bot_module
+
     # Base ELO_BASE_CHANGE=16 quelle que soit l'avg, meme avec multipliers ACS.
     # Le scaling individuel est porte par les multiplicateurs, pas par l'avg.
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=2000)
@@ -158,6 +184,7 @@ def test_base_is_constant_with_multipliers_high_avg():
 
 def test_base_is_constant_with_multipliers_low_avg():
     import bot as bot_module
+
     # Avec multipliers et avg basse (300) : la base reste 16, pas de scaling.
     match = _make_match(elo=300)
     multipliers = {str(i): 1.0 for i in range(10)}
@@ -170,6 +197,7 @@ def test_no_multipliers_uses_flat_fallback_regardless_of_avg():
     """Sans multipliers, le base change est toujours 16 (flat), peu importe
     l'avg ELO du match. Verifie le nouveau comportement du fallback."""
     import bot as bot_module
+
     for avg in (300, 2400, 3000):
         match = _make_match(elo=avg)
         outcome = apply_match_validation(bot_module.db, match)
@@ -179,33 +207,62 @@ def test_no_multipliers_uses_flat_fallback_regardless_of_avg():
 
 def test_existing_winner_keeps_history_and_adds_gain():
     import bot as bot_module
+
     elo_col = repository.get_elo_col(bot_module.db)
-    elo_col.insert_one({"_id": "0:open", "name": "A0", "elo": 200, "wins": 5, "losses": 3,
-                        "queue_type": "open", "user_id": "0"})
+    elo_col.insert_one(
+        {
+            "_id": "0:open",
+            "name": "A0",
+            "elo": 200,
+            "wins": 5,
+            "losses": 3,
+            "queue_type": "open",
+            "user_id": "0",
+        }
+    )
     # Seed les autres joueurs avec assez d'ELO pour que les perdants
     # puissent perdre 16 sans hitter le plancher zero-sum.
     for i in range(1, 5):
-        elo_col.insert_one({"_id": f"{i}:open", "name": f"A{i}", "elo": 2000, "wins": 0, "losses": 0,
-                            "queue_type": "open", "user_id": str(i)})
+        elo_col.insert_one(
+            {
+                "_id": f"{i}:open",
+                "name": f"A{i}",
+                "elo": 2000,
+                "wins": 0,
+                "losses": 0,
+                "queue_type": "open",
+                "user_id": str(i),
+            }
+        )
     for i in range(5, 10):
-        elo_col.insert_one({"_id": f"{i}:open", "name": f"B{i-5}", "elo": 2000, "wins": 0, "losses": 0,
-                            "queue_type": "open", "user_id": str(i)})
+        elo_col.insert_one(
+            {
+                "_id": f"{i}:open",
+                "name": f"B{i - 5}",
+                "elo": 2000,
+                "wins": 0,
+                "losses": 0,
+                "queue_type": "open",
+                "user_id": str(i),
+            }
+        )
 
     match = _make_match(elo=2400)
     apply_match_validation(bot_module.db, match)
 
     doc = elo_col.find_one({"_id": "0:open"})
-    assert doc["elo"] == 216       # 200 + 16 (flat fallback sans multipliers)
-    assert doc["wins"] == 6        # 5 + 1
-    assert doc["losses"] == 3      # inchange
+    assert doc["elo"] == 216  # 200 + 16 (flat fallback sans multipliers)
+    assert doc["wins"] == 6  # 5 + 1
+    assert doc["losses"] == 3  # inchange
 
 
 def test_mixed_team_avg_elo():
     """Verifie que la moyenne est bien calculee sur les 10 joueurs."""
     import bot as bot_module
+
     match = {
-        "team_a": [{"id": i, "name": f"A{i}", "elo": 2200} for i in range(5)],     # avg 2200
-        "team_b": [{"id": 5 + i, "name": f"B{i}", "elo": 2600} for i in range(5)], # avg 2600
+        "team_a": [{"id": i, "name": f"A{i}", "elo": 2200} for i in range(5)],  # avg 2200
+        "team_b": [{"id": 5 + i, "name": f"B{i}", "elo": 2600} for i in range(5)],  # avg 2600
         "status": "validated_a",
         "queue_type": "open",
     }
@@ -218,6 +275,7 @@ def test_mixed_team_avg_elo():
 
 def test_change_dataclass_fields():
     import bot as bot_module
+
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=2000)
     match = _make_match(elo=2400)
     outcome = apply_match_validation(bot_module.db, match)
@@ -239,21 +297,30 @@ def _seed_baseline_elo(db, guild_id: int, ids: range, baseline: int) -> None:
     col = repository.get_elo_col(db)
     col.delete_many({})
     for i in ids:
-        col.insert_one({
-            "_id": f"{i}:open", "name": f"P{i}",
-            "elo": baseline, "wins": 0, "losses": 0,
-            "queue_type": "open", "user_id": str(i),
-        })
+        col.insert_one(
+            {
+                "_id": f"{i}:open",
+                "name": f"P{i}",
+                "elo": baseline,
+                "wins": 0,
+                "losses": 0,
+                "queue_type": "open",
+                "user_id": str(i),
+            }
+        )
 
 
 def test_zero_sum_with_uniform_multipliers():
     """Multiplicateurs tous a 1.0 -> comportement plat, sum(deltas)=0."""
     import bot as bot_module
+
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=10000)
     match = _make_match(status="validated_a", elo=2400)
     multipliers = {str(i): 1.0 for i in range(10)}
     outcome = apply_match_validation(
-        bot_module.db, match, multipliers=multipliers,
+        bot_module.db,
+        match,
+        multipliers=multipliers,
     )
     assert sum(c.delta for c in outcome.changes) == 0
 
@@ -262,16 +329,27 @@ def test_zero_sum_with_mixed_multipliers():
     """Multiplicateurs heterogenes (extremes inclus) -> sum(deltas)=0 quand
     aucun joueur ne touche le plancher."""
     import bot as bot_module
+
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=10000)
     match = _make_match(status="validated_a", elo=2400)
     multipliers = {
         # team_a (gagnants)
-        "0": 1.3, "1": 1.3, "2": 1.0, "3": 0.7, "4": 0.7,
+        "0": 1.3,
+        "1": 1.3,
+        "2": 1.0,
+        "3": 0.7,
+        "4": 0.7,
         # team_b (perdants)
-        "5": 1.3, "6": 0.7, "7": 1.0, "8": 1.1, "9": 0.9,
+        "5": 1.3,
+        "6": 0.7,
+        "7": 1.0,
+        "8": 1.1,
+        "9": 0.9,
     }
     outcome = apply_match_validation(
-        bot_module.db, match, multipliers=multipliers,
+        bot_module.db,
+        match,
+        multipliers=multipliers,
     )
     assert sum(c.delta for c in outcome.changes) == 0
 
@@ -282,14 +360,17 @@ def test_zero_sum_with_all_clamped_max():
     par symetrie (sum_w + sum_l = 2n=10), mais le total equipe scale
     avec sum(mults)."""
     import bot as bot_module
+
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=10000)
     match = _make_match(status="validated_a", elo=2400)
     multipliers = {
-        **{str(i): 1.3 for i in range(5)},      # team_a
+        **{str(i): 1.3 for i in range(5)},  # team_a
         **{str(i): 0.7 for i in range(5, 10)},  # team_b
     }
     outcome = apply_match_validation(
-        bot_module.db, match, multipliers=multipliers,
+        bot_module.db,
+        match,
+        multipliers=multipliers,
     )
     assert sum(c.delta for c in outcome.changes) == 0
     # Chaque gagnant : round(16 * 1.3) = 21. Total = 5 * 21 = 105.
@@ -301,15 +382,21 @@ def test_winner_with_higher_mult_gains_more():
     """Distribution interne : un gagnant a mult eleve gagne plus que ses
     coequipiers (la garantie zero-sum n'ecrase pas la difference de perf)."""
     import bot as bot_module
+
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=10000)
     match = _make_match(status="validated_a", elo=2400)
     multipliers = {
-        "0": 1.3, "1": 0.7,
-        "2": 1.0, "3": 1.0, "4": 1.0,
+        "0": 1.3,
+        "1": 0.7,
+        "2": 1.0,
+        "3": 1.0,
+        "4": 1.0,
         **{str(i): 1.0 for i in range(5, 10)},
     }
     outcome = apply_match_validation(
-        bot_module.db, match, multipliers=multipliers,
+        bot_module.db,
+        match,
+        multipliers=multipliers,
     )
     by_uid = {c.user_id: c for c in outcome.changes}
     assert by_uid["0"].delta > by_uid["2"].delta > by_uid["1"].delta
@@ -318,6 +405,7 @@ def test_winner_with_higher_mult_gains_more():
 def test_apply_match_validation_pro_queue_uses_flat_16():
     """Pro Queue : ignore les multipliers Henrik et applique +16/-16 a plat."""
     import bot as bot_module
+
     db = bot_module.db
     match_doc = {
         "_id": "match-pro-1",
@@ -333,8 +421,7 @@ def test_apply_match_validation_pro_queue_uses_flat_16():
         ],
     }
     multipliers = {"1": 1.5, "2": 0.5, "3": 1.5, "4": 0.5}
-    outcome = apply_match_validation(db, match_doc=match_doc,
-                                       multipliers=multipliers)
+    outcome = apply_match_validation(db, match_doc=match_doc, multipliers=multipliers)
     assert outcome.gain == 16
     assert outcome.loss == 16
     assert outcome.weighted is False
@@ -345,6 +432,7 @@ def test_apply_match_validation_pro_queue_uses_flat_16():
 def test_apply_match_validation_open_queue_uses_multipliers():
     """Open Queue : flow existant avec multipliers Henrik."""
     import bot as bot_module
+
     db = bot_module.db
     match_doc = {
         "_id": "match-open-1",
@@ -360,14 +448,14 @@ def test_apply_match_validation_open_queue_uses_multipliers():
         ],
     }
     multipliers = {"1": 1.5, "2": 0.5}
-    outcome = apply_match_validation(db, match_doc=match_doc,
-                                       multipliers=multipliers)
+    outcome = apply_match_validation(db, match_doc=match_doc, multipliers=multipliers)
     assert outcome.weighted is True
 
 
 def test_apply_match_validation_uses_compound_doc_id():
     """Le doc joueur dans la collection partagée `elo` est cree avec _id=<user_id>:<queue_type>."""
     import bot as bot_module
+
     db = bot_module.db
     match_doc = {
         "_id": "match-gc-1",

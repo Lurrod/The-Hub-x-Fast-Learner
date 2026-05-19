@@ -37,6 +37,9 @@ ignore = [
     "S101", "S311", "E402", "E702", "E741",
     "F841", "RUF005", "RUF059", "RUF043",
     "SIM103", "SIM118",
+    # Noms d'algos (ABBAABBA snake-draft, capA leader) : la casse porte
+    # une info semantique, on garde.
+    "N802",
 ]
 "conftest.py" = ["S101"]
 
