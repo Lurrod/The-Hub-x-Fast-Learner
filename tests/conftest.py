@@ -29,6 +29,29 @@ _mongo_patcher = patch.object(pymongo, "MongoClient", mongomock.MongoClient)
 _mongo_patcher.start()
 
 
+# ── 2b. Shim dpytest pour discord.py 2.5+ ─────────────────────────
+# discord.py 2.5 passe `colors` (pluriel) a HTTPClient.create_role en
+# plus de `color`. dpytest 0.7.0 appelle make_role(**fields), qui ne
+# connait pas `colors` -> TypeError. On wrap make_role pour ignorer
+# les kwargs inconnus (on garde le mecanisme _get_higher_locs intact
+# en ne modifiant PAS create_role lui-meme).
+def _install_dpytest_make_role_shim() -> None:
+    import inspect
+    from discord.ext.test import backend as _dpytest_backend
+
+    original_make_role = _dpytest_backend.make_role
+    accepted = set(inspect.signature(original_make_role).parameters)
+
+    def make_role_compat(*args, **kwargs):
+        cleaned = {k: v for k, v in kwargs.items() if k in accepted}
+        return original_make_role(*args, **cleaned)
+
+    _dpytest_backend.make_role = make_role_compat
+
+
+_install_dpytest_make_role_shim()
+
+
 # ── 3. Reset de la base in-memory entre chaque test ───────────────
 @pytest.fixture(autouse=True)
 def clean_mongo():
