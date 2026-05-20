@@ -131,6 +131,7 @@ async def _load_v2_cogs() -> None:
     from cogs.admin import setup as setup_admin
     from cogs.applications import setup as setup_applications
     from cogs.elo_admin import setup as setup_elo_admin
+    from cogs.leaderboard_weekly import setup as setup_leaderboard_weekly
     from cogs.match import setup as setup_match
     from cogs.moderation import setup as setup_moderation
     from cogs.prefix_legacy import setup as setup_prefix_legacy
@@ -145,6 +146,7 @@ async def _load_v2_cogs() -> None:
     await setup_elo_admin(bot, db)
     await setup_moderation(bot, db)
     await setup_prefix_legacy(bot, db)
+    await setup_leaderboard_weekly(bot, db)
 
 
 @bot.event
@@ -184,8 +186,11 @@ async def on_ready():
     # setup_hook (cf. cogs/applications.py et cogs/queue_v2.py).
     # LeaderboardView : pagination des messages leaderboard persistants
     # postes dans #leaderboard. Sans cet enregistrement, les boutons
-    # prev/next ne fonctionnent plus apres un restart du bot.
+    # prev/next ne fonctionnent plus apres un restart du bot. Deux
+    # variantes : permanente (3 queues) et weekly (Pro Queue, canal
+    # #leaderboard-weekly, custom_ids differents).
     bot.add_view(LeaderboardView())
+    bot.add_view(LeaderboardView(weekly=True))
 
     # Sync rapide sur une guild specifique si DEV_GUILD_ID est defini.
     # Sinon, sync global (peut prendre jusqu'a 1h pour propager).

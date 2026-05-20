@@ -55,6 +55,7 @@ Cycle complet d'une partie :
 - Un joueur ne peut être que dans **une seule queue à la fois**.
 - Les boutons Rejoindre / Quitter sont **persistants** (survivent au restart du bot).
 - Refusé si pas de compte Riot lié, déjà en queue, en match en cours, ou rôle gate manquant.
+- **Pro Queue** : au plus **1 joueur `Rank Q | Qualification Pro`** simultanément dans la queue ; les 9 autres slots doivent être remplis par des `Rank S | Pro Queue`.
 - Le joueur qui quitte le serveur est automatiquement retiré des queues (`on_member_remove`).
 
 ### Équilibrage des équipes
@@ -96,6 +97,10 @@ Cycle complet d'une partie :
 - Image PNG générée via Pillow (`leaderboard_img.py`), 15 joueurs par page.
 - Pagination par boutons `<` / `>` **persistante après restart**.
 - Auto-refresh après chaque modification ELO (debounced per-guild).
+- **Leaderboard hebdo Pro Queue** : un 4ᵉ message persistant dans `#leaderboard`,
+  miroir des matchs Pro de la semaine. **Reset chaque Lundi 00:00 Europe/Paris**
+  (collection `elo_weekly` vidée, message regénéré). Le leaderboard permanent
+  n'est jamais touché par le reset.
 
 ### Système de candidatures (héritage)
 

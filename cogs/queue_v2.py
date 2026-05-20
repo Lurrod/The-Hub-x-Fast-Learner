@@ -3,7 +3,10 @@ Cog V2 : queues 10mans avec boutons persistants (Rejoindre / Quitter).
 
 3 queues simultanees par guild :
   - Pro Queue : reserve aux joueurs avec le role "Rank S | Pro Queue"
-    ou "Rank Q | Qualification Pro".
+    ou "Rank Q | Qualification Pro". Au plus
+    PRO_QUALIFICATION_PRO_MAX joueur(s) "Rank Q | Qualification Pro"
+    peut/peuvent etre simultanement dans la queue (les autres slots
+    doivent etre remplis par des "Rank S | Pro Queue").
   - Open Queue : sans gate de role.
   - GC Queue : reserve aux joueurs avec le role "GC".
 
@@ -68,10 +71,15 @@ WAITING_ROOM_NAMES: dict[str, str] = {
     "gc": "Waiting Room GC",
 }
 
+# Role "Qualification Pro" : autorise a rejoindre la Pro Queue, mais
+# limite a PRO_QUALIFICATION_PRO_MAX joueur(s) par queue.
+PRO_QUALIFICATION_ROLE: str = "Rank Q | Qualification Pro"
+PRO_QUALIFICATION_PRO_MAX: int = 1
+
 # Roles autorises pour rejoindre une queue gated (n'importe lequel suffit).
 # None = pas de gate.
 QUEUE_ROLE_GATES: dict[str, tuple[str, ...] | None] = {
-    "pro": ("Rank S | Pro Queue", "Rank Q | Qualification Pro"),
+    "pro": ("Rank S | Pro Queue", PRO_QUALIFICATION_ROLE),
     "open": None,
     "gc": ("GC",),
 }
@@ -346,6 +354,41 @@ class QueueView(discord.ui.View):
                     ephemeral=True,
                 )
                 return
+
+            # 4b) Limite: PRO_QUALIFICATION_PRO_MAX joueur(s) "Rank Q |
+            # Qualification Pro" maximum simultanement dans la Pro Queue.
+            # Skip si le joueur est deja dans cette queue (re-clic idempotent
+            # gere par add_player_to_queue).
+            if (
+                self.queue_type == "pro"
+                and current != self.queue_type
+                and any(r.name == PRO_QUALIFICATION_ROLE for r in inter.user.roles)
+            ):
+                active = await asyncio.to_thread(
+                    repository.get_active_queue,
+                    self.db,
+                    inter.guild_id,
+                    self.queue_type,
+                )
+                if active and inter.guild is not None:
+                    rank_q_count = 0
+                    for uid in active.get("players", []):
+                        try:
+                            m = inter.guild.get_member(int(uid))
+                        except (TypeError, ValueError):
+                            continue
+                        if m is None:
+                            continue
+                        if any(r.name == PRO_QUALIFICATION_ROLE for r in m.roles):
+                            rank_q_count += 1
+                    if rank_q_count >= PRO_QUALIFICATION_PRO_MAX:
+                        await inter.followup.send(
+                            f"❌ La Pro Queue contient deja "
+                            f"{PRO_QUALIFICATION_PRO_MAX} joueur(s) avec le role "
+                            f"**{PRO_QUALIFICATION_ROLE}**. Attends qu'un slot se libere.",
+                            ephemeral=True,
+                        )
+                        return
 
             # 5) ajout en base
             res = await asyncio.to_thread(

@@ -781,3 +781,100 @@ def test_waiting_room_name_per_queue_type():
     assert WAITING_ROOM_NAMES["pro"] == "Waiting Room Pro"
     assert WAITING_ROOM_NAMES["open"] == "Waiting Room Open"
     assert WAITING_ROOM_NAMES["gc"] == "Waiting Room GC"
+
+
+def _make_rank_role(name: str):
+    r = MagicMock()
+    r.name = name
+    return r
+
+
+async def test_pro_queue_rejects_second_qualification_pro():
+    """Au plus 1 'Rank Q | Qualification Pro' simultanement dans la Pro Queue."""
+    import bot as bot_module
+    from cogs.queue_v2 import (
+        QueueView,
+        PRO_QUALIFICATION_ROLE,
+        PRO_QUALIFICATION_PRO_MAX,
+    )
+
+    assert PRO_QUALIFICATION_PRO_MAX == 1
+
+    db = bot_module.db
+    repository.setup_active_queue(
+        db,
+        guild_id=42,
+        queue_type="pro",
+        channel_id=100,
+        message_id=999,
+    )
+
+    rank_q = _make_rank_role(PRO_QUALIFICATION_ROLE)
+
+    # 1er joueur Rank Q -> deja dans la pro queue (insertion directe DB)
+    _seed_riot_link(db, 42, 1)
+    repository.add_player_to_queue(db, 42, "pro", 1)
+    member1 = _fake_member(1)
+    member1.roles = [rank_q]
+
+    # 2e joueur Rank Q tente de rejoindre -> refus
+    _seed_riot_link(db, 42, 2)
+    member2 = _fake_member(2)
+    member2.roles = [rank_q]
+
+    inter = _fake_interaction(member2, channel_name="pro-queue")
+    inter.user = member2
+    # Pour que le decompte du contrainte trouve member1 dans la queue
+    inter.guild.get_member = MagicMock(
+        side_effect=lambda uid: {1: member1, 2: member2}.get(uid)
+    )
+
+    view = QueueView(db, queue_type="pro")
+    await view._join_callback(inter)
+
+    inter.followup.send.assert_called()
+    msg = inter.followup.send.call_args[0][0]
+    assert PRO_QUALIFICATION_ROLE in msg
+
+    # member2 ne doit pas avoir ete ajoute en DB
+    doc = repository.get_active_queue(db, 42, "pro")
+    assert "2" not in doc["players"]
+
+
+async def test_pro_queue_rank_s_can_join_with_qualification_pro_present():
+    """Un Rank S peut rejoindre meme si un Rank Q est deja dans la queue."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView, PRO_QUALIFICATION_ROLE
+
+    db = bot_module.db
+    repository.setup_active_queue(
+        db,
+        guild_id=42,
+        queue_type="pro",
+        channel_id=100,
+        message_id=999,
+    )
+
+    rank_q = _make_rank_role(PRO_QUALIFICATION_ROLE)
+    rank_s = _make_rank_role("Rank S | Pro Queue")
+
+    _seed_riot_link(db, 42, 1)
+    repository.add_player_to_queue(db, 42, "pro", 1)
+    member1 = _fake_member(1)
+    member1.roles = [rank_q]
+
+    _seed_riot_link(db, 42, 2)
+    member2 = _fake_member(2)
+    member2.roles = [rank_s]
+
+    inter = _fake_interaction(member2, channel_name="pro-queue")
+    inter.user = member2
+    inter.guild.get_member = MagicMock(
+        side_effect=lambda uid: {1: member1, 2: member2}.get(uid)
+    )
+
+    view = QueueView(db, queue_type="pro")
+    await view._join_callback(inter)
+
+    doc = repository.get_active_queue(db, 42, "pro")
+    assert "2" in doc["players"]

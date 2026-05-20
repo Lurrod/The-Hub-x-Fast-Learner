@@ -1026,6 +1026,14 @@ class MatchCog(commands.Cog):
         except Exception:
             logger.exception("[match] refresh leaderboard a leve")
 
+        if queue_type == "pro":
+            try:
+                await refresh_leaderboard_channel(
+                    guild, self.db, queue_type, weekly=True
+                )
+            except Exception:
+                logger.exception("[match] refresh leaderboard weekly a leve")
+
     async def _fetch_henrik_multipliers(
         self,
         guild,

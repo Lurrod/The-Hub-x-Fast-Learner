@@ -99,6 +99,9 @@ def apply_match_validation(
         weighted = True
 
     elo_col = repository.get_elo_col(db)
+    # Pro Queue : miroir des memes deltas dans elo_weekly. La collection
+    # est videe chaque Lundi 00:00 Europe/Paris par cogs/leaderboard_weekly.
+    weekly_col = repository.get_elo_weekly_col(db) if queue_type == "pro" else None
 
     winner_mults = [float(mults.get(str(p["id"]), 1.0)) for p in winners]
     loser_mults = [float(mults.get(str(p["id"]), 1.0)) for p in losers]
@@ -131,6 +134,16 @@ def apply_match_validation(
                 multiplier=mult,
             )
         )
+        if weekly_col is not None:
+            _apply_player(
+                weekly_col,
+                p,
+                queue_type=queue_type,
+                match_id=match_id,
+                delta=delta,
+                win=True,
+                multiplier=mult,
+            )
     for p, delta, mult in zip(losers, clamped_loser_deltas, loser_mults, strict=True):
         changes.append(
             _apply_player(
@@ -143,6 +156,17 @@ def apply_match_validation(
                 multiplier=mult,
             )
         )
+        if weekly_col is not None:
+            # Clamp identique a la collection principale (delta deja clampe).
+            _apply_player(
+                weekly_col,
+                p,
+                queue_type=queue_type,
+                match_id=match_id,
+                delta=delta,
+                win=False,
+                multiplier=mult,
+            )
 
     return MatchEloOutcome(
         avg_elo=avg_elo,

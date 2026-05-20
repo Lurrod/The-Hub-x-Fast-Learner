@@ -469,3 +469,50 @@ def test_apply_match_validation_uses_compound_doc_id():
     assert col.find_one({"_id": "1:gc"}) is not None
     assert col.find_one({"_id": "2:gc"}) is not None
     assert col.find_one({"_id": "1"}) is None
+
+
+def test_pro_match_mirrors_to_elo_weekly():
+    """Une validation Pro Queue doit ecrire en parallele dans elo_weekly."""
+    import bot as bot_module
+
+    db = bot_module.db
+    match_doc = {
+        "_id": "match-pro-weekly-1",
+        "queue_type": "pro",
+        "status": "validated_a",
+        "team_a": [{"id": "100", "name": "ProA", "elo": 2000}],
+        "team_b": [{"id": "200", "name": "ProB", "elo": 2000}],
+    }
+    apply_match_validation(db, match_doc=match_doc)
+
+    elo_col = db["elo"]
+    weekly_col = db["elo_weekly"]
+    perm_winner = elo_col.find_one({"_id": "100:pro"})
+    perm_loser = elo_col.find_one({"_id": "200:pro"})
+    weekly_winner = weekly_col.find_one({"_id": "100:pro"})
+    weekly_loser = weekly_col.find_one({"_id": "200:pro"})
+
+    assert perm_winner is not None and perm_loser is not None
+    assert weekly_winner is not None and weekly_loser is not None
+    assert weekly_winner["wins"] == perm_winner["wins"]
+    assert weekly_loser["losses"] == perm_loser["losses"]
+    assert weekly_winner["elo"] - 2000 == perm_winner["elo"] - 2000
+
+
+def test_open_match_does_not_touch_elo_weekly():
+    """Open/GC ne doivent jamais ecrire dans elo_weekly."""
+    import bot as bot_module
+
+    db = bot_module.db
+    match_doc = {
+        "_id": "match-open-not-weekly-1",
+        "queue_type": "open",
+        "status": "validated_a",
+        "team_a": [{"id": "300", "name": "OpenA", "elo": 2000}],
+        "team_b": [{"id": "400", "name": "OpenB", "elo": 2000}],
+    }
+    apply_match_validation(db, match_doc=match_doc)
+
+    weekly_col = db["elo_weekly"]
+    assert weekly_col.find_one({"_id": "300:open"}) is None
+    assert weekly_col.find_one({"_id": "400:open"}) is None

@@ -310,13 +310,13 @@ async def test_page_cache_invalidation_clears_queue_entries():
 
     await build_leaderboard_payload(guild, db, queue_type="pro", page=0)
     await build_leaderboard_payload(guild, db, queue_type="pro", page=1)
-    assert (99, "pro", 0) in _PAGE_CACHE
-    assert (99, "pro", 1) in _PAGE_CACHE
+    assert (99, "pro", False, 0) in _PAGE_CACHE
+    assert (99, "pro", False, 1) in _PAGE_CACHE
 
     removed = _cache_invalidate(99, "pro")
     assert removed == 2
-    assert (99, "pro", 0) not in _PAGE_CACHE
-    assert (99, "pro", 1) not in _PAGE_CACHE
+    assert (99, "pro", False, 0) not in _PAGE_CACHE
+    assert (99, "pro", False, 1) not in _PAGE_CACHE
 
 
 @pytest.mark.asyncio
@@ -337,13 +337,13 @@ async def test_page_cache_invalidation_is_per_queue():
 
     await build_leaderboard_payload(guild, db, queue_type="pro")
     await build_leaderboard_payload(guild, db, queue_type="open")
-    assert (99, "pro", 0) in _PAGE_CACHE
-    assert (99, "open", 0) in _PAGE_CACHE
+    assert (99, "pro", False, 0) in _PAGE_CACHE
+    assert (99, "open", False, 0) in _PAGE_CACHE
 
     removed = _cache_invalidate(99, "pro")
     assert removed == 1
-    assert (99, "pro", 0) not in _PAGE_CACHE
-    assert (99, "open", 0) in _PAGE_CACHE, "Open ne doit PAS etre invalide"
+    assert (99, "pro", False, 0) not in _PAGE_CACHE
+    assert (99, "open", False, 0) in _PAGE_CACHE, "Open ne doit PAS etre invalide"
 
 
 @pytest.mark.asyncio
@@ -364,12 +364,12 @@ async def test_page_cache_invalidation_is_per_guild():
 
     await build_leaderboard_payload(_make_guild_with_member(99), db, queue_type="pro")
     await build_leaderboard_payload(_make_guild_with_member(100), db, queue_type="pro")
-    assert (99, "pro", 0) in _PAGE_CACHE
-    assert (100, "pro", 0) in _PAGE_CACHE
+    assert (99, "pro", False, 0) in _PAGE_CACHE
+    assert (100, "pro", False, 0) in _PAGE_CACHE
 
     _cache_invalidate(99, "pro")
-    assert (99, "pro", 0) not in _PAGE_CACHE
-    assert (100, "pro", 0) in _PAGE_CACHE, "Le cache d'une autre guild ne doit pas etre touche"
+    assert (99, "pro", False, 0) not in _PAGE_CACHE
+    assert (100, "pro", False, 0) in _PAGE_CACHE, "Le cache d'une autre guild ne doit pas etre touche"
 
 
 def test_page_cache_lru_eviction():
@@ -387,13 +387,13 @@ def test_page_cache_lru_eviction():
     for g in range(_PAGE_CACHE_MAXSIZE):
         _cache_set(g, "pro", 0, b"x", 1)
     assert len(_PAGE_CACHE) == _PAGE_CACHE_MAXSIZE
-    assert (0, "pro", 0) in _PAGE_CACHE
+    assert (0, "pro", False, 0) in _PAGE_CACHE
 
     # Ajout d'une entree de plus -> le plus ancien (guild=0) est evince
     _cache_set(_PAGE_CACHE_MAXSIZE, "pro", 0, b"x", 1)
     assert len(_PAGE_CACHE) == _PAGE_CACHE_MAXSIZE
-    assert (0, "pro", 0) not in _PAGE_CACHE
-    assert (_PAGE_CACHE_MAXSIZE, "pro", 0) in _PAGE_CACHE
+    assert (0, "pro", False, 0) not in _PAGE_CACHE
+    assert (_PAGE_CACHE_MAXSIZE, "pro", False, 0) in _PAGE_CACHE
 
 
 def test_page_cache_get_promotes_lru_order():
@@ -416,4 +416,29 @@ def test_page_cache_get_promotes_lru_order():
 
     # Verifie qu'elle est bien en fin (most-recent) de l'OrderedDict
     last_key = next(reversed(_PAGE_CACHE))
-    assert last_key == (0, "pro", 0)
+    assert last_key == (0, "pro", False, 0)
+
+
+def test_find_leaderboard_channel_returns_same_channel_for_both_modes():
+    """Permanent et weekly cohabitent dans le meme canal #leaderboard."""
+    from services.leaderboard_refresh import _find_leaderboard_channel
+
+    lb = MagicMock()
+    lb.name = "🏆・leaderboard"
+    guild = MagicMock()
+    guild.text_channels = [lb]
+
+    assert _find_leaderboard_channel(guild, weekly=False) is lb
+    assert _find_leaderboard_channel(guild, weekly=True) is lb
+
+
+def test_find_leaderboard_channel_returns_none_if_missing():
+    from services.leaderboard_refresh import _find_leaderboard_channel
+
+    other = MagicMock()
+    other.name = "general"
+    guild = MagicMock()
+    guild.text_channels = [other]
+
+    assert _find_leaderboard_channel(guild, weekly=False) is None
+    assert _find_leaderboard_channel(guild, weekly=True) is None
