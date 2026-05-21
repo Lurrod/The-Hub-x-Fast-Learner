@@ -324,6 +324,11 @@ async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
     assert result is None
     # Queue is deleted on failure
     assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
+    # Verify the user-facing cancel message was sent
+    channel.send.assert_awaited()
+    send_args = channel.send.await_args
+    sent_content = send_args.args[0] if send_args.args else send_args.kwargs.get("content", "")
+    assert "annule" in sent_content.lower()
 
 
 
@@ -339,10 +344,11 @@ async def test_vote_view_buttons_have_stable_custom_ids():
     assert VOTE_B_BTN_ID in custom_ids
 
 
-# ── Ordre roles -> message et deplacement VC (audit user) ────────
+# ── Ordre overwrites -> message (audit user) ─────────────────────
 @pytest.mark.asyncio
-async def test_roles_granted_before_match_message_sent(monkeypatch):
-    """prep_channel.send must be called after role setup completes."""
+async def test_overwrites_set_before_match_message_sent(monkeypatch):
+    """create_match_category (which sets channel overwrites) must be awaited
+    BEFORE prep_channel.send — otherwise players can't see the announce."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
 
@@ -355,6 +361,10 @@ async def test_roles_granted_before_match_message_sent(monkeypatch):
     events = []
     fake_channels = _make_fake_channels()
 
+    async def _fake_create(**kwargs):
+        events.append("create_match_category")
+        return fake_channels
+
     async def _prep_send(*args, **kwargs):
         events.append("prep_send")
         msg = MagicMock()
@@ -364,12 +374,16 @@ async def test_roles_granted_before_match_message_sent(monkeypatch):
     fake_channels.prep_channel.send.side_effect = _prep_send
 
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(match_cog_module, "create_match_category", _fake_create)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
 
+    assert "create_match_category" in events, "create_match_category must be called"
     assert "prep_send" in events, "prep_channel.send must be called"
+    assert events.index("create_match_category") < events.index("prep_send"), (
+        "create_match_category must complete before prep_channel.send"
+    )
 
 
 @pytest.mark.asyncio
