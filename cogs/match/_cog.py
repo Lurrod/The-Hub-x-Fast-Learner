@@ -1,4 +1,4 @@
-"""MatchCog — orchestrateur du flow match.
+﻿"""MatchCog — orchestrateur du flow match.
 
 Reste un gros cog (~1300 lignes) car les transitions match (formation,
 vote, verification Henrik, cleanups) partagent l'etat `self` (db,
@@ -222,6 +222,14 @@ class MatchCog(commands.Cog):
                         "`/leave` puis `/join` pour reset si besoin.",
                         ephemeral=False,
                     )
+                try:
+                    await delete_match_category(
+                        guild=guild,
+                        category_id=category.id,
+                        reason=f"Match #{match_number} draft annule",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("[match] failed to delete category on draft cancel")
                 return None
             except Exception:
                 logger.exception(
@@ -1319,7 +1327,7 @@ class MatchCog(commands.Cog):
             {"_id": match_id},
             {"$set": {
                 "status": "cleaned_up",
-                "cleaned_up_at": datetime.utcnow(),
+                "cleaned_up_at": datetime.now(UTC),
                 "cleaned_up_by": interaction.user.id,
             }},
         )

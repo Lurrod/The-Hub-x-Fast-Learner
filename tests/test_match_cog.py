@@ -1,4 +1,4 @@
-"""Tests d'integration du cog match (formation + persistance + reset queue)."""
+﻿"""Tests d'integration du cog match (formation + persistance + reset queue)."""
 
 import contextlib
 import random
@@ -917,6 +917,90 @@ async def test_draft_failure_deletes_match_category_and_match_doc(monkeypatch):
         raise RuntimeError("draft timeout")
 
     monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fail_run)
+
+    # --- build a pro-queue doc and guild ---
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    guild.roles = []
+    inter = _fake_interaction(guild, user=members[0])
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
+    result = await cog.on_queue_full(inter, queue_doc, queue_type="pro")
+
+    # Flow must return None (not propagate the exception)
+    assert result is None
+
+    # delete_match_category must have been called with the fake category id
+    delete_mock.assert_awaited_once()
+    assert delete_mock.await_args.kwargs["category_id"] == 7777
+
+# ── draft cancelled by admin rollback ─────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_draft_cancelled_by_admin_deletes_match_category(monkeypatch):
+    """When an admin cancels the captain draft (raising DraftCancelledError),
+    the dynamic category must still be torn down before returning."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    import services.captain_draft as cd_module
+
+    # --- patch delete_match_category to capture calls ---
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
+
+    # --- patch create_match_category to return a fake category ---
+    fake_category = MagicMock()
+    fake_category.id = 7777
+    fake_category.name = "Match #99"
+
+    fake_prep = MagicMock()
+    fake_prep.name = "match-preparation"
+    fake_prep.id = 888
+    fake_prep.category = fake_category
+    fake_prep.send = AsyncMock(return_value=MagicMock(id=555))
+
+    fake_team1 = MagicMock()
+    fake_team1.name = "Team 1"
+    fake_team1.id = 881
+    fake_team1.members = []
+
+    fake_team2 = MagicMock()
+    fake_team2.name = "Team 2"
+    fake_team2.id = 882
+    fake_team2.members = []
+
+    fake_waiting = MagicMock()
+    fake_waiting.name = "Waiting Match"
+    fake_waiting.id = 883
+    fake_waiting.members = []
+
+    fake_category.text_channels = [fake_prep]
+    fake_category.voice_channels = [fake_team1, fake_team2, fake_waiting]
+
+    from services.match_category import MatchChannels
+
+    fake_channels = MatchChannels(
+        category=fake_category,
+        prep_channel=fake_prep,
+        team1_vc=fake_team1,
+        team2_vc=fake_team2,
+        waiting_match_vc=fake_waiting,
+    )
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 99)
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
+
+    # --- patch build_players to avoid Mongo fetch ---
+    players = _make_10_players()
+    _patch_build_players(monkeypatch, players)
+
+    # --- patch CaptainDraftSession.run to raise DraftCancelledError ---
+    async def _admin_cancel_run(self):
+        raise cd_module.DraftCancelledError(reason="admin_cancel")
+
+    monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _admin_cancel_run)
 
     # --- build a pro-queue doc and guild ---
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
