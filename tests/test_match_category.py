@@ -1,4 +1,5 @@
 """Tests for services/match_category.py — dynamic match category lifecycle."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -111,9 +112,7 @@ async def test_create_match_category_rolls_back_on_partial_failure():
     # First VC succeeds, second VC raises -> must rollback
     vc1 = MagicMock()
     vc1.delete = AsyncMock()
-    category.create_voice_channel = AsyncMock(
-        side_effect=[vc1, RuntimeError("api fail")]
-    )
+    category.create_voice_channel = AsyncMock(side_effect=[vc1, RuntimeError("api fail")])
 
     guild = MagicMock()
     guild.create_category = AsyncMock(return_value=category)
@@ -210,9 +209,7 @@ async def test_cleanup_orphan_only_targets_match_pattern():
     guild.categories = [match_cat, lobby_cat, weird_cat]
     guild.get_channel = MagicMock(side_effect=lambda i: {1: match_cat}.get(i))
 
-    deleted = await cleanup_orphan_match_categories(
-        guild=guild, active_category_ids=set()
-    )
+    deleted = await cleanup_orphan_match_categories(guild=guild, active_category_ids=set())
 
     assert deleted == 1
     match_cat.delete.assert_awaited_once()
@@ -240,9 +237,7 @@ async def test_cleanup_orphan_skips_active_categories():
     guild.categories = [active, orphan]
     guild.get_channel = MagicMock(side_effect=lambda i: {100: active, 101: orphan}.get(i))
 
-    deleted = await cleanup_orphan_match_categories(
-        guild=guild, active_category_ids={100}
-    )
+    deleted = await cleanup_orphan_match_categories(guild=guild, active_category_ids={100})
 
     assert deleted == 1
     active.delete.assert_not_called()
@@ -269,9 +264,7 @@ async def test_cleanup_orphan_continues_on_per_category_error():
     guild.categories = [bad, good]
     guild.get_channel = MagicMock(side_effect=lambda i: {1: bad, 2: good}.get(i))
 
-    deleted = await cleanup_orphan_match_categories(
-        guild=guild, active_category_ids=set()
-    )
+    deleted = await cleanup_orphan_match_categories(guild=guild, active_category_ids=set())
 
     # bad failed (delete inside delete_match_category swallows the error), good succeeded
     # delete_match_category catches the error and logs it; the orphan loop continues.
@@ -297,9 +290,7 @@ async def test_create_match_category_rollback_survives_delete_failure():
     category.create_text_channel = AsyncMock(return_value=text_channel)
     vc1 = MagicMock()
     vc1.delete = AsyncMock()
-    category.create_voice_channel = AsyncMock(
-        side_effect=[vc1, RuntimeError("api fail")]
-    )
+    category.create_voice_channel = AsyncMock(side_effect=[vc1, RuntimeError("api fail")])
 
     guild = MagicMock()
     guild.create_category = AsyncMock(return_value=category)
@@ -414,7 +405,7 @@ async def test_cleanup_orphan_logs_on_delete_error_and_continues():
     """When delete_match_category logs an error, cleanup_orphan continues to next category."""
     from services.match_category import cleanup_orphan_match_categories
     import services.match_category as mc_module
-    from unittest.mock import patch, AsyncMock as AM
+    from unittest.mock import patch
 
     orphan_a = MagicMock(spec=discord.CategoryChannel)
     orphan_a.id = 10
@@ -437,9 +428,7 @@ async def test_cleanup_orphan_logs_on_delete_error_and_continues():
             raise RuntimeError("discord api error")
 
     with patch.object(mc_module, "delete_match_category", side_effect=_fake_delete):
-        deleted = await cleanup_orphan_match_categories(
-            guild=guild, active_category_ids=set()
-        )
+        deleted = await cleanup_orphan_match_categories(guild=guild, active_category_ids=set())
 
     # orphan_a failed, orphan_b succeeded
     assert call_order == [10, 11]

@@ -1,4 +1,5 @@
 """Integration test for cog_load orphan cleanup (Task 13)."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -14,9 +15,7 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
     from cogs.match import _cog as match_cog_module
 
     cleanup_mock = AsyncMock(return_value=2)
-    monkeypatch.setattr(
-        match_cog_module, "cleanup_orphan_match_categories", cleanup_mock
-    )
+    monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
 
     bot = MagicMock()
     guild_a = MagicMock(name="GuildA")
@@ -24,10 +23,14 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
     bot.guilds = [guild_a, guild_b]
 
     db = MagicMock()
-    db["matches"].find = MagicMock(return_value=iter([
-        {"category_id": 100, "status": "active"},
-        {"category_id": 200, "status": "disputed"},
-    ]))
+    db["matches"].find = MagicMock(
+        return_value=iter(
+            [
+                {"category_id": 100, "status": "active"},
+                {"category_id": 200, "status": "disputed"},
+            ]
+        )
+    )
 
     cog = MatchCog(bot, db)
     await cog.cog_load()
@@ -46,9 +49,7 @@ async def test_cog_load_handles_empty_active_set(monkeypatch):
     from cogs.match import _cog as match_cog_module
 
     cleanup_mock = AsyncMock(return_value=5)
-    monkeypatch.setattr(
-        match_cog_module, "cleanup_orphan_match_categories", cleanup_mock
-    )
+    monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
 
     bot = MagicMock()
     bot.guilds = [MagicMock()]
@@ -69,9 +70,7 @@ async def test_cog_load_per_guild_error_does_not_block_others(monkeypatch):
     from cogs.match import _cog as match_cog_module
 
     cleanup_mock = AsyncMock(side_effect=[RuntimeError("boom"), 3])
-    monkeypatch.setattr(
-        match_cog_module, "cleanup_orphan_match_categories", cleanup_mock
-    )
+    monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
 
     bot = MagicMock()
     bot.guilds = [MagicMock(name="bad"), MagicMock(name="good")]

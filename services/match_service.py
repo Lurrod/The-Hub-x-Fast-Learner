@@ -23,7 +23,7 @@ from services import elo_calc
 from services.team_balancer import BalancedTeams, Player, balance_teams
 
 if TYPE_CHECKING:
-    import discord
+    pass
 
 
 @dataclass(frozen=True)
@@ -135,4 +135,3 @@ def build_plan_from_draft(
 def serialize_team(team: tuple[Player, ...]) -> list[dict]:
     """Pour stockage MongoDB."""
     return [asdict(p) for p in team]
-

@@ -19,7 +19,6 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-import discord
 from discord.ext import commands, tasks
 
 from services import repository
@@ -99,9 +98,7 @@ class LeaderboardWeeklyCog(commands.Cog):
         for guild in self.bot.guilds:
             _cache_invalidate(guild.id, "pro", weekly=True)
             try:
-                await refresh_leaderboard_channel(
-                    guild, self.db, "pro", weekly=True
-                )
+                await refresh_leaderboard_channel(guild, self.db, "pro", weekly=True)
             except Exception:
                 logger.exception(
                     "[leaderboard_weekly] refresh weekly a leve (guild=%s)",

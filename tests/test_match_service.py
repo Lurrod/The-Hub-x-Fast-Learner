@@ -1,7 +1,6 @@
 """Tests de la logique pure de formation de match."""
 
 import random
-from unittest.mock import MagicMock
 
 import pytest
 

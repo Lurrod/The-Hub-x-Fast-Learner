@@ -1,4 +1,4 @@
-﻿"""Tests d'integration du cog match (formation + persistance + reset queue)."""
+"""Tests d'integration du cog match (formation + persistance + reset queue)."""
 
 import contextlib
 import random
@@ -147,8 +147,6 @@ def _seed_full_queue(
     )
 
 
-
-
 def _make_fake_channels(cat_id: int = 4242, cat_name: str = "Match #1", prep_id: int = 999):
     """Build a fully-wired MatchChannels mock for on_queue_full tests."""
     from services.match_category import MatchChannels
@@ -189,6 +187,7 @@ def _make_fake_channels(cat_id: int = 4242, cat_name: str = "Match #1", prep_id:
         waiting_match_vc=fake_waiting,
     )
 
+
 # ── on_queue_full : succes ────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_on_queue_full_posts_message_with_view(monkeypatch):
@@ -198,7 +197,9 @@ async def test_on_queue_full_posts_message_with_view(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     members = [_fake_member(i, f"P{i}") for i in range(10)]
@@ -228,7 +229,9 @@ async def test_on_queue_full_persists_match(monkeypatch):
 
     fake_channels = _make_fake_channels(cat_id=1111, cat_name="Match #1", prep_id=777)
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     members = [_fake_member(i, f"P{i}") for i in range(10)]
@@ -260,7 +263,9 @@ async def test_on_queue_full_resets_queue(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     members = [_fake_member(i) for i in range(10)]
@@ -282,7 +287,9 @@ async def test_on_queue_full_balanced_teams_in_persistence(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     members = [_fake_member(i) for i in range(10)]
@@ -308,7 +315,9 @@ async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     repository.unlink_riot_account(bot_module.db, user_id=5)
@@ -329,8 +338,6 @@ async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
     send_args = channel.send.await_args
     sent_content = send_args.args[0] if send_args.args else send_args.kwargs.get("content", "")
     assert "annule" in sent_content.lower()
-
-
 
 
 # ── VoteView stub (Phase 4 — Phase 5 implementera) ────────────────
@@ -410,7 +417,9 @@ async def test_players_moved_to_team_vcs(monkeypatch):
     inter = _fake_interaction(guild)
 
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
@@ -445,7 +454,9 @@ async def test_player_already_in_team_vc_not_moved(monkeypatch):
     inter = _fake_interaction(guild)
 
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
@@ -453,7 +464,9 @@ async def test_player_already_in_team_vc_not_moved(monkeypatch):
     # Nobody should be moved back to Team 1 (they are already there)
     for m in members:
         for call in m.move_to.await_args_list:
-            assert call.args[0] is not team1, "Player already in Team 1 should not be re-moved there"
+            assert call.args[0] is not team1, (
+                "Player already in Team 1 should not be re-moved there"
+            )
 
 
 @pytest.mark.asyncio
@@ -483,7 +496,9 @@ async def test_queue_full_does_not_crash_when_no_team_vcs(monkeypatch):
     )
 
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     members = [_fake_member(i, f"P{i}") for i in range(10)]
@@ -496,8 +511,6 @@ async def test_queue_full_does_not_crash_when_no_team_vcs(monkeypatch):
     assert match_id is not None
 
 
-
-
 # ── queue_type propagation ────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
@@ -508,6 +521,7 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
 
     async def _fake_run(self):
         from services.captain_draft import DraftResult
+
         state = self.state
         for p in list(state.pool):
             state = state.apply_pick(p)
@@ -517,7 +531,9 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
     members = [_fake_member(i, f"P{i}") for i in range(10)]
@@ -541,7 +557,9 @@ async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="gc")
 
@@ -563,9 +581,6 @@ async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
     await cog.on_queue_full(inter, queue_doc, "gc")
 
     assert captured.get("queue_type") == "gc"
-
-
-
 
 
 # -- Task 7: dynamic category creation ----------------------------------
@@ -637,6 +652,7 @@ async def test_start_match_creates_dynamic_category(monkeypatch):
     assert match["category_id"] == 4242
     assert match["category_name"] == "Match #43"
     assert match["match_number"] == 43
+
 
 # ── build_match_embed ─────────────────────────────────────────────
 def test_build_match_embed_shows_all_players_and_map():
@@ -755,6 +771,7 @@ async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
     async def _fake_run(self):
         run_calls.append(self)
         from services.captain_draft import DraftResult
+
         state = self.state
         for p in list(state.pool):
             state = state.apply_pick(p)
@@ -764,7 +781,9 @@ async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
@@ -776,8 +795,6 @@ async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
     with contextlib.suppress(Exception):
         await cog.on_queue_full(inter, queue_doc, queue_type="pro")
     assert len(run_calls) == 1, "CaptainDraftSession.run() must be called exactly once"
-
-
 
 
 # ── match_cancel : suppression catégorie ─────────────────────────
@@ -832,7 +849,9 @@ async def test_admin_cancel_deletes_match_category(monkeypatch):
         waiting_match_vc=fake_waiting,
     )
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
-    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
     await cog.on_queue_full(inter_start, queue_doc, "open")
@@ -935,6 +954,7 @@ async def test_draft_failure_deletes_match_category_and_match_doc(monkeypatch):
     # delete_match_category must have been called with the fake category id
     delete_mock.assert_awaited_once()
     assert delete_mock.await_args.kwargs["category_id"] == 7777
+
 
 # ── draft cancelled by admin rollback ─────────────────────────────────────────
 @pytest.mark.asyncio

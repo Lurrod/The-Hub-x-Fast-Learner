@@ -418,7 +418,7 @@ async def build_leaderboard_payload(
 
 def _find_leaderboard_channel(
     guild: discord.Guild, *, weekly: bool = False
-) -> "discord.TextChannel | None":
+) -> discord.TextChannel | None:
     """Trouve le canal cible.
 
     Permanent et weekly cohabitent dans le meme canal `#leaderboard`.

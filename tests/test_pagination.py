@@ -369,7 +369,9 @@ async def test_page_cache_invalidation_is_per_guild():
 
     _cache_invalidate(99, "pro")
     assert (99, "pro", False, 0) not in _PAGE_CACHE
-    assert (100, "pro", False, 0) in _PAGE_CACHE, "Le cache d'une autre guild ne doit pas etre touche"
+    assert (100, "pro", False, 0) in _PAGE_CACHE, (
+        "Le cache d'une autre guild ne doit pas etre touche"
+    )
 
 
 def test_page_cache_lru_eviction():

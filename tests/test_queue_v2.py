@@ -825,9 +825,7 @@ async def test_pro_queue_rejects_second_qualification_pro():
     inter = _fake_interaction(member2, channel_name="pro-queue")
     inter.user = member2
     # Pour que le decompte du contrainte trouve member1 dans la queue
-    inter.guild.get_member = MagicMock(
-        side_effect=lambda uid: {1: member1, 2: member2}.get(uid)
-    )
+    inter.guild.get_member = MagicMock(side_effect=lambda uid: {1: member1, 2: member2}.get(uid))
 
     view = QueueView(db, queue_type="pro")
     await view._join_callback(inter)
@@ -869,9 +867,7 @@ async def test_pro_queue_rank_s_can_join_with_qualification_pro_present():
 
     inter = _fake_interaction(member2, channel_name="pro-queue")
     inter.user = member2
-    inter.guild.get_member = MagicMock(
-        side_effect=lambda uid: {1: member1, 2: member2}.get(uid)
-    )
+    inter.guild.get_member = MagicMock(side_effect=lambda uid: {1: member1, 2: member2}.get(uid))
 
     view = QueueView(db, queue_type="pro")
     await view._join_callback(inter)

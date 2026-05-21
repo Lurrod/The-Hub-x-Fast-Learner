@@ -1,4 +1,5 @@
 """Tests for the /match-cleanup admin slash command (Task 12)."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -70,12 +71,14 @@ async def test_match_cleanup_happy_path(monkeypatch):
     delete_mock = AsyncMock()
     monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
 
-    cog = _build_cog_with_db(matches_doc={
-        "_id": "m1",
-        "status": "disputed",
-        "category_id": 4242,
-        "match_number": 7,
-    })
+    cog = _build_cog_with_db(
+        matches_doc={
+            "_id": "m1",
+            "status": "disputed",
+            "category_id": 4242,
+            "match_number": 7,
+        }
+    )
     interaction = MagicMock()
     interaction.user.id = 1
     interaction.user.guild_permissions.administrator = True

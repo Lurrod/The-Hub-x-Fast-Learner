@@ -6,7 +6,6 @@ import mongomock
 import pytest
 
 from services import repository
-from datetime import UTC
 
 
 @pytest.fixture

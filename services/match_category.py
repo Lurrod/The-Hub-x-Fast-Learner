@@ -5,12 +5,13 @@ holds the match-preparation text channel and team voice channels. It
 replaces the legacy 5-slot static system that relied on permanent
 ``Match #1``..``Match #5`` categories and roles.
 """
+
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from collections.abc import Iterable
 
 import discord
 
@@ -69,11 +70,11 @@ async def create_match_category(
         for ch in created:
             try:
                 await ch.delete(reason="rollback partial match category creation")
-            except Exception:  # noqa: BLE001 - best effort cleanup
+            except Exception:
                 logger.exception("[match_category] rollback delete child failed")
         try:
             await category.delete(reason="rollback partial match category creation")
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("[match_category] rollback delete category failed")
         raise
     return MatchChannels(
@@ -156,13 +157,13 @@ async def delete_match_category(
             await child.delete(reason=reason)
         except discord.NotFound:
             pass
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("[match_category] failed to delete child %s", child)
     try:
         await channel.delete(reason=reason)
     except discord.NotFound:
         pass
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("[match_category] failed to delete category %d", category_id)
 
 
@@ -190,7 +191,7 @@ async def cleanup_orphan_match_categories(
                 reason="Orphan match category cleanup",
             )
             deleted += 1
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception(
                 "[match_category] cleanup_orphan failed for %s (id=%d)",
                 category.name,

@@ -1,4 +1,4 @@
-﻿"""MatchCog — orchestrateur du flow match.
+"""MatchCog — orchestrateur du flow match.
 
 Reste un gros cog (~1300 lignes) car les transitions match (formation,
 vote, verification Henrik, cleanups) partagent l'etat `self` (db,
@@ -228,7 +228,7 @@ class MatchCog(commands.Cog):
                         category_id=category.id,
                         reason=f"Match #{match_number} draft annule",
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:
                     logger.exception("[match] failed to delete category on draft cancel")
                 return None
             except Exception:
@@ -576,9 +576,7 @@ class MatchCog(commands.Cog):
             await delete_match_category(
                 guild=guild,
                 category_id=category_id,
-                reason=(
-                    f"Match #{match_doc.get('match_number', '?')} vote validé"
-                ),
+                reason=(f"Match #{match_doc.get('match_number', '?')} vote validé"),
             )
 
         try:
@@ -730,12 +728,10 @@ class MatchCog(commands.Cog):
             if leader_member is not None:
                 host_role = discord.utils.get(guild.roles, name=MATCH_HOST_ROLE_NAME)
                 if host_role is not None and host_role in leader_member.roles:
-                    try:
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
                         await leader_member.remove_roles(
                             host_role, reason="Vote timeout : Match Host revoque"
                         )
-                    except (discord.Forbidden, discord.HTTPException):
-                        pass
 
         admin_role = None
         for role_name in ADMIN_ROLE_NAMES:
@@ -903,9 +899,7 @@ class MatchCog(commands.Cog):
 
         if queue_type == "pro":
             try:
-                await refresh_leaderboard_channel(
-                    guild, self.db, queue_type, weekly=True
-                )
+                await refresh_leaderboard_channel(guild, self.db, queue_type, weekly=True)
             except Exception:
                 logger.exception("[match] refresh leaderboard weekly a leve")
 
@@ -1276,14 +1270,15 @@ class MatchCog(commands.Cog):
             if host_role is not None:
                 if host_role in quitter.roles:
                     with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-                        await quitter.remove_roles(host_role, reason="Match replace : host transferred")
+                        await quitter.remove_roles(
+                            host_role, reason="Match replace : host transferred"
+                        )
                 with contextlib.suppress(discord.Forbidden, discord.HTTPException):
                     await remplacant.add_roles(host_role, reason="Match replace : host transferred")
 
         suffix = " (lobby host)" if leader_replaced else ""
         await interaction.followup.send(
-            f"✅ {quitter.mention} remplace par {remplacant.mention} dans "
-            f"`{team_key}`{suffix}.",
+            f"✅ {quitter.mention} remplace par {remplacant.mention} dans `{team_key}`{suffix}.",
             ephemeral=True,
         )
 
@@ -1291,9 +1286,7 @@ class MatchCog(commands.Cog):
         name="match-cleanup",
         description="(Admin) Force la suppression de la categorie d'un match dispute ou bloque.",
     )
-    async def match_cleanup(
-        self, interaction: discord.Interaction, match_id: str
-    ) -> None:
+    async def match_cleanup(self, interaction: discord.Interaction, match_id: str) -> None:
         """Admin-only force teardown for disputed/blocked matches."""
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
@@ -1312,8 +1305,7 @@ class MatchCog(commands.Cog):
         category_id = match.get("category_id")
         if not category_id:
             await interaction.response.send_message(
-                f"Match `{match_id}` n'a pas de category_id "
-                "(probablement un match pre-migration).",
+                f"Match `{match_id}` n'a pas de category_id (probablement un match pre-migration).",
                 ephemeral=True,
             )
             return
@@ -1325,15 +1317,15 @@ class MatchCog(commands.Cog):
         )
         self.db["matches"].update_one(
             {"_id": match_id},
-            {"$set": {
-                "status": "cleaned_up",
-                "cleaned_up_at": datetime.now(UTC),
-                "cleaned_up_by": interaction.user.id,
-            }},
+            {
+                "$set": {
+                    "status": "cleaned_up",
+                    "cleaned_up_at": datetime.now(UTC),
+                    "cleaned_up_by": interaction.user.id,
+                }
+            },
         )
-        await interaction.response.send_message(
-            f"Match `{match_id}` nettoye.", ephemeral=True
-        )
+        await interaction.response.send_message(f"Match `{match_id}` nettoye.", ephemeral=True)
 
     @match_cancel.error
     @match_replace.error
@@ -1370,10 +1362,8 @@ class MatchCog(commands.Cog):
                     guild.name,
                     deleted,
                 )
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "[match] cog_load cleanup failed for guild %s", guild.name
-                )
+            except Exception:
+                logger.exception("[match] cog_load cleanup failed for guild %s", guild.name)
 
     async def cog_unload(self):
         self._timeout_loop.cancel()
