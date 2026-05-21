@@ -1342,8 +1342,30 @@ class MatchCog(commands.Cog):
                     ephemeral=True,
                 )
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
         self._timeout_loop.start()
+        active_ids: set[int] = {
+            m["category_id"]
+            for m in self.db["matches"].find(
+                {"status": {"$in": ["active", "disputed"]}},
+                {"category_id": 1},
+            )
+            if m.get("category_id")
+        }
+        for guild in self.bot.guilds:
+            try:
+                deleted = await cleanup_orphan_match_categories(
+                    guild=guild, active_category_ids=active_ids
+                )
+                logger.info(
+                    "[match] Startup cleanup in %s: %d orphan categories deleted",
+                    guild.name,
+                    deleted,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "[match] cog_load cleanup failed for guild %s", guild.name
+                )
 
     async def cog_unload(self):
         self._timeout_loop.cancel()
