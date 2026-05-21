@@ -90,9 +90,13 @@ async def test_match_cleanup_happy_path(monkeypatch):
     delete_mock.assert_awaited_once()
     assert delete_mock.await_args.kwargs["category_id"] == 4242
 
-    cog.db["matches"].update_one.assert_called_once()
-    update_call = cog.db["matches"].update_one.call_args
-    set_payload = update_call.args[1]["$set"]
+    # update_one est appele deux fois : (1) mark_match_cleanup_started
+    # qui pose delete_started_at avant l'appel Discord, (2) la
+    # transition de status terminale.
+    assert cog.db["matches"].update_one.call_count == 2
+    cleanup_started_call, status_call = cog.db["matches"].update_one.call_args_list
+    assert "delete_started_at" in cleanup_started_call.args[1]["$set"]
+    set_payload = status_call.args[1]["$set"]
     assert set_payload["status"] == "cleaned_up"
     assert "cleaned_up_by" in set_payload
     assert "cleaned_up_at" in set_payload

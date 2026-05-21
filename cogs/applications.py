@@ -9,8 +9,8 @@ Contient :
   - CloseTicketView : ferme un ticket de report.
 
 Toutes les views persistantes (custom_id stable) sont enregistrees via
-`bot.add_view(...)` dans `setup()`. Les Modals et la RoleChoiceView (timeout=60)
-sont instancies a la volee.
+`bot.add_view(...)` dans `setup()`. Les Modals et la RoleChoiceView (timeout =
+APPLICATION_VIEW_TIMEOUT_SECONDS) sont instancies a la volee.
 """
 
 from __future__ import annotations
@@ -28,6 +28,11 @@ from pymongo.errors import DuplicateKeyError
 from services import repository
 
 logger = logging.getLogger(__name__)
+
+# Timeout d'une RoleChoiceView ephemere (Joueur vs Staff). Decouple
+# volontairement de VOTE_TIMEOUT_MINUTES : c'est une UX rapide, pas le flow
+# match.
+APPLICATION_VIEW_TIMEOUT_SECONDS: int = 60
 
 
 # ── Constantes ───────────────────────────────────────────────────
@@ -552,10 +557,10 @@ class ApplicationReviewView(discord.ui.View):
 
 
 class RoleChoiceView(discord.ui.View):
-    """Vue ephemere (timeout=60) : Joueur vs Staff. Ouvre le bon modal."""
+    """Vue ephemere (timeout = APPLICATION_VIEW_TIMEOUT_SECONDS) : Joueur vs Staff."""
 
     def __init__(self, db, review_view: ApplicationReviewView) -> None:
-        super().__init__(timeout=60)
+        super().__init__(timeout=APPLICATION_VIEW_TIMEOUT_SECONDS)
         self.db = db
         self.review_view = review_view
 

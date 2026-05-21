@@ -433,3 +433,49 @@ async def test_cleanup_orphan_logs_on_delete_error_and_continues():
     # orphan_a failed, orphan_b succeeded
     assert call_order == [10, 11]
     assert deleted == 1
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_rollback_survives_cascade_delete_failures():
+    """Si la creation echoue ET que les delete de rollback echouent aussi,
+    on doit : (1) tenter chaque delete (pas de short-circuit), (2) re-lever
+    l'exception ORIGINALE de creation, pas celle du rollback, (3) ne pas
+    boucler indefiniment."""
+    from services.match_category import create_match_category
+
+    category = MagicMock()
+    # La suppression de la categorie elle-meme echoue aussi.
+    category.delete = AsyncMock(side_effect=RuntimeError("category delete failed"))
+
+    text_channel = MagicMock()
+    # Le premier delete enfant echoue : ne doit pas court-circuiter les suivants.
+    text_channel.delete = AsyncMock(side_effect=RuntimeError("child delete failed"))
+
+    vc1 = MagicMock()
+    vc1.delete = AsyncMock()  # second delete reussit -> on verifie qu'il est tente
+
+    category.create_text_channel = AsyncMock(return_value=text_channel)
+    category.create_voice_channel = AsyncMock(side_effect=[vc1, RuntimeError("api fail original")])
+
+    guild = MagicMock()
+    guild.create_category = AsyncMock(return_value=category)
+    guild.default_role = MagicMock()
+    guild.me = MagicMock()
+    guild.me.top_role = MagicMock()
+    guild.get_member = MagicMock(return_value=None)
+    guild.get_role = MagicMock(return_value=None)
+
+    # L'exception originale de creation doit etre celle propagee, pas celle
+    # du rollback (qui doit etre loggee mais swallowed).
+    with pytest.raises(RuntimeError, match="api fail original"):
+        await create_match_category(
+            guild=guild,
+            match_number=42,
+            player_ids=[],
+            admin_role_ids=[],
+        )
+
+    # Tous les delete ont ete tentes malgre les echecs en cascade.
+    text_channel.delete.assert_awaited_once()
+    vc1.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()

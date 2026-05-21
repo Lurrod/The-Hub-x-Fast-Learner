@@ -28,6 +28,23 @@ def _check_queue_type(queue_type: str) -> None:
         raise ValueError(f"queue_type invalide : {queue_type!r}. Attendus : {QUEUE_TYPES}")
 
 
+# Les signatures de ce module acceptent `int | str` pour les IDs Discord
+# (user_id, guild_id, channel_id, role_id, message_id, category_id) parce
+# que :
+#   - Discord.py fournit des int (`member.id`, `guild.id`, ...).
+#   - Certains docs Mongo historiques stockent l'ID en str ; on les relit
+#     tel quel et on les repasse au repo sans cast.
+# Le risque concret : un appelant passe par erreur `member.name` au lieu
+# de `member.id` -> `int("Bob")` leve un `ValueError` sec. Ce helper
+# garde la coercion centrale et donne un message qui pointe le champ et
+# la valeur fautive.
+def _to_int_id(value: int | str, *, field: str = "id") -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"{field}: attendu int ou str numerique, recu {value!r}") from exc
+
+
 def player_doc_id(user_id: int | str, queue_type: str) -> str:
     """Compound _id pour un doc joueur dans la collection partagée `elo`."""
     _check_queue_type(queue_type)
@@ -231,8 +248,8 @@ def setup_active_queue(
         {"_id": active_queue_id(queue_type)},
         {
             "$set": {
-                "channel_id": int(channel_id),
-                "message_id": int(message_id),
+                "channel_id": _to_int_id(channel_id, field="channel_id"),
+                "message_id": _to_int_id(message_id, field="message_id"),
                 "players": [],
                 "status": "open",
                 "queue_type": queue_type,
@@ -396,17 +413,19 @@ def create_match(
         "team_b": team_b,
         "map": map_name,
         "queue_type": queue_type,
-        "origin_guild_id": int(origin_guild_id),
+        "origin_guild_id": _to_int_id(origin_guild_id, field="origin_guild_id"),
         "lobby_leader_id": str(lobby_leader_id),
         "category_name": category_name,
-        "category_id": int(category_id) if category_id is not None else None,
+        "category_id": _to_int_id(category_id, field="category_id")
+        if category_id is not None
+        else None,
         "match_number": int(match_number) if match_number is not None else None,
         "status": "pending",
         "votes": {},
         "created_at": datetime.now(UTC),
         "validated_at": None,
-        "message_id": int(message_id) if message_id else None,
-        "channel_id": int(channel_id) if channel_id else None,
+        "message_id": _to_int_id(message_id, field="message_id") if message_id else None,
+        "channel_id": _to_int_id(channel_id, field="channel_id") if channel_id else None,
     }
     res = get_matches_col(db).insert_one(doc)
     return res.inserted_id
@@ -417,7 +436,7 @@ def get_match(db: Database, match_id: Any) -> Mapping[str, Any] | None:
 
 
 def get_match_by_message(db: Database, message_id: int) -> Mapping[str, Any] | None:
-    return get_matches_col(db).find_one({"message_id": int(message_id)})
+    return get_matches_col(db).find_one({"message_id": _to_int_id(message_id, field="message_id")})
 
 
 # Statuts pour lesquels un joueur est considere encore engage dans un match
@@ -442,7 +461,7 @@ def find_active_match_for_player(db: Database, user_id: int | str) -> Mapping[st
 
     Utilise par la queue pour refuser le rejoin tant que le joueur n'a pas
     cloture son match en cours (vote ou /match-cancel admin)."""
-    uid_int = int(user_id)
+    uid_int = _to_int_id(user_id, field="user_id")
     return get_matches_col(db).find_one(
         {
             "$or": [{"team_a.id": uid_int}, {"team_b.id": uid_int}],
@@ -556,6 +575,39 @@ def release_elo_claim(
     )
 
 
+def mark_match_cleanup_started(db: Database, match_id: Any) -> None:
+    """Pose `delete_started_at` sur le doc match juste avant l'appel a
+    `delete_match_category`. Sert de safety net : si le bot crash entre
+    le debut de la suppression (3 salons sur 4 supprimes par exemple) et
+    la transition de status terminal, le startup pourra detecter le
+    cleanup interrompu et reprendre (cf. `find_match_ids_with_cleanup_started`)."""
+    get_matches_col(db).update_one(
+        {"_id": match_id},
+        {"$set": {"delete_started_at": datetime.now(UTC)}},
+    )
+
+
+def find_category_ids_with_cleanup_started(db: Database, *, origin_guild_id: int | str) -> set[int]:
+    """Retourne les category_ids des matches ou un cleanup a ete amorce
+    (delete_started_at set). Utilise au boot pour exclure ces categories
+    de l'`active_ids` set : meme si leur status est encore "actif", on
+    sait qu'on a tente de les supprimer -> le cleanup orphelin reprend
+    de maniere idempotente. Sans ce signal, une cleanup interrompue
+    entre l'appel Discord et la mise a jour du status laisserait la
+    categorie orpheline visible mais protegee jusqu'au prochain
+    /match-cleanup admin."""
+    gid = _to_int_id(origin_guild_id, field="origin_guild_id")
+    cursor = get_matches_col(db).find(
+        {
+            "origin_guild_id": gid,
+            "delete_started_at": {"$exists": True},
+            "category_id": {"$ne": None},
+        },
+        {"category_id": 1},
+    )
+    return {int(m["category_id"]) for m in cursor if m.get("category_id")}
+
+
 def find_validated_unverified(
     db: Database,
     cutoff_dt,
@@ -582,7 +634,7 @@ def find_validated_unverified(
         ],
     }
     if origin_guild_id is not None:
-        filt["origin_guild_id"] = int(origin_guild_id)
+        filt["origin_guild_id"] = _to_int_id(origin_guild_id, field="origin_guild_id")
     return list(get_matches_col(db).find(filt))
 
 
@@ -638,7 +690,7 @@ def set_leaderboard_message_id(
     _check_queue_type(queue_type)
     get_leaderboard_state_col(db, guild_id).update_one(
         {"_id": leaderboard_state_id(queue_type)},
-        {"$set": {"message_id": int(message_id)}},
+        {"$set": {"message_id": _to_int_id(message_id, field="message_id")}},
         upsert=True,
     )
 
@@ -687,7 +739,7 @@ def set_weekly_leaderboard_message_id(
 ) -> None:
     get_leaderboard_state_col(db, guild_id).update_one(
         {"_id": "weekly:pro"},
-        {"$set": {"message_id": int(message_id)}},
+        {"$set": {"message_id": _to_int_id(message_id, field="message_id")}},
         upsert=True,
     )
 

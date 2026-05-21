@@ -505,6 +505,55 @@ def test_timeout_minutes_is_90():
     assert VOTE_TIMEOUT_MINUTES == 90
 
 
+async def test_vote_timeout_survives_cog_recreation():
+    """Le vote est entierement DB-state-driven : aucun etat in-memory du
+    cog ne doit etre necessaire pour qu'un vote stale soit timeout
+    correctement apres redemarrage du bot. On simule ca en creant un
+    match avec votes partiels, puis en instanciant un cog FRAIS (sans
+    historique) pour le traiter."""
+    import bot as bot_module
+
+    match_id = _seed_match(bot_module.db)
+    # Vote ouvert depuis longtemps avec 3 votes A + 2 votes B (sous le
+    # seuil de majorite). Si le bot ne se basait que sur l'etat en
+    # memoire (timer in-process, set in-memory de matches actifs), un
+    # redemarrage ferait "oublier" ce vote et le match resterait
+    # pending indefiniment. Le test verrouille la propriete inverse.
+    partial_votes = {
+        **{str(i): "a" for i in range(3)},
+        **{str(i): "b" for i in range(3, 5)},
+    }
+    bot_module.db["matches"].update_one(
+        {"_id": match_id},
+        {
+            "$set": {
+                "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 1),
+                "votes": partial_votes,
+            }
+        },
+    )
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    admin_role = MagicMock()
+    admin_role.name = "Admin"
+    admin_role.mention = "@AdminRole"
+    guild = _fake_guild(roles=[admin_role], channel=channel)
+
+    # Cog "frais" cree apres l'expiration du vote, comme apres reboot.
+    fresh_cog = MatchCog(bot_module.bot, bot_module.db)
+    fresh_cog.bot = MagicMock()
+    fresh_cog.bot.guilds = [guild]
+
+    flagged = await fresh_cog.check_vote_timeouts()
+    assert flagged == 1
+
+    match = repository.get_match(bot_module.db, match_id)
+    assert match["status"] == "contested"
+    # Les votes partiels d'avant le "reboot" sont preserves.
+    assert match["votes"] == partial_votes
+
+
 # ── Phase 6 : MAJ ELO apres validation ────────────────────────────
 def _seed_match_with_avg_2400(db, guild_id: int = 42, message_id: int = 555):
     return repository.create_match(

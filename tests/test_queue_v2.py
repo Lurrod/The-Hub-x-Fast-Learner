@@ -428,6 +428,47 @@ async def test_join_allowed_when_match_elo_already_applied():
     inter.edit_original_response.assert_awaited_once()
 
 
+async def test_match_replace_releases_quitter_and_blocks_replacement():
+    """Apres /match-replace : le quitter doit pouvoir re-queue (il n'est
+    plus dans team_a/team_b) et le remplacant doit etre bloque (il y est
+    maintenant). Verrouille l'invariant entre find_active_match_for_player
+    et la mutation atomique $set sur le tableau d'equipe."""
+    import bot as bot_module
+
+    _seed_active_queue(bot_module.db)
+    _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
+    _seed_riot_link(bot_module.db, guild_id=42, user_id=99)
+
+    matches = bot_module.db["matches"]
+    matches.insert_one(
+        {
+            "team_a": [{"id": 1, "name": "Jet", "elo": 1500}],
+            "team_b": [{"id": 2, "name": "Sage", "elo": 1500}],
+            "map": "Bind",
+            "queue_type": "open",
+            "origin_guild_id": 42,
+            "status": "pending",
+            "match_number": 8,
+            "category_id": 999,
+            "votes": {},
+        }
+    )
+
+    assert repository.find_active_match_for_player(bot_module.db, 1) is not None
+    assert repository.find_active_match_for_player(bot_module.db, 99) is None
+
+    # Simule /match-replace : remplace atomiquement le contenu de team_a.
+    # Cf. cogs/match/_cog.py match_replace -> update_one({"_id":...,
+    # "status":"pending"}, {"$set": {team_key: new_team}}).
+    matches.update_one(
+        {"status": "pending", "match_number": 8},
+        {"$set": {"team_a": [{"id": 99, "name": "Phx", "elo": 1500}]}},
+    )
+
+    assert repository.find_active_match_for_player(bot_module.db, 1) is None
+    assert repository.find_active_match_for_player(bot_module.db, 99) is not None
+
+
 async def test_join_10th_player_triggers_on_full():
     import bot as bot_module
 

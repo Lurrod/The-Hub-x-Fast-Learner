@@ -602,6 +602,7 @@ class MatchCog(commands.Cog):
         # Graceful : les anciens matchs sans category_id sont ignorés.
         category_id = match_doc.get("category_id")
         if category_id:
+            repository.mark_match_cleanup_started(self.db, match_doc["_id"])
             await delete_match_category(
                 guild=guild,
                 category_id=category_id,
@@ -1151,6 +1152,7 @@ class MatchCog(commands.Cog):
         # Graceful : les anciens matchs sans category_id sont ignorés.
         category_id = match.get("category_id")
         if category_id:
+            repository.mark_match_cleanup_started(self.db, match["_id"])
             await delete_match_category(
                 guild=interaction.guild,
                 category_id=category_id,
@@ -1339,6 +1341,7 @@ class MatchCog(commands.Cog):
             )
             return
 
+        repository.mark_match_cleanup_started(self.db, match_id)
         await delete_match_category(
             guild=interaction.guild,
             category_id=category_id,
@@ -1408,9 +1411,17 @@ class MatchCog(commands.Cog):
             if m.get("category_id")
         }
         for guild in self.bot.guilds:
+            # Safety net : si un cleanup precedent s'est interrompu entre
+            # `mark_match_cleanup_started` et la transition de status
+            # terminal, on retire ces categories du jeu actif. orphan
+            # cleanup reprendra `delete_match_category` (idempotent).
+            in_flight_cleanup = repository.find_category_ids_with_cleanup_started(
+                self.db, origin_guild_id=guild.id
+            )
+            guild_active_ids = active_ids - in_flight_cleanup
             try:
                 deleted = await cleanup_orphan_match_categories(
-                    guild=guild, active_category_ids=active_ids
+                    guild=guild, active_category_ids=guild_active_ids
                 )
                 logger.info(
                     "[match] Startup cleanup in %s: %d orphan categories deleted",

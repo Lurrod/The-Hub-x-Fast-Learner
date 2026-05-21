@@ -218,3 +218,77 @@ def test_reserve_match_number_independent_between_guilds(mongo_db):
     assert reserve_match_number(mongo_db, guild_id=333) == 1
     assert reserve_match_number(mongo_db, guild_id=444) == 1
     assert reserve_match_number(mongo_db, guild_id=333) == 2
+
+
+def test_to_int_id_accepts_int_and_numeric_str():
+    from services.repository import _to_int_id
+
+    assert _to_int_id(123) == 123
+    assert _to_int_id("456") == 456
+
+
+def test_to_int_id_raises_with_field_context_on_garbage():
+    from services.repository import _to_int_id
+
+    with pytest.raises(TypeError, match="user_id"):
+        _to_int_id("Bob", field="user_id")
+    with pytest.raises(TypeError, match="channel_id"):
+        _to_int_id(None, field="channel_id")  # type: ignore[arg-type]
+
+
+def test_mark_match_cleanup_started_sets_delete_started_at(mongo_db):
+    from services.repository import (
+        get_matches_col,
+        mark_match_cleanup_started,
+    )
+
+    matches = get_matches_col(mongo_db)
+    res = matches.insert_one({"origin_guild_id": 1, "status": "validated_a", "category_id": 555})
+
+    mark_match_cleanup_started(mongo_db, res.inserted_id)
+
+    doc = matches.find_one({"_id": res.inserted_id})
+    assert "delete_started_at" in doc
+    assert doc["delete_started_at"] is not None
+
+
+def test_find_category_ids_with_cleanup_started_filters_by_guild(mongo_db):
+    from services.repository import (
+        find_category_ids_with_cleanup_started,
+        get_matches_col,
+        mark_match_cleanup_started,
+    )
+    from datetime import UTC, datetime
+
+    matches = get_matches_col(mongo_db)
+    a = matches.insert_one(
+        {"origin_guild_id": 1, "status": "validated_a", "category_id": 100}
+    ).inserted_id
+    b = matches.insert_one(
+        {"origin_guild_id": 1, "status": "pending", "category_id": 200}
+    ).inserted_id
+    matches.insert_one({"origin_guild_id": 2, "status": "validated_a", "category_id": 300})
+    # Match d'un autre guild marque cleanup -> ne doit PAS apparaitre.
+    c = matches.insert_one(
+        {"origin_guild_id": 2, "status": "pending", "category_id": 400}
+    ).inserted_id
+    matches.update_one({"_id": c}, {"$set": {"delete_started_at": datetime.now(UTC)}})
+
+    mark_match_cleanup_started(mongo_db, a)
+    mark_match_cleanup_started(mongo_db, b)
+
+    result = find_category_ids_with_cleanup_started(mongo_db, origin_guild_id=1)
+    assert result == {100, 200}
+
+
+def test_find_category_ids_with_cleanup_started_excludes_unmarked(mongo_db):
+    from services.repository import (
+        find_category_ids_with_cleanup_started,
+        get_matches_col,
+    )
+
+    get_matches_col(mongo_db).insert_one(
+        {"origin_guild_id": 5, "status": "pending", "category_id": 777}
+    )
+    # Pas de delete_started_at => non retourne meme si actif.
+    assert find_category_ids_with_cleanup_started(mongo_db, origin_guild_id=5) == set()
