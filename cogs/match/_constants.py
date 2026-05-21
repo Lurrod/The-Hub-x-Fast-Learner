@@ -18,7 +18,7 @@ MATCH_HOST_ROLE_NAME: Final[str] = "Match Host"
 VOTE_A_BTN_ID: Final[str] = "vote_v2:a"
 VOTE_B_BTN_ID: Final[str] = "vote_v2:b"
 MAJORITY_THRESHOLD: Final[int] = 7
-VOTE_TIMEOUT_MINUTES: Final[int] = 60
+VOTE_TIMEOUT_MINUTES: Final[int] = 90
 HENRIK_VERIFY_DELAY_MINUTES: Final[int] = 5  # premier essai Henrik a 5 min
 HENRIK_VERIFY_TIMEOUT_MINUTES: Final[int] = 30  # abandon Henrik et ELO plat a 30 min
 

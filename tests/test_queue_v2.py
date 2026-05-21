@@ -369,6 +369,65 @@ async def test_join_already_in_refuses():
     assert "deja dans la queue" in args[0]
 
 
+async def test_join_refused_when_player_in_active_match():
+    """Un joueur encore engage dans un match (categorie Discord active,
+    ELO pas applique) ne peut pas rejoindre une nouvelle queue."""
+    import bot as bot_module
+
+    _seed_active_queue(bot_module.db)
+    _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
+
+    bot_module.db["matches"].insert_one(
+        {
+            "team_a": [{"id": 1, "name": "Jet", "elo": 1500}],
+            "team_b": [{"id": 2, "name": "Sage", "elo": 1500}],
+            "map": "Bind",
+            "queue_type": "open",
+            "origin_guild_id": 42,
+            "status": "pending",
+            "match_number": 7,
+            "category_id": 999,
+            "votes": {},
+        }
+    )
+
+    view = QueueView(bot_module.db, queue_type="open")
+    inter = _fake_interaction(_fake_member(1))
+    await view._join_callback(inter)
+
+    args, _ = inter.followup.send.call_args
+    assert "match en cours" in args[0]
+    assert "Match #7" in args[0]
+
+
+async def test_join_allowed_when_match_elo_already_applied():
+    """Un match dont l'ELO a deja ete applique ne doit pas bloquer la
+    queue : la categorie a ete supprimee et le joueur peut re-jouer."""
+    import bot as bot_module
+
+    _seed_active_queue(bot_module.db)
+    _seed_riot_link(bot_module.db, guild_id=42, user_id=1)
+
+    bot_module.db["matches"].insert_one(
+        {
+            "team_a": [{"id": 1, "name": "Jet", "elo": 1500}],
+            "team_b": [{"id": 2, "name": "Sage", "elo": 1500}],
+            "map": "Bind",
+            "queue_type": "open",
+            "origin_guild_id": 42,
+            "status": "validated_a",
+            "elo_applied": True,
+            "votes": {},
+        }
+    )
+
+    view = QueueView(bot_module.db, queue_type="open")
+    inter = _fake_interaction(_fake_member(1))
+    await view._join_callback(inter)
+
+    inter.edit_original_response.assert_awaited_once()
+
+
 async def test_join_10th_player_triggers_on_full():
     import bot as bot_module
 

@@ -420,6 +420,39 @@ def get_match_by_message(db: Database, message_id: int) -> Mapping[str, Any] | N
     return get_matches_col(db).find_one({"message_id": int(message_id)})
 
 
+# Statuts pour lesquels un joueur est considere encore engage dans un match
+# (categorie Discord encore presente, ELO pas encore applique). Sert au gate
+# anti-doublon de la queue : un joueur deja dans un de ces matchs ne peut pas
+# rejoindre une nouvelle queue.
+#   - "pending"      : vote ouvert
+#   - "validated_a"  : team A gagne, ELO pas encore claim par _verify_match
+#   - "validated_b"  : idem team B
+#   - "contested"    : timeout vote, en attente de resolution admin
+_ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE: tuple[str, ...] = (
+    "pending",
+    "validated_a",
+    "validated_b",
+    "contested",
+)
+
+
+def find_active_match_for_player(db: Database, user_id: int | str) -> Mapping[str, Any] | None:
+    """Renvoie le match actif (statut non-terminal, ELO non applique) auquel
+    `user_id` appartient, ou None.
+
+    Utilise par la queue pour refuser le rejoin tant que le joueur n'a pas
+    cloture son match en cours (vote ou /match-cancel admin)."""
+    uid_int = int(user_id)
+    return get_matches_col(db).find_one(
+        {
+            "$or": [{"team_a.id": uid_int}, {"team_b.id": uid_int}],
+            "status": {"$in": list(_ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE)},
+            "elo_applied": {"$ne": True},
+        },
+        {"_id": 1, "status": 1, "match_number": 1, "category_id": 1},
+    )
+
+
 def add_match_vote(
     db: Database,
     match_id: Any,

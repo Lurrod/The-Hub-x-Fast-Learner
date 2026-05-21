@@ -501,8 +501,8 @@ def test_majority_threshold_is_7():
     assert MAJORITY_THRESHOLD == 7
 
 
-def test_timeout_minutes_is_5():
-    assert VOTE_TIMEOUT_MINUTES == 60
+def test_timeout_minutes_is_90():
+    assert VOTE_TIMEOUT_MINUTES == 90
 
 
 # ── Phase 6 : MAJ ELO apres validation ────────────────────────────

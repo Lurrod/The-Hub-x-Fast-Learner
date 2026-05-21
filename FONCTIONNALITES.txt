@@ -205,9 +205,9 @@ Apres formation, 2 boutons attaches au message du match :
     - La categorie "Match #N" est supprimee automatiquement (claim CAS idempotent)
       -> les joueurs peuvent rejoindre une nouvelle queue sans attendre
 
-  Timeout 60 minutes (VOTE_TIMEOUT_MINUTES) :
+  Timeout 90 minutes (VOTE_TIMEOUT_MINUTES) :
     - Une tache periodique scanne tous les matches "pending"
-    - Si un match a > 60 min sans atteindre 7/10 -> status "contested"
+    - Si un match a > 90 min sans atteindre 7/10 -> status "contested"
     - Le bot ping le role admin (Admin / Match Staff / Administrateur)
     - Le score actuel est affiche dans le ping
     - L'admin reprend la main (validation manuelle via /win)
@@ -493,7 +493,7 @@ cogs/                     Discord wiring (slash commands + views persistantes)
                           _on_match_validated = hook post-vote (revoke role
                           immediat + cleanup planifie).
                           _verify_match (tick) = Henrik + ACS + ELO apply.
-                          check_vote_timeouts (tick) = matches > 60 min.
+                          check_vote_timeouts (tick) = matches > 90 min.
                           _process_role_cleanups (tick) = recovery role
                           cleanups apres crash.
                           /match-cancel, /match-replace.
@@ -570,7 +570,7 @@ Permissions Discord requises pour le bot :
 ================================================================================
 
   MAJORITY_THRESHOLD             = 7      Votes pour valider un match
-  VOTE_TIMEOUT_MINUTES           = 60     Timeout avant status "contested"
+  VOTE_TIMEOUT_MINUTES           = 90     Timeout avant status "contested"
   HENRIK_VERIFY_DELAY_MINUTES    = 5      Premier essai HenrikDev
   HENRIK_VERIFY_TIMEOUT_MINUTES  = 30     Abandon Henrik -> ELO plat
   HENRIK_CIRCUIT_FAIL_THRESHOLD  = 3      Echecs avant ouverture circuit

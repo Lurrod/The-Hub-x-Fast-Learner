@@ -54,7 +54,7 @@ Cycle complet d'une partie :
 
 - Un joueur ne peut être que dans **une seule queue à la fois**.
 - Les boutons Rejoindre / Quitter sont **persistants** (survivent au restart du bot).
-- Refusé si pas de compte Riot lié, déjà en queue, en match en cours, ou rôle gate manquant.
+- Refusé si pas de compte Riot lié, déjà en queue, déjà dans un match en cours (catégorie `Match #N` encore active), ou rôle gate manquant.
 - **Pro Queue** : au plus **1 joueur `Rank Q | Qualification Pro`** simultanément dans la queue ; les 9 autres slots doivent être remplis par des `Rank S | Pro Queue`.
 - Le joueur qui quitte le serveur est automatiquement retiré des queues (`on_member_remove`).
 
@@ -86,7 +86,7 @@ Cycle complet d'une partie :
 - 2 boutons attachés au message du match : `Team A a gagné` / `Team B a gagné`.
 - **Seuls les 10 participants** peuvent voter. Vote modifiable.
 - **Majorité 7/10** → match validé automatiquement (transition CAS atomique : pas de double validation).
-- Timeout **60 min** sans majorité → status `contested`, ping du rôle admin avec score actuel.
+- Timeout **90 min** sans majorité → status `contested`, ping du rôle admin avec score actuel.
 - La catégorie `Match #N` est supprimée automatiquement après validation pour libérer les ressources.
 
 ### Vérification HenrikDev + pondération ACS

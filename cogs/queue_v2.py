@@ -350,6 +350,27 @@ class QueueView(discord.ui.View):
                     "Quitte-la d'abord pour rejoindre une autre queue."
                 )
 
+            # Gate anti-doublon : refuse si le joueur est encore engage dans un
+            # match dont la categorie Discord n'a pas ete supprimee (pending,
+            # validated_*, contested et ELO non applique). Sans cette garde, un
+            # joueur en plein match pourrait remplir une seconde queue et
+            # demarrer un 2e match en parallele. Skip sur re-click idempotent
+            # (`current == self.queue_type`) : impossible logiquement et evite
+            # une requete Mongo inutile.
+            if current != self.queue_type:
+                active_match = await asyncio.to_thread(
+                    repository.find_active_match_for_player,
+                    self.db,
+                    inter.user.id,
+                )
+                if active_match is not None:
+                    match_num = active_match.get("match_number")
+                    suffix = f" (**Match #{match_num}**)" if match_num else ""
+                    return _JoinFailure(
+                        f"❌ Tu es deja dans un match en cours{suffix}. "
+                        "Termine le vote ou demande l'annulation a un admin."
+                    )
+
             cap_err = await self._check_qualification_pro_cap(inter, current)
             if cap_err is not None:
                 return cap_err
