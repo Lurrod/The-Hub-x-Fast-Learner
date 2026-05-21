@@ -52,7 +52,7 @@ async def test_match_cleanup_match_not_found():
 
 @pytest.mark.asyncio
 async def test_match_cleanup_legacy_match_without_category_id():
-    cog = _build_cog_with_db(matches_doc={"_id": "old", "status": "active"})
+    cog = _build_cog_with_db(matches_doc={"_id": "old", "status": "pending"})
     interaction = MagicMock()
     interaction.user.guild_permissions.administrator = True
     interaction.response.send_message = AsyncMock()
@@ -74,7 +74,7 @@ async def test_match_cleanup_happy_path(monkeypatch):
     cog = _build_cog_with_db(
         matches_doc={
             "_id": "m1",
-            "status": "disputed",
+            "status": "contested",
             "category_id": 4242,
             "match_number": 7,
         }

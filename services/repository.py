@@ -846,4 +846,8 @@ def reserve_match_number(db: Database, *, guild_id: int) -> int:
         upsert=True,
         return_document=ReturnDocument.AFTER,
     )
+    # upsert=True + ReturnDocument.AFTER garantit qu'on a un doc non-None.
+    # L'assert est la pour mypy (typing pymongo : Any | None) et comme
+    # garde-fou si pymongo change ce contrat en future version majeure.
+    assert doc is not None, "find_one_and_update(upsert=True, AFTER) doit renvoyer un doc"
     return int(doc["match_counter"])

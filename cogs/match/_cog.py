@@ -399,14 +399,43 @@ class MatchCog(commands.Cog):
         return match_id
 
     def _admin_role_ids(self, guild: discord.Guild) -> list[int]:
-        """Return the list of admin role IDs for permission overwrites.
+        """Renvoie les IDs des roles admin/staff a inclure dans les
+        overwrites de la categorie de match.
 
-        If the project has a config of admin role IDs, read from it here.
-        Otherwise return an empty list (admins still see the category via
-        their guild-wide administrator permission).
+        Couvre deux sources :
+          1. Les roles nommes dans `ADMIN_ROLE_NAMES` (constante projet
+             "Admin", "Match Staff", "Administrateur") : permet aux
+             moderateurs custom sans permission `administrator` Discord
+             de voir/gerer les categories de match dynamiques.
+          2. Le role de bypass configure via /bypass (collection `bypass`
+             en BDD, par guild). Utilise par les serveurs qui ont un role
+             custom de moderation non liste dans ADMIN_ROLE_NAMES.
+
+        Sans cette methode cablee, seuls les utilisateurs avec la
+        permission Discord `administrator` (qui bypasse les overwrites)
+        voient les categories -- ce qui exclut les staff custom.
         """
-        # TODO if the project later wires a config -- for now: empty list.
-        return []
+        # Iteration manuelle (pas `discord.utils.get`) : sur des Guild
+        # mockes en test, `utils.get` peut renvoyer une coroutine via
+        # le fallback `_aget` qui n'expose pas `.id`.
+        admin_names: set[str] = set(ADMIN_ROLE_NAMES)
+        ids: list[int] = []
+        try:
+            roles_iter = list(guild.roles)
+        except TypeError:
+            roles_iter = []
+        for role in roles_iter:
+            name = getattr(role, "name", None)
+            role_id = getattr(role, "id", None)
+            if isinstance(name, str) and name in admin_names and isinstance(role_id, int):
+                ids.append(role_id)
+        try:
+            bypass_id = repository.get_bypass_role(self.db, guild.id)
+        except Exception:  # pragma: no cover - guild.id missing/mock weirdness
+            bypass_id = None
+        if isinstance(bypass_id, int) and bypass_id not in ids:
+            ids.append(bypass_id)
+        return ids
 
     async def _move_players_to_waiting_match(
         self,
@@ -1342,12 +1371,38 @@ class MatchCog(commands.Cog):
                     ephemeral=True,
                 )
 
+    # Statuts pour lesquels la categorie Discord du match doit etre preservee
+    # par le cleanup orphelin au boot. Couvre :
+    #   - "pending"      : match en cours, vote ouvert
+    #   - "validated_a"  : team A gagne mais ELO pas encore applique (Henrik
+    #                      verification differee de HENRIK_VERIFY_DELAY_MINUTES)
+    #   - "validated_b"  : idem team B
+    #   - "contested"    : timeout vote, en attente de resolution admin
+    # Les statuts terminaux ("cancelled", "cleaned_up") ne sont PAS proteges :
+    # leurs categories doivent disparaitre au boot si elles trainent encore.
+    _ACTIVE_MATCH_STATUSES: tuple[str, ...] = (
+        "pending",
+        "validated_a",
+        "validated_b",
+        "contested",
+    )
+
     async def cog_load(self) -> None:
-        self._timeout_loop.start()
+        # `_timeout_loop.start()` lance `_before_loop` qui fait
+        # `await self.bot.wait_until_ready()`. En test, `self.bot` est un
+        # MagicMock dont l'attribut `wait_until_ready` n'est pas awaitable
+        # -> TypeError silencieusement loggee par `tasks.Loop`. On detecte
+        # ce cas et on skip le start dans les tests (le timeout-loop n'a
+        # de sens qu'avec un gateway Discord vivant de toute facon).
+        if isinstance(self.bot, commands.Bot):
+            self._timeout_loop.start()
         active_ids: set[int] = {
             m["category_id"]
             for m in self.db["matches"].find(
-                {"status": {"$in": ["active", "disputed"]}},
+                {
+                    "status": {"$in": list(self._ACTIVE_MATCH_STATUSES)},
+                    "elo_applied": {"$ne": True},
+                },
                 {"category_id": 1},
             )
             if m.get("category_id")

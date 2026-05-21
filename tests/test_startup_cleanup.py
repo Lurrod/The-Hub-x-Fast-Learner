@@ -9,8 +9,10 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_cog_load_deletes_orphan_categories(monkeypatch):
-    """cog_load must query active+disputed match category_ids and call
-    cleanup_orphan_match_categories per guild."""
+    """cog_load must query in-progress + validated + contested match
+    category_ids and call cleanup_orphan_match_categories per guild.
+    Uses the real status strings persisted by the bot (pending /
+    validated_a / validated_b / contested), not synthetic ones."""
     from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
 
@@ -26,8 +28,9 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
     db["matches"].find = MagicMock(
         return_value=iter(
             [
-                {"category_id": 100, "status": "active"},
-                {"category_id": 200, "status": "disputed"},
+                {"category_id": 100, "status": "pending"},
+                {"category_id": 200, "status": "contested"},
+                {"category_id": 300, "status": "validated_a"},
             ]
         )
     )
@@ -37,9 +40,14 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
 
     # Called once per guild
     assert cleanup_mock.await_count == 2
-    # Both active and disputed category IDs are protected
+    # pending + contested + validated_a category IDs all protected
     first_call_kwargs = cleanup_mock.await_args_list[0].kwargs
-    assert first_call_kwargs["active_category_ids"] == {100, 200}
+    assert first_call_kwargs["active_category_ids"] == {100, 200, 300}
+
+    # Verify the Mongo filter targets the right statuses
+    find_call = db["matches"].find.call_args
+    status_filter = find_call.args[0]["status"]["$in"]
+    assert set(status_filter) == {"pending", "validated_a", "validated_b", "contested"}
 
 
 @pytest.mark.asyncio
