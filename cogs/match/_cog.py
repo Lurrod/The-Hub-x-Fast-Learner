@@ -544,6 +544,19 @@ class MatchCog(commands.Cog):
         # Annonce best-effort.
         if guild is None:
             return
+
+        # Suppression de la catégorie Discord du match.
+        # Graceful : les anciens matchs sans category_id sont ignorés.
+        category_id = match_doc.get("category_id")
+        if category_id:
+            await delete_match_category(
+                guild=guild,
+                category_id=category_id,
+                reason=(
+                    f"Match #{match_doc.get('match_number', '?')} vote validé"
+                ),
+            )
+
         try:
             elo_log_channel = discord.utils.get(
                 guild.text_channels,

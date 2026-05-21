@@ -804,3 +804,76 @@ def test_find_validated_unverified_excludes_elo_applied():
     cutoff = datetime.now(UTC) + timedelta(minutes=1)
     matches = repository.find_validated_unverified(bot_module.db, cutoff)
     assert all(m["_id"] != match_id for m in matches)
+
+
+# ── Suppression catégorie après vote ─────────────────────────────
+async def test_vote_validated_deletes_match_category(monkeypatch):
+    """When a vote is validated, the dynamic category is deleted."""
+    import bot as bot_module
+    from unittest.mock import AsyncMock
+    from cogs.match import _cog as match_cog_module
+
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
+
+    # Seed a match with category_id=7777
+    match_id = _seed_match(bot_module.db)
+    bot_module.db["matches"].update_one(
+        {"_id": match_id},
+        {"$set": {"category_id": 7777, "match_number": 42}},
+    )
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    guild = _fake_guild(channel=channel)
+
+    cog = MatchCog(bot_module.bot, bot_module.db)
+    view = VoteView(bot_module.db, on_validated=cog._on_match_validated)
+
+    for uid in range(MAJORITY_THRESHOLD):
+        inter = _fake_interaction(_fake_member(uid), guild)
+        await view.vote_a.callback(inter)
+
+    delete_mock.assert_awaited_once()
+    kwargs = delete_mock.await_args.kwargs
+    assert kwargs["category_id"] == 7777
+    assert "vote" in kwargs["reason"].lower() or "validated" in kwargs["reason"].lower()
+
+
+async def test_vote_disputed_does_not_delete_category(monkeypatch):
+    """When a vote is disputed (contested), the category is preserved for admin review."""
+    import bot as bot_module
+    from unittest.mock import AsyncMock
+    from cogs.match import _cog as match_cog_module
+
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
+
+    # Seed a match with category_id=8888 and expire it (triggers contested path)
+    match_id = _seed_match(bot_module.db)
+    bot_module.db["matches"].update_one(
+        {"_id": match_id},
+        {
+            "$set": {
+                "category_id": 8888,
+                "created_at": datetime.now(UTC) - timedelta(minutes=VOTE_TIMEOUT_MINUTES + 5),
+            }
+        },
+    )
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    admin_role = MagicMock()
+    admin_role.name = "Admin"
+    admin_role.mention = "@AdminRole"
+    guild = _fake_guild(roles=[admin_role], channel=channel)
+
+    cog = MatchCog(bot_module.bot, bot_module.db)
+    cog.bot = MagicMock()
+    cog.bot.guilds = [guild]
+
+    flagged = await cog.check_vote_timeouts()
+    assert flagged == 1  # contested
+
+    # Disputed match: category must NOT be deleted
+    delete_mock.assert_not_called()
