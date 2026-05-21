@@ -164,3 +164,36 @@ async def delete_match_category(
         pass
     except Exception:  # noqa: BLE001
         logger.exception("[match_category] failed to delete category %d", category_id)
+
+
+async def cleanup_orphan_match_categories(
+    *,
+    guild: discord.Guild,
+    active_category_ids: set[int],
+) -> int:
+    """Delete all 'Match #N' categories not referenced by an active match.
+
+    Returns the number of categories that reached delete_match_category
+    without an outer error (delete_match_category itself swallows internal
+    errors).
+    """
+    deleted = 0
+    for category in list(guild.categories):
+        if not MATCH_CATEGORY_PATTERN.match(category.name):
+            continue
+        if category.id in active_category_ids:
+            continue
+        try:
+            await delete_match_category(
+                guild=guild,
+                category_id=category.id,
+                reason="Orphan match category cleanup",
+            )
+            deleted += 1
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "[match_category] cleanup_orphan failed for %s (id=%d)",
+                category.name,
+                category.id,
+            )
+    return deleted
