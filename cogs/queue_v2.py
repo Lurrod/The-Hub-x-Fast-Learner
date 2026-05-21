@@ -31,16 +31,17 @@ Flux :
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections import OrderedDict
-from datetime import datetime, UTC
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from services import repository
-import contextlib
 
 
 # Roles "Match #1", "Match #2", "Match #3", "Match #4", "Match #5" attribues a un joueur en cours
@@ -186,6 +187,23 @@ def build_queue_embed(
 _LOCKS_MAXSIZE: int = 128
 
 
+# Types de retour internes pour decouper `_join_callback` :
+#   _JoinFailure  -> motif d'echec (message ephemeral a renvoyer au joueur)
+#   _JoinSuccess  -> slot acquis, queue_doc a jour, drapeau de queue pleine
+@dataclass(frozen=True)
+class _JoinFailure:
+    message: str
+
+
+@dataclass(frozen=True)
+class _JoinSuccess:
+    queue_doc: dict
+    full: bool
+
+
+_JoinResult = _JoinFailure | _JoinSuccess
+
+
 class QueueView(discord.ui.View):
     """View persistante par `queue_type`. Custom IDs distincts pour cohabiter.
 
@@ -269,25 +287,48 @@ class QueueView(discord.ui.View):
         except discord.NotFound:
             return
 
-        # Pre-check hors lock : role match en cours + type Member.
-        # Lectures pures sur le membre Discord (pas de DB), donc safe.
-        if not isinstance(inter.user, discord.Member):
-            await inter.followup.send(
-                "❌ Interaction invalide (hors serveur ou type d'utilisateur inattendu).",
-                ephemeral=True,
-            )
-            return
-        ok, required = self._has_required_role(inter.user)
-        if not ok:
-            await inter.followup.send(
-                f"❌ Cette queue est reservee aux joueurs avec le role "
-                f"**{required}** (Pro Queue / GC).",
-                ephemeral=True,
-            )
+        pre_check_err = self._pre_lock_checks(inter)
+        if pre_check_err is not None:
+            await inter.followup.send(pre_check_err, ephemeral=True)
             return
 
+        result = await self._acquire_slot_under_lock(inter)
+        if isinstance(result, _JoinFailure):
+            await inter.followup.send(result.message, ephemeral=True)
+            return
+
+        await self._broadcast_join_side_effects(inter, result.queue_doc, result.full)
+
+    # ── helpers _join_callback ───────────────────────────────────
+    def _pre_lock_checks(self, inter: discord.Interaction) -> str | None:
+        """Validations synchrones hors lock (type membre + role gate).
+
+        Retourne le message d'erreur ephemeral a envoyer, ou None si tout
+        est OK et que l'appelant peut acquerir le lock + interroger la BDD.
+        Pure : pas d'I/O DB ni Discord ici, juste de la logique sur l'objet
+        Interaction. Testable sans mongomock ni dpytest.
+        """
+        if not isinstance(inter.user, discord.Member):
+            return "❌ Interaction invalide (hors serveur ou type d'utilisateur inattendu)."
+        ok, required = self._has_required_role(inter.user)
+        if not ok:
+            return (
+                f"❌ Cette queue est reservee aux joueurs avec le role "
+                f"**{required}** (Pro Queue / GC)."
+            )
+        return None
+
+    async def _acquire_slot_under_lock(self, inter: discord.Interaction) -> _JoinResult:
+        """Toute la phase BDD sous le lock par-guild.
+
+        Couvre : lecture compte Riot + queue courante, cap Qualification
+        Pro, insert atomique, fermeture queue pleine. Renvoie un
+        `_JoinSuccess(queue_doc, full)` ou un `_JoinFailure(message)` que
+        l'appelant pousse en ephemeral. Le lock est relache a la sortie
+        de cette methode : les side-effects Discord (VC move, role
+        grant, edit message) tournent ensuite sans serialisation.
+        """
         async with self._lock(inter.guild_id):
-            # 1+3) Lectures DB independantes -> en parallele.
             riot, current = await asyncio.gather(
                 asyncio.to_thread(
                     repository.get_riot_account,
@@ -302,55 +343,17 @@ class QueueView(discord.ui.View):
                 ),
             )
             if not riot:
-                await inter.followup.send(
-                    "❌ Lie d'abord ton compte Riot avec `/link-riot Pseudo#TAG`.",
-                    ephemeral=True,
-                )
-                return
+                return _JoinFailure("❌ Lie d'abord ton compte Riot avec `/link-riot Pseudo#TAG`.")
             if current is not None and current != self.queue_type:
-                await inter.followup.send(
+                return _JoinFailure(
                     f"❌ Tu es deja dans la queue **{current.upper()}**. "
-                    "Quitte-la d'abord pour rejoindre une autre queue.",
-                    ephemeral=True,
+                    "Quitte-la d'abord pour rejoindre une autre queue."
                 )
-                return
 
-            # 4b) Limite: PRO_QUALIFICATION_PRO_MAX joueur(s) "Rank Q |
-            # Qualification Pro" maximum simultanement dans la Pro Queue.
-            # Skip si le joueur est deja dans cette queue (re-clic idempotent
-            # gere par add_player_to_queue).
-            if (
-                self.queue_type == "pro"
-                and current != self.queue_type
-                and any(r.name == PRO_QUALIFICATION_ROLE for r in inter.user.roles)
-            ):
-                active = await asyncio.to_thread(
-                    repository.get_active_queue,
-                    self.db,
-                    inter.guild_id,
-                    self.queue_type,
-                )
-                if active and inter.guild is not None:
-                    rank_q_count = 0
-                    for uid in active.get("players", []):
-                        try:
-                            m = inter.guild.get_member(int(uid))
-                        except (TypeError, ValueError):
-                            continue
-                        if m is None:
-                            continue
-                        if any(r.name == PRO_QUALIFICATION_ROLE for r in m.roles):
-                            rank_q_count += 1
-                    if rank_q_count >= PRO_QUALIFICATION_PRO_MAX:
-                        await inter.followup.send(
-                            f"❌ La Pro Queue contient deja "
-                            f"{PRO_QUALIFICATION_PRO_MAX} joueur(s) avec le role "
-                            f"**{PRO_QUALIFICATION_ROLE}**. Attends qu'un slot se libere.",
-                            ephemeral=True,
-                        )
-                        return
+            cap_err = await self._check_qualification_pro_cap(inter, current)
+            if cap_err is not None:
+                return cap_err
 
-            # 5) ajout en base
             res = await asyncio.to_thread(
                 repository.add_player_to_queue,
                 self.db,
@@ -359,17 +362,12 @@ class QueueView(discord.ui.View):
                 inter.user.id,
             )
             if not res.success:
-                await inter.followup.send(
-                    _join_error_message(res.reason),
-                    ephemeral=True,
-                )
-                return
+                return _JoinFailure(_join_error_message(res.reason))
 
-            # 6) si la queue est maintenant pleine -> on ferme atomiquement
-            # (find_one_and_update renvoie le doc mis a jour : 1 round-trip).
             queue_doc = res.queue
             full = len(queue_doc.get("players", [])) >= QUEUE_SIZE
             if full:
+                # find_one_and_update renvoie le doc mis a jour : 1 round-trip.
                 closed = await asyncio.to_thread(
                     repository.close_active_queue,
                     self.db,
@@ -378,11 +376,60 @@ class QueueView(discord.ui.View):
                 )
                 if closed is not None:
                     queue_doc = closed
+            return _JoinSuccess(queue_doc=queue_doc, full=full)
 
-        # Lock libere : la DB est coherente. Les side-effects Discord
-        # n'ont pas besoin de serialisation cross-joueurs.
+    async def _check_qualification_pro_cap(
+        self, inter: discord.Interaction, current: str | None
+    ) -> _JoinFailure | None:
+        """Cap PRO_QUALIFICATION_PRO_MAX joueurs "Rank Q | Qualification Pro"
+        simultanement dans la Pro Queue. Skip pour les non-pro queues, et
+        pour les re-clics du joueur deja dans la queue (idempotent).
+        """
+        if (
+            self.queue_type != "pro"
+            or current == self.queue_type
+            or not any(r.name == PRO_QUALIFICATION_ROLE for r in inter.user.roles)
+        ):
+            return None
+        active = await asyncio.to_thread(
+            repository.get_active_queue,
+            self.db,
+            inter.guild_id,
+            self.queue_type,
+        )
+        if not active or inter.guild is None:
+            return None
+        rank_q_count = 0
+        for uid in active.get("players", []):
+            try:
+                m = inter.guild.get_member(int(uid))
+            except (TypeError, ValueError):
+                continue
+            if m is None:
+                continue
+            if any(r.name == PRO_QUALIFICATION_ROLE for r in m.roles):
+                rank_q_count += 1
+        if rank_q_count >= PRO_QUALIFICATION_PRO_MAX:
+            return _JoinFailure(
+                f"❌ La Pro Queue contient deja "
+                f"{PRO_QUALIFICATION_PRO_MAX} joueur(s) avec le role "
+                f"**{PRO_QUALIFICATION_ROLE}**. Attends qu'un slot se libere."
+            )
+        return None
 
-        # 7) edit message + voice move + role grant en parallele.
+    async def _broadcast_join_side_effects(
+        self,
+        inter: discord.Interaction,
+        queue_doc: dict,
+        full: bool,
+    ) -> None:
+        """Phase hors-lock : edit du message, VC move, role grant,
+        confirmation ephemeral, declenchement formation si full.
+
+        Toutes les ops Discord tournent en parallele (gather avec
+        return_exceptions=True). Une erreur Discord sur l'une n'impacte
+        pas les autres.
+        """
         embed = build_queue_embed(queue_doc, inter.guild, self.queue_type)
         edit_task = inter.edit_original_response(embed=embed, view=self)
         results = await asyncio.gather(
@@ -399,7 +446,6 @@ class QueueView(discord.ui.View):
                 results[2],
             )
 
-        # 7c) confirmation ephemere (visible uniquement par le joueur)
         count = len(queue_doc.get("players", []))
         label = QUEUE_LABELS[self.queue_type]
         confirm = f"✅ Tu as rejoint la queue **{label}** ({count}/{QUEUE_SIZE})"
@@ -409,7 +455,6 @@ class QueueView(discord.ui.View):
             confirm += f"\n{role_notice}"
         await inter.followup.send(confirm, ephemeral=True)
 
-        # 8) trigger formation
         if full and self._on_full:
             task = asyncio.create_task(self._safe_on_full(inter, queue_doc))
             self._bg_tasks.add(task)
