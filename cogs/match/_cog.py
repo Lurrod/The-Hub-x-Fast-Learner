@@ -223,6 +223,22 @@ class MatchCog(commands.Cog):
                         ephemeral=False,
                     )
                 return None
+            except Exception:
+                logger.exception(
+                    "[match] captain draft failed for #%d, rolling back category",
+                    match_number,
+                )
+                await delete_match_category(
+                    guild=guild,
+                    category_id=category.id,
+                    reason=f"Match #{match_number} draft aborted",
+                )
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.followup.send(
+                        f"❌ Le draft pour le Match #{match_number} a echoue, match annule.",
+                        ephemeral=True,
+                    )
+                return None
             plan = build_plan_from_draft(
                 result,
                 free_category=free_cat_name,
