@@ -7,7 +7,37 @@ on:
       - main
 
 jobs:
+  quality:
+    name: Lint + format + types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          # Ruff/mypy are kept in their own install layer to keep this job fast.
+          pip install ruff mypy
+          # mypy needs the runtime deps to resolve types of imported third-parties.
+          pip install -r requirements.txt
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+      - name: mypy
+        run: mypy services cogs bot.py
+
   test:
+    name: Tests + coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +53,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-test.txt
+          pip install pytest-cov
 
-      - name: Run tests
-        run: pytest -v
+      - name: Run tests with coverage
+        run: pytest -v --cov=services --cov=cogs --cov=bot --cov-report=term-missing

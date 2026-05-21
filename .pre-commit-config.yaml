@@ -27,3 +27,6 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=500"]
+      # Empeche le retour du BOM UTF-8 introduit par PowerShell `Set-Content`
+      # / `Out-File` par defaut sur PS 5.1. Cf. AUDIT.md (2026-05-21).
+      - id: fix-byte-order-marker
