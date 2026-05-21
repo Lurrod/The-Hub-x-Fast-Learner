@@ -686,6 +686,20 @@ class MatchCog(commands.Cog):
         # check_vote_timeouts via transition_match_status (CAS atomique).
         # On entre ici uniquement si la transition a reussi.
 
+        # Revoke Match Host role; no longer governed by deferred cleanup.
+        leader_id = match.get("lobby_leader_id")
+        if leader_id is not None:
+            leader_member = guild.get_member(int(leader_id))
+            if leader_member is not None:
+                host_role = discord.utils.get(guild.roles, name=MATCH_HOST_ROLE_NAME)
+                if host_role is not None and host_role in leader_member.roles:
+                    try:
+                        await leader_member.remove_roles(
+                            host_role, reason="Vote timeout : Match Host revoque"
+                        )
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
         admin_role = None
         for role_name in ADMIN_ROLE_NAMES:
             admin_role = discord.utils.get(guild.roles, name=role_name)
@@ -1053,7 +1067,6 @@ class MatchCog(commands.Cog):
             )
             return
 
-        guild = interaction.guild  # noqa: F841 (used in future tasks)
         category_name = match.get("category_name")
 
         # Revoke du role "Match Host" au lobby leader.
