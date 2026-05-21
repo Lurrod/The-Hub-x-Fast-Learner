@@ -70,5 +70,44 @@ def _build_overwrites(
     player_ids: list[int],
     admin_role_ids: list[int],
 ) -> dict:
-    """Stub — implemented in Task 3."""
-    return {}
+    """Build the permission overwrite matrix for a match category.
+
+    - @everyone: deny view + connect (private category)
+    - Bot's top role: full privileged access + manage_channels
+    - Each admin role: full privileged access + manage_channels
+    - Each player (by member ID): view, send, connect, speak
+    - Members not found in the guild are silently skipped.
+    """
+    everyone_ow = discord.PermissionOverwrite(view_channel=False, connect=False)
+    privileged_ow = discord.PermissionOverwrite(
+        view_channel=True,
+        send_messages=True,
+        read_message_history=True,
+        connect=True,
+        speak=True,
+        manage_channels=True,
+    )
+    player_ow = discord.PermissionOverwrite(
+        view_channel=True,
+        send_messages=True,
+        read_message_history=True,
+        connect=True,
+        speak=True,
+    )
+
+    overwrites: dict = {
+        guild.default_role: everyone_ow,
+        guild.me.top_role: privileged_ow,
+    }
+
+    for role_id in admin_role_ids:
+        role = guild.get_role(role_id)
+        if role is not None:
+            overwrites[role] = privileged_ow
+
+    for uid in player_ids:
+        member = guild.get_member(uid)
+        if member is not None:
+            overwrites[member] = player_ow
+
+    return overwrites
