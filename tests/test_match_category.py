@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import discord
 import pytest
 
 
@@ -133,3 +134,51 @@ async def test_create_match_category_rolls_back_on_partial_failure():
     text_channel.delete.assert_awaited_once()
     vc1.delete.assert_awaited_once()
     category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_deletes_children_then_category():
+    from services.match_category import delete_match_category
+
+    ch1 = MagicMock()
+    ch1.delete = AsyncMock()
+    ch2 = MagicMock()
+    ch2.delete = AsyncMock()
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.channels = [ch1, ch2]
+    category.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=category)
+
+    await delete_match_category(guild=guild, category_id=123, reason="vote validated")
+
+    ch1.delete.assert_awaited_once()
+    ch2.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_idempotent_when_already_gone():
+    from services.match_category import delete_match_category
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=None)
+
+    # Must not raise
+    await delete_match_category(guild=guild, category_id=999, reason="orphan")
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_skips_non_category():
+    from services.match_category import delete_match_category
+
+    # If get_channel returns something that is not a CategoryChannel
+    not_a_category = MagicMock(spec=discord.TextChannel)
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=not_a_category)
+
+    await delete_match_category(guild=guild, category_id=12, reason="x")
+
+    # Must not invoke any delete on the wrong object
+    assert not getattr(not_a_category, "delete", MagicMock()).called

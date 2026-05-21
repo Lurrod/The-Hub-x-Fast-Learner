@@ -132,3 +132,35 @@ def _build_overwrites(
             overwrites[member] = player_ow
 
     return overwrites
+
+
+async def delete_match_category(
+    *,
+    guild: discord.Guild,
+    category_id: int,
+    reason: str,
+) -> None:
+    """Delete the category and all its children. No-op if already gone."""
+    channel = guild.get_channel(category_id)
+    if channel is None:
+        return
+    if not isinstance(channel, discord.CategoryChannel):
+        logger.warning(
+            "[match_category] delete: id=%d is not a CategoryChannel (got %s)",
+            category_id,
+            type(channel).__name__,
+        )
+        return
+    for child in list(channel.channels):
+        try:
+            await child.delete(reason=reason)
+        except discord.NotFound:
+            pass
+        except Exception:  # noqa: BLE001
+            logger.exception("[match_category] failed to delete child %s", child)
+    try:
+        await channel.delete(reason=reason)
+    except discord.NotFound:
+        pass
+    except Exception:  # noqa: BLE001
+        logger.exception("[match_category] failed to delete category %d", category_id)
