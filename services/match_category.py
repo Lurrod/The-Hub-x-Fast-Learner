@@ -51,10 +51,31 @@ async def create_match_category(
     category = await guild.create_category(
         f"Match #{match_number}", overwrites=overwrites, reason=reason
     )
-    prep = await category.create_text_channel("match-preparation", reason=reason)
-    team1 = await category.create_voice_channel("Team 1", reason=reason)
-    team2 = await category.create_voice_channel("Team 2", reason=reason)
-    waiting = await category.create_voice_channel("Waiting Match", reason=reason)
+    created: list = []
+    try:
+        prep = await category.create_text_channel("match-preparation", reason=reason)
+        created.append(prep)
+        team1 = await category.create_voice_channel("Team 1", reason=reason)
+        created.append(team1)
+        team2 = await category.create_voice_channel("Team 2", reason=reason)
+        created.append(team2)
+        waiting = await category.create_voice_channel("Waiting Match", reason=reason)
+        created.append(waiting)
+    except Exception:
+        logger.exception(
+            "[match_category] partial creation failed for Match #%d, rolling back",
+            match_number,
+        )
+        for ch in created:
+            try:
+                await ch.delete(reason="rollback partial match category creation")
+            except Exception:  # noqa: BLE001 - best effort cleanup
+                logger.exception("[match_category] rollback delete child failed")
+        try:
+            await category.delete(reason="rollback partial match category creation")
+        except Exception:  # noqa: BLE001
+            logger.exception("[match_category] rollback delete category failed")
+        raise
     return MatchChannels(
         category=category,
         prep_channel=prep,

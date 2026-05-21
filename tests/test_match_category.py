@@ -95,3 +95,41 @@ async def test_create_match_category_overwrites_deny_everyone_and_allow_players(
 
     assert player_b in overwrites
     # 9999 has no guild member — silently skipped, must not raise
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_rolls_back_on_partial_failure():
+    from services.match_category import create_match_category
+
+    category = MagicMock()
+    category.delete = AsyncMock()
+    text_channel = MagicMock()
+    text_channel.delete = AsyncMock()
+
+    category.create_text_channel = AsyncMock(return_value=text_channel)
+    # First VC succeeds, second VC raises -> must rollback
+    vc1 = MagicMock()
+    vc1.delete = AsyncMock()
+    category.create_voice_channel = AsyncMock(
+        side_effect=[vc1, RuntimeError("api fail")]
+    )
+
+    guild = MagicMock()
+    guild.create_category = AsyncMock(return_value=category)
+    guild.default_role = MagicMock()
+    guild.me = MagicMock()
+    guild.me.top_role = MagicMock()
+    guild.get_member = MagicMock(return_value=None)
+    guild.get_role = MagicMock(return_value=None)
+
+    with pytest.raises(RuntimeError, match="api fail"):
+        await create_match_category(
+            guild=guild,
+            match_number=99,
+            player_ids=[],
+            admin_role_ids=[],
+        )
+
+    text_channel.delete.assert_awaited_once()
+    vc1.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()
