@@ -900,3 +900,73 @@ async def test_on_queue_full_pro_cancel_revokes_match_role(monkeypatch):
     assert len(revoked) == 10, (
         f"Le role Match #N doit etre revoke aux 10 joueurs sur cancel, vu {len(revoked)} revokes"
     )
+
+
+# ── match_cancel : suppression catégorie ─────────────────────────
+@pytest.mark.asyncio
+async def test_admin_cancel_deletes_match_category(monkeypatch):
+    """When admin runs /match-cancel, the dynamic category is deleted."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    delete_mock = AsyncMock()
+    monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
+
+    # Seed a pending match with category_id=5555 so cancel_match_atomically finds it.
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    guild.roles = []
+    inter_start = _fake_interaction(guild, user=members[0])
+
+    # Create the match via on_queue_full (patching create_match_category to avoid Discord calls).
+    fake_category = MagicMock()
+    fake_category.id = 5555
+    fake_category.name = "Match #1"
+    fake_prep = MagicMock()
+    fake_prep.name = "match-preparation"
+    fake_prep.id = 999
+    fake_prep.category = fake_category
+    fake_prep.send = AsyncMock(return_value=MagicMock(id=555))
+    fake_team1 = MagicMock()
+    fake_team1.name = "Team 1"
+    fake_team1.id = 991
+    fake_team1.members = []
+    fake_team2 = MagicMock()
+    fake_team2.name = "Team 2"
+    fake_team2.id = 992
+    fake_team2.members = []
+    fake_waiting = MagicMock()
+    fake_waiting.name = "Waiting Match"
+    fake_waiting.id = 993
+    fake_waiting.members = []
+    fake_category.text_channels = [fake_prep]
+    fake_category.voice_channels = [fake_team1, fake_team2, fake_waiting]
+
+    from services.match_category import MatchChannels
+
+    fake_channels = MatchChannels(
+        category=fake_category,
+        prep_channel=fake_prep,
+        team1_vc=fake_team1,
+        team2_vc=fake_team2,
+        waiting_match_vc=fake_waiting,
+    )
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
+    await cog.on_queue_full(inter_start, queue_doc, "open")
+
+    # The match is stored with channel_id = prep_channel.id (999) — use that.
+    inter_cancel = _fake_interaction(guild)
+    inter_cancel.channel_id = fake_prep.id  # 999
+    inter_cancel.channel = channel
+    inter_cancel.response = MagicMock()
+    inter_cancel.response.defer = AsyncMock()
+
+    await cog.match_cancel.callback(cog, inter_cancel)
+
+    delete_mock.assert_awaited_once()
+    assert delete_mock.await_args.kwargs["category_id"] == 5555

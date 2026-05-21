@@ -1100,6 +1100,16 @@ class MatchCog(commands.Cog):
         except Exception:
             logger.exception("[match-cancel] retrait view a leve")
 
+        # Suppression de la catégorie Discord du match.
+        # Graceful : les anciens matchs sans category_id sont ignorés.
+        category_id = match.get("category_id")
+        if category_id:
+            await delete_match_category(
+                guild=interaction.guild,
+                category_id=category_id,
+                reason=f"Match #{match.get('match_number', '?')} annule par admin",
+            )
+
         await interaction.followup.send(
             f"✅ Match annule. Categorie `{category_name or '?'}` liberee.",
             ephemeral=True,
