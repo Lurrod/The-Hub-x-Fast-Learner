@@ -31,9 +31,10 @@ critere.
     Idempotent : re-executable sans risque, saute ce qui existe deja.
     Reponse ephemere visible uniquement par l'admin.
 
-  Categories de match (a creer manuellement) :
-    Match #1, Match #2, Match #3, Match #4, Match #5
-    Chaque categorie doit contenir :
+  Categories de match :
+    Creees dynamiquement par le bot sous la forme "Match #N" (compteur monotone, persisté en MongoDB).
+    Supprimees automatiquement en fin de match (vote valide, cancel admin, ou echec draft).
+    Chaque categorie contient :
       - Team 1            (vocal)
       - Team 2            (vocal)
       - Waiting Match     (vocal)
@@ -75,7 +76,7 @@ critere.
     uniquement par celui qui a clique.
     REFUSE si :
       - Pas de compte Riot lie (-> /link-riot d'abord)
-      - Deja dans un match en cours (role "Match #N")
+      - Deja dans un match en cours (presence dans une categorie Match #N active)
       - Deja dans une autre queue (single-queue lock)
       - Role gate non satisfait (Pro Queue / GC)
       - Queue pleine (10/10)
@@ -144,9 +145,8 @@ Quand 10 joueurs sont en queue :
        - Tie-breaker 2 : ordre des IDs (deterministe)
      Source d'ELO : elo_<guild>.elo (ELO serveur, propre a chaque queue).
 
-  3. Trouve une categorie "Match #1/2/3/4/5" dont les vocaux
-     Team 1, Team 2 et Waiting Match sont vides, ET qui contient un salon
-     "match-preparation".
+  3. Cree dynamiquement une categorie "Match #N" avec match-preparation + Team 1 + Team 2 + Waiting Match,
+     et pose les permissions directes sur les 10 joueurs (deny @everyone, allow joueurs + admins + bot).
 
   4. Choisit aleatoirement :
        - Une map parmi : Breeze, Ascent, Lotus, Fracture, Split, Haven, Pearl
@@ -155,12 +155,12 @@ Quand 10 joueurs sont en queue :
   5. Persiste le match en base AVANT d'annoncer (message_id=None initialement).
      Si la persistance echoue (Mongo down), pas de message orphelin.
 
-  6. Grants de roles EN PARALLELE (asyncio.gather, bucket per-member Discord) :
+  6. Overwrites de permissions EN PARALLELE (asyncio.gather, bucket per-member Discord) :
        - Revoke "En Queue" sur les 10 joueurs
-       - Grant "Match #N" sur les 10 joueurs (gate de visibilite du salon)
+       - Pose les overwrites de visibilite sur les 10 joueurs (deny @everyone, allow par user)
        - Grant "Match Host" sur le lobby leader
      Le gather attend que TOUS soient finis avant la phase suivante
-     -> invariant "roles attribues AVANT le send" preserve.
+     -> invariant "permissions posees AVANT le send" preserve.
 
   7. Envoie le message d'annonce dans #match-preparation de la categorie :
        - Mentionne les 10 joueurs (@)
@@ -202,7 +202,7 @@ Apres formation, 2 boutons attaches au message du match :
     - Transition CAS (pending -> validated_a/b) : un seul vote concurrent
       peut declencher la validation, pas de double-trigger sur l'ELO
     - L'embed se met a jour en temps reel avec le score des votes
-    - Le role "Match #N" est revoque IMMEDIATEMENT (claim CAS idempotent)
+    - La categorie "Match #N" est supprimee automatiquement (claim CAS idempotent)
       -> les joueurs peuvent rejoindre une nouvelle queue sans attendre
 
   Timeout 60 minutes (VOTE_TIMEOUT_MINUTES) :
@@ -273,8 +273,13 @@ attend la verification HenrikDev pour ponderer par performance individuelle.
     Annule le match en cours dans ce salon (CAS atomique).
     Echoue proprement si un vote concurrent a deja valide / si l'ELO a
     deja ete claim par _verify_match.
-    Retire les roles Match #N + Match Host sur les 10 joueurs.
+    Supprime la categorie Match #N et retire le role Match Host sur les 10 joueurs.
     Retire les boutons de vote du message original.
+
+  /match-cleanup <match_id>
+    Supprime de force la categorie Match #N d'un match conteste apres resolution manuelle.
+    Reserve aux admins. Utilisé quand le vote est en status "contested" et que l'admin
+    a valide le resultat via /win.
 
   /match-replace quitter:@a remplacant:@b
     Remplace un joueur dans le match en cours par un autre.
@@ -555,7 +560,8 @@ Permissions Discord requises pour le bot :
     Voir les salons, Envoyer des messages, Integrer des liens,
     Joindre des fichiers, Gerer les salons (pour /setup),
     Gerer les messages (pour /clear), Deplacer les membres (voice moves),
-    Gerer les roles (Match #N, En Queue, Match Host),
+    Gerer les roles (En Queue, Match Host),
+    Gerer les permissions de salon (overwrites par utilisateur pour les categories Match #N),
     Utiliser les commandes slash.
 
 
@@ -570,7 +576,7 @@ Permissions Discord requises pour le bot :
   HENRIK_CIRCUIT_FAIL_THRESHOLD  = 3      Echecs avant ouverture circuit
   HENRIK_CIRCUIT_OPEN_MINUTES    = 5      Duree suspension des appels
   MATCH_HOST_CLEANUP_DELAY       = 600    Role Match Host retire apres 10 min
-  MATCH_ROLE_CLEANUP_DELAY       = 0      Role Match #N retire des validation
+  # Role Match #N supprime en V3.13 — visibilite via overwrites par utilisateur
   MAX_REPLACE_ELO_DIFF           = 500    Ecart max pour /match-replace
 
   services/elo_calc.py :

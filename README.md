@@ -30,8 +30,8 @@ Cycle complet d'une partie :
 
 1. 10 joueurs cliquent **Rejoindre** sur le message persistant de leur queue (Pro / Open / GC).
 2. À 10/10, le bot ferme la queue, **équilibre les équipes** (brute-force optimal sur les
-   126 partitions 5+5), assigne une catégorie `Match #1..#5` libre, choisit map + lobby host.
-3. Les rôles Discord `Match #N` sont attribués **en parallèle**, puis le message d'annonce
+   126 partitions 5+5), crée dynamiquement une catégorie `Match #N` dédiée au match (compteur monotone persisté en MongoDB), choisit map + lobby host.
+3. Les permissions de visibilité sont posées directement sur les 10 joueurs, puis le message d'annonce
    est posté avec 2 boutons de vote.
 4. Les joueurs sont déplacés vocalement vers `Waiting Match` de leur catégorie.
 5. Après la partie, **7/10 votes** suffisent pour valider (cliquer "Team A" / "Team B").
@@ -65,15 +65,21 @@ Cycle complet d'une partie :
 - Tie-breakers : peak diff puis ordre des IDs (déterministe).
 - Source d'ELO utilisée : **ELO serveur** (`elo_<guild>.elo`), seedée au `/link-riot`.
 
-### Formation de match — 5 catégories en parallèle
+### Formation de match — catégories dynamiques
 
-- Catégories supportées : `Match #1` à `Match #5`.
-- Une catégorie est "libre" si `Team 1`, `Team 2` et `Waiting Match` sont vides
-  et que le salon `match-preparation` existe.
-- **Parallélisation Discord API** (depuis v3) : les 10 grants de rôles + 10 voice moves
+- Catégorie créée à la volée : `Match #N` où N est attribué par compteur monotone Mongo. Supprimée automatiquement en fin de match (vote validé, cancel admin, ou échec draft).
+- **Parallélisation Discord API** (depuis v3) : les 10 overwrites + 10 voice moves
   sont exécutés en `asyncio.gather`, réduisant le temps de formation de ~7-10 s à ~1.5-2 s.
-- Invariants préservés : rôles `Match #N` attribués **avant** l'envoi du message d'annonce
+- Invariants préservés : permissions posées sur les 10 joueurs **avant** l'envoi du message d'annonce
   (sinon les joueurs ne voient pas le salon).
+
+### Cycle de vie de la catégorie de match
+
+- **Création** : à chaque match trouvé, catégorie `Match #N` + salons `match-preparation` (texte), `Team 1`, `Team 2`, `Waiting Match` (vocaux) créés dynamiquement.
+- **Visibilité** : permissions directes sur les 10 joueurs (deny `@everyone`, allow joueurs + admins + bot) — le rôle `Match #N` n'existe plus depuis V3.13.
+- **Suppression** : automatique sur vote validé, cancel admin (`/match-cancel`), ou échec draft. Conservée sur vote contesté jusqu'à résolution.
+- **Cleanup contesté** : commande admin `/match-cleanup <match_id>` pour forcer la suppression après résolution manuelle.
+- **Cleanup au boot** : les catégories `Match #N` orphelines (sans match actif en base) sont supprimées automatiquement au démarrage du bot.
 
 ### Vote de résultat
 
@@ -81,7 +87,7 @@ Cycle complet d'une partie :
 - **Seuls les 10 participants** peuvent voter. Vote modifiable.
 - **Majorité 7/10** → match validé automatiquement (transition CAS atomique : pas de double validation).
 - Timeout **60 min** sans majorité → status `contested`, ping du rôle admin avec score actuel.
-- Le rôle `Match #N` est révoqué immédiatement après validation pour libérer la nouvelle queue.
+- La catégorie `Match #N` est supprimée automatiquement après validation pour libérer les ressources.
 
 ### Vérification HenrikDev + pondération ACS
 
@@ -210,17 +216,13 @@ de queue, et pré-poste les 3 leaderboards. **Idempotent**, ré-exécutable sans
 
 ### Manuel (à créer si nécessaire)
 
-**Catégories de matchs** (obligatoires pour que la formation fonctionne) :
-- `Match #1`, `Match #2`, `Match #3`, `Match #4`, `Match #5`
-- Chaque catégorie doit contenir :
-  - `Team 1` (vocal)
-  - `Team 2` (vocal)
-  - `Waiting Match` (vocal)
-  - `match-preparation` (texte)
+**Catégories de matchs** : créées automatiquement par le bot (aucune configuration manuelle requise).
+- Le bot génère `Match #N` à chaque match, avec `match-preparation`, `Team 1`, `Team 2` et `Waiting Match`.
+- Les catégories orphelines sont nettoyées au démarrage.
 
 **Rôles** :
 - `En Queue` (donné aux joueurs en queue)
-- `Match #1`..`Match #5` (donnés pendant la durée d'un match — gate de visibilité)
+- `Match #N` *(supprimé V3.13 — visibilité via overwrites par utilisateur)*
 - `Match Host` (donné au lobby leader, retiré après 10 min)
 - `Rank S | Pro Queue` ou `Rank Q | Qualification Pro` (gate de la queue Pro)
 - `GC` (gate de la queue GC)
