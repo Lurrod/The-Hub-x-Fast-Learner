@@ -282,3 +282,165 @@ async def test_cleanup_orphan_continues_on_per_category_error():
     # this assertion may need to be deleted == 1. Pick the simpler counting: "increment when delete_match_category returned without raising" → 2.
     assert deleted in (1, 2)
     good.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_rollback_survives_delete_failure():
+    """Rollback must complete even when ch.delete() or category.delete() raise."""
+    from services.match_category import create_match_category
+
+    category = MagicMock()
+    category.delete = AsyncMock(side_effect=RuntimeError("discord gone"))
+    text_channel = MagicMock()
+    text_channel.delete = AsyncMock(side_effect=RuntimeError("already deleted"))
+
+    category.create_text_channel = AsyncMock(return_value=text_channel)
+    vc1 = MagicMock()
+    vc1.delete = AsyncMock()
+    category.create_voice_channel = AsyncMock(
+        side_effect=[vc1, RuntimeError("api fail")]
+    )
+
+    guild = MagicMock()
+    guild.create_category = AsyncMock(return_value=category)
+    guild.default_role = MagicMock()
+    guild.me = MagicMock()
+    guild.me.top_role = MagicMock()
+    guild.get_member = MagicMock(return_value=None)
+    guild.get_role = MagicMock(return_value=None)
+
+    # The original "api fail" exception must still propagate despite rollback errors
+    with pytest.raises(RuntimeError, match="api fail"):
+        await create_match_category(
+            guild=guild,
+            match_number=55,
+            player_ids=[],
+            admin_role_ids=[],
+        )
+
+    # delete was attempted (and failed gracefully)
+    text_channel.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_logs_and_continues_on_child_delete_failure():
+    """A non-NotFound exception on child.delete() must be swallowed (best-effort)."""
+    from services.match_category import delete_match_category
+
+    ch_bad = MagicMock()
+    ch_bad.delete = AsyncMock(side_effect=RuntimeError("rate limited"))
+    ch_good = MagicMock()
+    ch_good.delete = AsyncMock()
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.channels = [ch_bad, ch_good]
+    category.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=category)
+
+    # Must not raise despite child delete failure
+    await delete_match_category(guild=guild, category_id=77, reason="test")
+
+    ch_bad.delete.assert_awaited_once()
+    ch_good.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_child_not_found_is_silenced():
+    """discord.NotFound on child.delete() is silently swallowed."""
+    from services.match_category import delete_match_category
+
+    not_found_resp = MagicMock()
+    not_found_resp.status = 404
+    not_found_resp.reason = "Unknown Channel"
+    ch = MagicMock()
+    ch.delete = AsyncMock(side_effect=discord.NotFound(not_found_resp, "Unknown Channel"))
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.channels = [ch]
+    category.delete = AsyncMock()
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=category)
+
+    await delete_match_category(guild=guild, category_id=77, reason="test")
+    ch.delete.assert_awaited_once()
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_logs_on_category_delete_failure():
+    """A non-NotFound exception on category.delete() must be swallowed."""
+    from services.match_category import delete_match_category
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.channels = []
+    category.delete = AsyncMock(side_effect=RuntimeError("forbidden"))
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=category)
+
+    # Must not raise
+    await delete_match_category(guild=guild, category_id=88, reason="test")
+
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_match_category_category_not_found_is_silenced():
+    """discord.NotFound on category.delete() is silently swallowed."""
+    from services.match_category import delete_match_category
+
+    not_found_resp = MagicMock()
+    not_found_resp.status = 404
+    not_found_resp.reason = "Unknown Channel"
+
+    category = MagicMock(spec=discord.CategoryChannel)
+    category.channels = []
+    category.delete = AsyncMock(side_effect=discord.NotFound(not_found_resp, "Unknown Channel"))
+
+    guild = MagicMock()
+    guild.get_channel = MagicMock(return_value=category)
+
+    await delete_match_category(guild=guild, category_id=88, reason="test")
+    category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_orphan_logs_on_delete_error_and_continues():
+    """When delete_match_category logs an error, cleanup_orphan continues to next category."""
+    from services.match_category import cleanup_orphan_match_categories
+    import services.match_category as mc_module
+    from unittest.mock import patch, AsyncMock as AM
+
+    orphan_a = MagicMock(spec=discord.CategoryChannel)
+    orphan_a.id = 10
+    orphan_a.name = "Match #10"
+    orphan_a.channels = []
+
+    orphan_b = MagicMock(spec=discord.CategoryChannel)
+    orphan_b.id = 11
+    orphan_b.name = "Match #11"
+    orphan_b.channels = []
+
+    guild = MagicMock()
+    guild.categories = [orphan_a, orphan_b]
+
+    call_order = []
+
+    async def _fake_delete(guild, *, category_id, reason):
+        call_order.append(category_id)
+        if category_id == 10:
+            raise RuntimeError("discord api error")
+
+    with patch.object(mc_module, "delete_match_category", side_effect=_fake_delete):
+        deleted = await cleanup_orphan_match_categories(
+            guild=guild, active_category_ids=set()
+        )
+
+    # orphan_a failed, orphan_b succeeded
+    assert call_order == [10, 11]
+    assert deleted == 1

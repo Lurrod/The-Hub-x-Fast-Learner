@@ -54,7 +54,7 @@ def build_match_embed(
     else:
         embed.add_field(
             name="🔊 Vocaux",
-            value="⚠️ Aucune categorie libre (`Match #1/2/3/4/5` toutes occupees).",
+            value="⚠️ Erreur Discord lors de la creation de la categorie de match.",
             inline=False,
         )
 

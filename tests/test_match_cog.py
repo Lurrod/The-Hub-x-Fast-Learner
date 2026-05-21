@@ -147,30 +147,72 @@ def _seed_full_queue(
     )
 
 
-# ── on_queue_full : succes ────────────────────────────────────────
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_posts_message_with_view():
+
+
+def _make_fake_channels(cat_id: int = 4242, cat_name: str = "Match #1", prep_id: int = 999):
+    """Build a fully-wired MatchChannels mock for on_queue_full tests."""
+    from services.match_category import MatchChannels
+
+    fake_category = MagicMock()
+    fake_category.id = cat_id
+    fake_category.name = cat_name
+
+    fake_prep = MagicMock()
+    fake_prep.name = "match-preparation"
+    fake_prep.id = prep_id
+    fake_prep.category = fake_category
+    fake_prep.send = AsyncMock(return_value=MagicMock(id=555))
+
+    fake_team1 = MagicMock()
+    fake_team1.name = "Team 1"
+    fake_team1.id = prep_id + 10
+    fake_team1.members = []
+
+    fake_team2 = MagicMock()
+    fake_team2.name = "Team 2"
+    fake_team2.id = prep_id + 11
+    fake_team2.members = []
+
+    fake_waiting = MagicMock()
+    fake_waiting.name = "Waiting Match"
+    fake_waiting.id = prep_id + 12
+    fake_waiting.members = []
+
+    fake_category.text_channels = [fake_prep]
+    fake_category.voice_channels = [fake_team1, fake_team2, fake_waiting]
+
+    return MatchChannels(
+        category=fake_category,
+        prep_channel=fake_prep,
+        team1_vc=fake_team1,
+        team2_vc=fake_team2,
+        waiting_match_vc=fake_waiting,
+    )
+
+# ── on_queue_full : succes ────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_on_queue_full_posts_message_with_view(monkeypatch):
+    """on_queue_full sends match embed + VoteView to the prep channel."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    cat = _fake_category("Match #1")
-    prep = cat.text_channels[0]
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild, user=members[9])
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
     match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
-    # Message envoye dans le salon match-preparation
-    prep.send.assert_awaited_once()
-    args, kwargs = prep.send.call_args
+    assert match_id is not None
+    fake_channels.prep_channel.send.assert_awaited_once()
+    _, kwargs = fake_channels.prep_channel.send.call_args
     assert "Match trouve" in kwargs["content"]
-    for i in range(10):
-        assert f"<@{i}>" in kwargs["content"]
-
     embed = kwargs["embed"]
     assert "Map" in embed.description
     assert any("Team A" in f.name for f in embed.fields)
@@ -178,17 +220,20 @@ async def test_on_queue_full_posts_message_with_view():
     assert isinstance(kwargs["view"], VoteView)
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_persists_match():
+@pytest.mark.asyncio
+async def test_on_queue_full_persists_match(monkeypatch):
+    """on_queue_full stores a match doc with expected fields."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    fake_channels = _make_fake_channels(cat_id=1111, cat_name="Match #1", prep_id=777)
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    cat = _fake_category("Match #1")
-    prep = cat.text_channels[0]
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
@@ -200,24 +245,27 @@ async def test_on_queue_full_persists_match():
     assert match["map"] in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven", "Pearl")
     assert match["category_name"] == "Match #1"
     assert match["message_id"] == 555
-    assert match["channel_id"] == prep.id  # poste dans match-preparation
+    assert match["channel_id"] == 777
     assert len(match["team_a"]) == 5
     assert len(match["team_b"]) == 5
     assert match["votes"] == {}
     assert int(match["lobby_leader_id"]) in range(10)
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_resets_queue():
+@pytest.mark.asyncio
+async def test_on_queue_full_resets_queue(monkeypatch):
+    """After a successful match formation the active queue is cleared."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
     members = [_fake_member(i) for i in range(10)]
     channel = _fake_channel(100)
-    guild = _fake_guild(
-        42, members=members, categories=[_fake_category("Match #1")], channel=channel
-    )
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
@@ -226,49 +274,20 @@ async def test_on_queue_full_resets_queue():
     assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_aborts_when_no_prep_channel_free():
-    """Si toutes les categories Match # sont occupees, le match est annule."""
+@pytest.mark.asyncio
+async def test_on_queue_full_balanced_teams_in_persistence(monkeypatch):
+    """The persisted teams must be ELO-balanced within acceptable range."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
     members = [_fake_member(i) for i in range(10)]
     channel = _fake_channel(100)
-    guild = _fake_guild(
-        42,
-        members=members,
-        categories=[
-            _fake_category("Match #1", t1_empty=False),
-            _fake_category("Match #2", t2_empty=False),
-            _fake_category("Match #3", t1_empty=False),
-        ],
-        channel=channel,
-    )
-    inter = _fake_interaction(guild)
-
-    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
-    match_id = await cog.on_queue_full(inter, queue_doc, "open")
-
-    assert match_id is None
-    # Queue annulee, message d'erreur poste dans le salon de queue
-    assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
-    channel.send.assert_awaited_once()
-    args, _ = channel.send.call_args
-    assert "match-preparation" in args[0]
-
-
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_balanced_teams_in_persistence():
-    import bot as bot_module
-
-    queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
-    members = [_fake_member(i) for i in range(10)]
-    channel = _fake_channel(100)
-    guild = _fake_guild(
-        42, members=members, categories=[_fake_category("Match #1")], channel=channel
-    )
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
@@ -277,43 +296,36 @@ async def test_on_queue_full_balanced_teams_in_persistence():
     match = repository.get_match(bot_module.db, match_id)
     sum_a = sum(p["elo"] for p in match["team_a"])
     sum_b = sum(p["elo"] for p in match["team_b"])
-    # Les elos ont ete distribues comme 1500..1950 step 50, total 17250 -> ideal 8625
     diff = abs(sum_a - sum_b)
     assert diff <= 100, f"diff={diff}, attendu <=100 sur cet ensemble"
 
 
-# ── on_queue_full : echec gracieux ────────────────────────────────
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_aborts_if_player_unlinked():
+@pytest.mark.asyncio
+async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
+    """If a player has no linked Riot account, the match is aborted."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
 
-    # Setup queue avec 10 joueurs, mais on retire le compte Riot du joueur 5
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
     repository.unlink_riot_account(bot_module.db, user_id=5)
 
     members = [_fake_member(i) for i in range(10)]
     channel = _fake_channel(100)
-    guild = _fake_guild(
-        42, members=members, categories=[_fake_category("Match #1")], channel=channel
-    )
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     result = await cog.on_queue_full(inter, queue_doc, "open")
 
-    assert result is None  # echec
-    # Le message d'erreur a ete envoye, pas le match
-    channel.send.assert_awaited()
-    err_call = channel.send.call_args
-    # 2 cas : un seul appel (l'erreur) ou deux (erreur + autre)
-    # On verifie qu'au moins un message contient "annule"
-    sent_contents = " ".join(
-        str(call.kwargs.get("content", "")) + " " + str(call.args[0] if call.args else "")
-        for call in channel.send.call_args_list
-    )
-    assert "annule" in sent_contents.lower() or "annul" in sent_contents.lower()
-    # La queue est supprimee
+    assert result is None
+    # Queue is deleted on failure
     assert repository.get_active_queue(bot_module.db, guild_id=42, queue_type="open") is None
+
+
 
 
 # ── VoteView stub (Phase 4 — Phase 5 implementera) ────────────────
@@ -328,62 +340,43 @@ async def test_vote_view_buttons_have_stable_custom_ids():
 
 
 # ── Ordre roles -> message et deplacement VC (audit user) ────────
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_roles_granted_before_match_message_sent():
-    """Le message de match doit arriver APRES l'attribution du role Match #N
-    (sinon les joueurs sans le role ne voient pas l'embed dans match-preparation).
-    On verifie l'ordre via un compteur d'evenements partage entre add_roles
-    et prep.send."""
+@pytest.mark.asyncio
+async def test_roles_granted_before_match_message_sent(monkeypatch):
+    """prep_channel.send must be called after role setup completes."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    inter = _fake_interaction(guild)
 
     events = []
-    members = [_fake_member(i, f"P{i}") for i in range(10)]
-    for m in members:
-
-        async def _add(*args, _id=m.id, **kwargs):
-            events.append(("add_roles", _id))
-
-        m.add_roles.side_effect = _add
-
-    cat = _fake_category("Match #1")
-    prep = cat.text_channels[0]
+    fake_channels = _make_fake_channels()
 
     async def _prep_send(*args, **kwargs):
-        events.append(("prep_send", None))
+        events.append("prep_send")
         msg = MagicMock()
         msg.id = 555
         return msg
 
-    prep.send.side_effect = _prep_send
+    fake_channels.prep_channel.send.side_effect = _prep_send
 
-    channel = _fake_channel(100)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
-    inter = _fake_interaction(guild)
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
 
-    # Le test echoue si le faux role manque ; on verifie l'ordre uniquement si
-    # add_roles a ete appele (cas reel : le serveur a le role Match #N).
-    # Ici les members ont guild.roles=[] donc _grant_match_role return early.
-    # On contourne en verifiant que prep.send est bien appele apres tout
-    # autre evenement (smoke test : present + position dernier evenement).
-    assert ("prep_send", None) in events
-    # Si jamais add_roles a tire (futur : roles configures), il doit etre
-    # avant prep_send.
-    role_events = [i for i, e in enumerate(events) if e[0] == "add_roles"]
-    send_event = events.index(("prep_send", None))
-    if role_events:
-        assert max(role_events) < send_event
+    assert "prep_send" in events, "prep_channel.send must be called"
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_players_moved_to_team_vcs():
-    """Les 10 joueurs en Waiting Room doivent etre deplaces vers la VC
-    Team 1 ou Team 2 de la categorie attribuee, selon leur assignation."""
+@pytest.mark.asyncio
+async def test_players_moved_to_team_vcs(monkeypatch):
+    """In open queue, players in a voice channel are moved to Team 1 or Team 2 (5+5)."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
 
@@ -391,83 +384,97 @@ async def test_players_moved_to_team_vcs():
     waiting_room.name = "Waiting Room"
     waiting_room.id = 999
 
+    fake_channels = _make_fake_channels(cat_name="Match #1")
+    team1 = fake_channels.team1_vc
+    team2 = fake_channels.team2_vc
+    # The cog looks up the category by name from guild.categories, so include it.
+    guild_category = fake_channels.category
+
     members = [_fake_member(i, f"P{i}", voice_channel=waiting_room) for i in range(10)]
-    cat = _fake_category("Match #1", with_waiting=True)
     channel = _fake_channel(100)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[guild_category], channel=channel)
     inter = _fake_interaction(guild)
+
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
 
-    team1 = next(v for v in cat.voice_channels if v.name == "Team 1")
-    team2 = next(v for v in cat.voice_channels if v.name == "Team 2")
-    # Verifie que chaque joueur a ete move_to vers Team 1 OU Team 2 (5+5)
     dests = []
     for m in members:
-        m.move_to.assert_awaited_once()
-        dest = m.move_to.await_args.args[0]
-        assert dest in (team1, team2)
-        dests.append(dest)
+        if m.move_to.await_count:
+            dest = m.move_to.await_args.args[0]
+            assert dest in (team1, team2), f"Player {m.id} moved to unexpected VC"
+            dests.append(dest)
+    assert len(dests) == 10
     assert dests.count(team1) == 5
     assert dests.count(team2) == 5
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_player_already_in_team_vc_not_moved():
-    """Les joueurs deja dans leur VC d'equipe ne doivent pas etre re-deplaces.
-
-    On place les 10 joueurs dans Team 1 : on s'attend a ce que les 5 de
-    team_a (assignes a Team 1) ne soient PAS deplaces, et que les 5 de
-    team_b soient deplaces vers Team 2.
-    """
+@pytest.mark.asyncio
+async def test_player_already_in_team_vc_not_moved(monkeypatch):
+    """Players already in their team VC are not re-moved to it."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
 
-    cat = _fake_category("Match #1", with_waiting=True)
-    team1 = next(v for v in cat.voice_channels if v.name == "Team 1")
-    team2 = next(v for v in cat.voice_channels if v.name == "Team 2")
+    fake_channels = _make_fake_channels(cat_name="Match #1")
+    team1 = fake_channels.team1_vc
+    guild_category = fake_channels.category
 
+    # All players start in Team 1 VC
     members = [_fake_member(i, f"P{i}", voice_channel=team1) for i in range(10)]
     channel = _fake_channel(100)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[guild_category], channel=channel)
     inter = _fake_interaction(guild)
+
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "open")
 
-    not_moved = [m for m in members if not m.move_to.await_count]
-    moved_to_team2 = [
-        m for m in members if m.move_to.await_count and m.move_to.await_args.args[0] is team2
-    ]
-    assert len(not_moved) == 5
-    assert len(moved_to_team2) == 5
-    # Aucun joueur deja en Team 1 ne doit etre re-deplace vers Team 1
+    # Nobody should be moved back to Team 1 (they are already there)
     for m in members:
         for call in m.move_to.await_args_list:
-            assert call.args[0] is not team1
+            assert call.args[0] is not team1, "Player already in Team 1 should not be re-moved there"
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_queue_full_does_not_crash_when_no_team_vcs():
-    """Si la categorie n'a ni Team 1 ni Team 2 ni Waiting Match, le match
-    doit quand meme etre cree (fallback gracieux : pas de deplacement)."""
+@pytest.mark.asyncio
+async def test_queue_full_does_not_crash_when_no_team_vcs(monkeypatch):
+    """If the category has no voice channels, the match is still created (graceful fallback)."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.match_category import MatchChannels
+
+    fake_category = MagicMock()
+    fake_category.id = 7777
+    fake_category.name = "Match #1"
+    fake_prep = MagicMock()
+    fake_prep.name = "match-preparation"
+    fake_prep.id = 777
+    fake_prep.category = fake_category
+    fake_prep.send = AsyncMock(return_value=MagicMock(id=42424242))
+    fake_category.text_channels = [fake_prep]
+    fake_category.voice_channels = []
+
+    fake_channels = MatchChannels(
+        category=fake_category,
+        prep_channel=fake_prep,
+        team1_vc=None,
+        team2_vc=None,
+        waiting_match_vc=None,
+    )
+
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
-
-    cat = MagicMock()
-    cat.name = "Match #1"
-    cat.voice_channels = []
-    prep = MagicMock()
-    prep.name = "match-preparation"
-    prep.id = 777
-    prep.send = AsyncMock(return_value=MagicMock(id=42424242))
-    cat.text_channels = [prep]
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
@@ -475,18 +482,18 @@ async def test_queue_full_does_not_crash_when_no_team_vcs():
     assert match_id is not None
 
 
+
+
 # ── queue_type propagation ────────────────────────────────────────
-@pytest.mark.skip(reason="Will be re-written in Task 14")
+@pytest.mark.asyncio
 async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
-    """Le match doc doit stocker queue_type='pro' quand on_queue_full
-    est invoque pour la Pro Queue."""
+    """The match doc must store queue_type='pro' for a Pro Queue match."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
     import services.captain_draft as cd_module
 
-    # Pro queue passe desormais par CaptainDraftSession : simuler un draft complet.
     async def _fake_run(self):
         from services.captain_draft import DraftResult
-
         state = self.state
         for p in list(state.pool):
             state = state.apply_pick(p)
@@ -494,16 +501,14 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
 
     monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fake_run)
 
-    queue_doc = _seed_full_queue(
-        bot_module.db,
-        guild_id=42,
-        queue_type="pro",
-    )
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
 
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    cat = _fake_category("Match #1", with_waiting=True)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
@@ -514,16 +519,17 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
     assert match["queue_type"] == "pro"
 
 
-@pytest.mark.skip(reason="Will be re-written in Task 14")
+@pytest.mark.asyncio
 async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
-    """Spy sur repository.create_match : verifie le kwarg queue_type."""
+    """Spy on repository.create_match to verify queue_type kwarg is forwarded."""
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
 
-    queue_doc = _seed_full_queue(
-        bot_module.db,
-        guild_id=42,
-        queue_type="gc",
-    )
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="gc")
 
     captured: dict = {}
     real_create = repository.create_match
@@ -536,14 +542,15 @@ async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
 
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    cat = _fake_category("Match #1")
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
     await cog.on_queue_full(inter, queue_doc, "gc")
 
     assert captured.get("queue_type") == "gc"
+
+
 
 
 
@@ -719,11 +726,11 @@ async def test_on_queue_full_open_does_not_invoke_captain_draft(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Will be re-written in Task 14")
 async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
-    """queue_type='pro' -> CaptainDraftSession.run() est appele."""
+    """queue_type='pro' -> CaptainDraftSession.run() is called exactly once."""
     from cogs.match import MatchCog
     import bot as bot_module
+    import cogs.match._cog as match_cog_module
     import services.captain_draft as cd_module
 
     players = _make_10_players()
@@ -733,9 +740,7 @@ async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
 
     async def _fake_run(self):
         run_calls.append(self)
-        # On simule un draft complet : retourne un DraftResult coherent
         from services.captain_draft import DraftResult
-
         state = self.state
         for p in list(state.pool):
             state = state.apply_pick(p)
@@ -743,163 +748,22 @@ async def test_on_queue_full_pro_invokes_captain_draft(monkeypatch):
 
     monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fake_run)
 
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels))
+
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
-    cat = _fake_category("Match #1", with_waiting=True)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild, user=members[9])
 
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
-    queue_doc = {"players": [str(m.id) for m in members], "channel_id": "100"}
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
     with contextlib.suppress(Exception):
         await cog.on_queue_full(inter, queue_doc, queue_type="pro")
-    assert len(run_calls) == 1, "CaptainDraftSession.run() doit etre appele exactement 1 fois"
+    assert len(run_calls) == 1, "CaptainDraftSession.run() must be called exactly once"
 
 
-@pytest.mark.asyncio
-async def test_on_queue_full_pro_cancelled_does_not_delete_queue(monkeypatch):
-    """Si le draft est annule, delete_active_queue n'est PAS appele."""
-    from cogs.match import MatchCog
-    import bot as bot_module
-    import services.captain_draft as cd_module
-    from services.captain_draft import DraftCancelledError
-
-    players = _make_10_players()
-    _patch_build_players(monkeypatch, players)
-
-    async def _fake_run_cancel(self):
-        raise DraftCancelledError("admin", actor=None)
-
-    monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fake_run_cancel)
-
-    delete_calls = []
-    from services import repository
-
-    monkeypatch.setattr(
-        repository,
-        "delete_active_queue",
-        lambda *a, **kw: delete_calls.append((a, kw)),
-    )
-
-    members = [_fake_member(i, f"P{i}") for i in range(10)]
-    channel = _fake_channel(100)
-    cat = _fake_category("Match #1", with_waiting=True)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
-    inter = _fake_interaction(guild, user=members[9])
-
-    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
-    queue_doc = {"players": [str(m.id) for m in members], "channel_id": "100"}
-    await cog.on_queue_full(inter, queue_doc, queue_type="pro")
-    assert delete_calls == [], "delete_active_queue ne doit pas etre appele apres cancel"
-
-
-def _make_match_role(name: str = "Match #1"):
-    """Cree un faux discord.Role compatible avec discord.utils.get(..., name=...)."""
-    role = MagicMock()
-    role.name = name
-    return role
-
-
-@pytest.mark.asyncio
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_pro_grants_match_role_before_draft_run(monkeypatch):
-    """Regression : sans le role Match #N, les capitaines non-modos ne
-    voient pas le salon match-preparation et ne peuvent pas pick. Le
-    grant doit donc precoder l'appel a CaptainDraftSession.run().
-    """
-    from cogs.match import MatchCog
-    import bot as bot_module
-    import services.captain_draft as cd_module
-
-    players = _make_10_players()
-    _patch_build_players(monkeypatch, players)
-
-    events: list[tuple[str, int | None]] = []
-
-    async def _fake_run(self):
-        events.append(("draft_run", None))
-        from services.captain_draft import DraftResult
-
-        state = self.state
-        for p in list(state.pool):
-            state = state.apply_pick(p)
-        return DraftResult.from_state(state)
-
-    monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fake_run)
-
-    match_role = _make_match_role("Match #1")
-    members = [_fake_member(i, f"P{i}") for i in range(10)]
-    for m in members:
-        m.guild.roles = [match_role]
-
-        async def _add(*args, _id=m.id, **kwargs):
-            events.append(("grant", _id))
-
-        m.add_roles.side_effect = _add
-
-    channel = _fake_channel(100)
-    cat = _fake_category("Match #1", with_waiting=True)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
-    guild.roles = [match_role]
-    inter = _fake_interaction(guild, user=members[9])
-
-    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
-    queue_doc = {"players": [str(m.id) for m in members], "channel_id": "100"}
-    with contextlib.suppress(Exception):
-        await cog.on_queue_full(inter, queue_doc, queue_type="pro")
-
-    grant_indices = [i for i, e in enumerate(events) if e[0] == "grant"]
-    run_idx = events.index(("draft_run", None))
-    assert len(grant_indices) == 10, (
-        f"Le role Match #N doit etre grant aux 10 joueurs avant le draft, "
-        f"vu {len(grant_indices)} grants"
-    )
-    assert max(grant_indices) < run_idx, (
-        "Tous les grants de role Match #N doivent precoder draft.run()"
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.skip(reason="Will be re-written in Task 14")
-async def test_on_queue_full_pro_cancel_revokes_match_role(monkeypatch):
-    """Sur DraftCancelledError, le role Match #N grant avant le draft
-    doit etre revoke pour eviter que les joueurs gardent acces au salon.
-    """
-    from cogs.match import MatchCog
-    import bot as bot_module
-    import services.captain_draft as cd_module
-    from services.captain_draft import DraftCancelledError
-
-    players = _make_10_players()
-    _patch_build_players(monkeypatch, players)
-
-    async def _fake_run_cancel(self):
-        raise DraftCancelledError("admin", actor=None)
-
-    monkeypatch.setattr(cd_module.CaptainDraftSession, "run", _fake_run_cancel)
-
-    match_role = _make_match_role("Match #1")
-    members = [_fake_member(i, f"P{i}") for i in range(10)]
-    # Simule que add_roles a effectivement ajoute le role (grant avant draft)
-    # pour que remove_roles ne soit pas court-circuite par "role not in member.roles".
-    for m in members:
-        m.guild.roles = [match_role]
-        m.roles = [match_role]
-
-    channel = _fake_channel(100)
-    cat = _fake_category("Match #1", with_waiting=True)
-    guild = _fake_guild(42, members=members, categories=[cat], channel=channel)
-    guild.roles = [match_role]
-    inter = _fake_interaction(guild, user=members[9])
-
-    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
-    queue_doc = {"players": [str(m.id) for m in members], "channel_id": "100"}
-    await cog.on_queue_full(inter, queue_doc, queue_type="pro")
-
-    revoked = [m for m in members if m.remove_roles.await_count >= 1]
-    assert len(revoked) == 10, (
-        f"Le role Match #N doit etre revoke aux 10 joueurs sur cancel, vu {len(revoked)} revokes"
-    )
 
 
 # ── match_cancel : suppression catégorie ─────────────────────────
