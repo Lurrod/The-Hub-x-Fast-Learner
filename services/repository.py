@@ -472,6 +472,41 @@ def find_active_match_for_player(db: Database, user_id: int | str) -> Mapping[st
     )
 
 
+def expire_stale_contested(
+    db: Database,
+    *,
+    origin_guild_id: int | str,
+    cutoff_dt,
+) -> int:
+    """Filet de securite : transitionne `contested` -> `cleaned_up` pour
+    tout match cree avant `cutoff_dt`.
+
+    Sans ca, un contested non resolu (admin applique l'ELO via /win + /lose
+    mais oublie /match-cancel ou /match-cleanup) bloque les 10 joueurs dans
+    le gate find_active_match_for_player a vie. Appele au boot et chaque
+    tick par le timeout-loop du MatchCog.
+
+    Returns:
+        Nombre de docs transitionnes.
+    """
+    gid = _to_int_id(origin_guild_id, field="origin_guild_id")
+    res = get_matches_col(db).update_many(
+        {
+            "origin_guild_id": gid,
+            "status": "contested",
+            "created_at": {"$lt": cutoff_dt},
+        },
+        {
+            "$set": {
+                "status": "cleaned_up",
+                "cleaned_up_at": datetime.now(UTC),
+                "cleaned_up_by": "auto_expire_contested",
+            }
+        },
+    )
+    return res.modified_count
+
+
 def add_match_vote(
     db: Database,
     match_id: Any,

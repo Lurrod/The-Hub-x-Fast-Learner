@@ -57,6 +57,7 @@ from services.riot_api import HenrikDevClient
 
 from cogs.match._constants import (
     ADMIN_ROLE_NAMES,
+    CONTESTED_EXPIRY_HOURS,
     HENRIK_CIRCUIT_FAIL_THRESHOLD,
     HENRIK_CIRCUIT_OPEN_MINUTES,
     HENRIK_VERIFY_DELAY_MINUTES,
@@ -1080,6 +1081,43 @@ class MatchCog(commands.Cog):
             await self.check_henrik_verifications()
         except Exception:
             logger.exception("[match] check_henrik_verifications a leve")
+        try:
+            await self.expire_stale_contested_matches()
+        except Exception:
+            logger.exception("[match] expire_stale_contested_matches a leve")
+
+    async def expire_stale_contested_matches(self, *, now: datetime | None = None) -> int:
+        """Auto-expire les matches en `contested` plus vieux que
+        CONTESTED_EXPIRY_HOURS. Sans ca, un contested non resolu par admin
+        gele les 10 joueurs dans le gate find_active_match_for_player.
+
+        Scoping par guild : evite de toucher aux matches d'autres guilds.
+
+        Returns:
+            Nombre total de docs expires sur l'ensemble des guilds.
+        """
+        now = now or datetime.now(UTC)
+        cutoff = now - timedelta(hours=CONTESTED_EXPIRY_HOURS)
+        total = 0
+        for guild in self.bot.guilds:
+            try:
+                n = await asyncio.to_thread(
+                    repository.expire_stale_contested,
+                    self.db,
+                    origin_guild_id=guild.id,
+                    cutoff_dt=cutoff,
+                )
+            except Exception:
+                logger.exception("[match] expire_stale_contested guild=%s a leve", guild.id)
+                continue
+            if n:
+                logger.info(
+                    "[match] auto-expire contested : %d match(es) cleaned_up dans guild %s",
+                    n,
+                    guild.name,
+                )
+            total += n
+        return total
 
     @_timeout_loop.before_loop
     async def _before_loop(self):
@@ -1399,6 +1437,14 @@ class MatchCog(commands.Cog):
         # de sens qu'avec un gateway Discord vivant de toute facon).
         if isinstance(self.bot, commands.Bot):
             self._timeout_loop.start()
+        # Auto-expire les contested qui trainent (admins qui font /win+/lose
+        # sans /match-cancel). On le fait AVANT le calcul de active_ids :
+        # un contested > CONTESTED_EXPIRY_HOURS doit etre cleaned_up et donc
+        # NE PAS proteger sa categorie Discord du cleanup orphelin.
+        try:
+            await self.expire_stale_contested_matches()
+        except Exception:
+            logger.exception("[match] cog_load expire_stale_contested a leve")
         active_ids: set[int] = {
             m["category_id"]
             for m in self.db["matches"].find(

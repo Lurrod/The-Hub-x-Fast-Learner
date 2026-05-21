@@ -292,3 +292,116 @@ def test_find_category_ids_with_cleanup_started_excludes_unmarked(mongo_db):
     )
     # Pas de delete_started_at => non retourne meme si actif.
     assert find_category_ids_with_cleanup_started(mongo_db, origin_guild_id=5) == set()
+
+
+# ── expire_stale_contested ─────────────────────────────────────────
+# Filet de securite : un match en "contested" reste dans le gate
+# find_active_match_for_player tant qu'un admin ne resout pas. Si admin
+# applique l'ELO via /win + /lose sans toucher au doc match, les 10
+# joueurs sont bloques indefiniment. expire_stale_contested transitionne
+# automatiquement les contested vieux de plus de cutoff_dt en cleaned_up.
+
+
+def test_expire_stale_contested_marks_old_matches_cleaned_up(mongo_db):
+    from datetime import UTC, datetime, timedelta
+
+    from services.repository import expire_stale_contested, get_matches_col
+
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=25)
+    matches = get_matches_col(mongo_db)
+    mid = matches.insert_one(
+        {"origin_guild_id": 1, "status": "contested", "created_at": old}
+    ).inserted_id
+
+    n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
+
+    assert n == 1
+    doc = matches.find_one({"_id": mid})
+    assert doc["status"] == "cleaned_up"
+    assert doc.get("cleaned_up_at") is not None
+    assert doc.get("cleaned_up_by") == "auto_expire_contested"
+
+
+def test_expire_stale_contested_skips_recent_matches(mongo_db):
+    from datetime import UTC, datetime, timedelta
+
+    from services.repository import expire_stale_contested, get_matches_col
+
+    now = datetime.now(UTC)
+    recent = now - timedelta(hours=12)
+    matches = get_matches_col(mongo_db)
+    mid = matches.insert_one(
+        {"origin_guild_id": 1, "status": "contested", "created_at": recent}
+    ).inserted_id
+
+    n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
+
+    assert n == 0
+    doc = matches.find_one({"_id": mid})
+    assert doc["status"] == "contested"
+
+
+def test_expire_stale_contested_skips_non_contested_statuses(mongo_db):
+    from datetime import UTC, datetime, timedelta
+
+    from services.repository import expire_stale_contested, get_matches_col
+
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=48)
+    matches = get_matches_col(mongo_db)
+    matches.insert_one({"origin_guild_id": 1, "status": "pending", "created_at": old})
+    matches.insert_one({"origin_guild_id": 1, "status": "validated_a", "created_at": old})
+    matches.insert_one({"origin_guild_id": 1, "status": "validated_b", "created_at": old})
+    matches.insert_one({"origin_guild_id": 1, "status": "cancelled", "created_at": old})
+
+    n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
+
+    assert n == 0
+    # Aucun doc ne doit avoir change de statut.
+    statuses = {d["status"] for d in matches.find({})}
+    assert statuses == {"pending", "validated_a", "validated_b", "cancelled"}
+
+
+def test_expire_stale_contested_scopes_by_guild(mongo_db):
+    from datetime import UTC, datetime, timedelta
+
+    from services.repository import expire_stale_contested, get_matches_col
+
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=48)
+    matches = get_matches_col(mongo_db)
+    g1 = matches.insert_one(
+        {"origin_guild_id": 1, "status": "contested", "created_at": old}
+    ).inserted_id
+    g2 = matches.insert_one(
+        {"origin_guild_id": 2, "status": "contested", "created_at": old}
+    ).inserted_id
+
+    n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
+
+    assert n == 1
+    assert matches.find_one({"_id": g1})["status"] == "cleaned_up"
+    # Guild 2 NON touche.
+    assert matches.find_one({"_id": g2})["status"] == "contested"
+
+
+def test_expire_stale_contested_returns_count_for_multiple_docs(mongo_db):
+    from datetime import UTC, datetime, timedelta
+
+    from services.repository import expire_stale_contested, get_matches_col
+
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=30)
+    matches = get_matches_col(mongo_db)
+    matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
+    matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
+    matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
+    # Un recent, doit etre skip.
+    matches.insert_one(
+        {"origin_guild_id": 1, "status": "contested", "created_at": now - timedelta(hours=2)}
+    )
+
+    n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
+
+    assert n == 3

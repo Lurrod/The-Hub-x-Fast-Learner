@@ -22,6 +22,12 @@ VOTE_TIMEOUT_MINUTES: Final[int] = 90
 HENRIK_VERIFY_DELAY_MINUTES: Final[int] = 5  # premier essai Henrik a 5 min
 HENRIK_VERIFY_TIMEOUT_MINUTES: Final[int] = 30  # abandon Henrik et ELO plat a 30 min
 
+# Filet de securite : un match en "contested" non resolu par admin bloque
+# les 10 joueurs dans le gate find_active_match_for_player. /win et /lose
+# distribuent l'ELO mais ne touchent pas au doc match -> on auto-expire
+# pour eviter qu'un admin distrait gele 10 joueurs indefiniment.
+CONTESTED_EXPIRY_HOURS: Final[int] = 24
+
 # Circuit breaker Henrik : si N appels consecutifs echouent, on suspend
 # les tentatives pendant T minutes pour eviter de saturer les threads
 # (chaque appel = ~12s avec retries) et de polluer les logs.
