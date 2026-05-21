@@ -921,3 +921,17 @@ def list_warns(
         filt["member_id"] = int(member_id)
     cursor = get_warns_col(db, guild_id).find(filt).sort("timestamp", -1).limit(limit)
     return list(cursor)
+
+
+def reserve_match_number(db: Database, *, guild_id: int) -> int:
+    """Atomically increment guild_state.match_counter and return the new value.
+
+    Uses $inc with upsert so the counter survives the very first call.
+    """
+    doc = db["guild_state"].find_one_and_update(
+        {"_id": guild_id},
+        {"$inc": {"match_counter": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(doc["match_counter"])

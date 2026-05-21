@@ -195,3 +195,26 @@ def test_create_match_persists_queue_type():
     )
     doc = get_match(db, match_id=match_id)
     assert doc["queue_type"] == "pro"
+
+
+def test_reserve_match_number_starts_at_one(mongo_db):
+    from services.repository import reserve_match_number
+
+    n = reserve_match_number(mongo_db, guild_id=111)
+    assert n == 1
+
+
+def test_reserve_match_number_monotonic(mongo_db):
+    from services.repository import reserve_match_number
+
+    assert reserve_match_number(mongo_db, guild_id=222) == 1
+    assert reserve_match_number(mongo_db, guild_id=222) == 2
+    assert reserve_match_number(mongo_db, guild_id=222) == 3
+
+
+def test_reserve_match_number_independent_between_guilds(mongo_db):
+    from services.repository import reserve_match_number
+
+    assert reserve_match_number(mongo_db, guild_id=333) == 1
+    assert reserve_match_number(mongo_db, guild_id=444) == 1
+    assert reserve_match_number(mongo_db, guild_id=333) == 2

@@ -115,3 +115,9 @@ def fake_guild(discord_bot):
 
     config = dpytest.get_config()
     return config.guilds[0]
+
+
+@pytest.fixture
+def mongo_db():
+    """In-memory mongomock database, isolated per test."""
+    return mongomock.MongoClient(tz_aware=True).db
