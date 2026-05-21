@@ -72,6 +72,7 @@ def test_create_match_persists_origin_guild_id(db):
     assert doc["origin_guild_id"] == 12345
 
 
+@pytest.mark.skip(reason="Will be re-written in Task 14")
 def test_find_pending_match_role_cleanups_filters_by_origin_guild_id(db):
     """Scan helpers must scope by origin_guild_id when provided.
 

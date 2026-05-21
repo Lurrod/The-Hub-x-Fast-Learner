@@ -9,17 +9,11 @@ from __future__ import annotations
 from typing import Final
 
 
-MATCH_ROLE_CLEANUP_DELAY_SECONDS: Final[int] = 0  # immediat (etait 60s) — le role
-# Match #N est retire des le vote valide, pour que les joueurs puissent
-# rejoindre une nouvelle queue sans attendre. Le delai persiste comme
-# filet de securite : si le revoke immediat crash, le tick (1 min) le
-# reprendra via _process_role_cleanups (claim CAS idempotent).
 # Ecart d'ELO max entre le joueur sortant et le remplacant. Au-dela, on
 # refuse le /match-replace : les equipes du match en cours seraient trop
 # desequilibrees pour que le resultat reflete une vraie perf des joueurs.
 MAX_REPLACE_ELO_DIFF: Final[int] = 500
 MATCH_HOST_ROLE_NAME: Final[str] = "Match Host"
-MATCH_HOST_CLEANUP_DELAY_SECONDS: Final[int] = 600  # 10 min apres validation
 
 VOTE_A_BTN_ID: Final[str] = "vote_v2:a"
 VOTE_B_BTN_ID: Final[str] = "vote_v2:b"

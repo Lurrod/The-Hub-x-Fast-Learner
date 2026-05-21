@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections import OrderedDict
 from datetime import datetime, UTC
 
@@ -46,20 +45,6 @@ import contextlib
 
 # Roles "Match #1", "Match #2", "Match #3", "Match #4", "Match #5" attribues a un joueur en cours
 # de match. Tant qu'un joueur a un de ces roles, il est dans un match
-# pending (vote non termine) — on lui refuse l'entree dans une nouvelle
-# queue. Le role est retire des le vote valide, donc le joueur peut
-# rejoindre la queue sans delai. "Match Host" n'est PAS gate.
-_MATCH_ROLE_PATTERN = re.compile(r"^Match #\d+$")
-
-
-def _has_match_role(member: discord.Member) -> str | None:
-    """Renvoie le nom du role 'Match #N' du membre, ou None s'il n'en a pas."""
-    for role in member.roles:
-        if _MATCH_ROLE_PATTERN.match(role.name):
-            return role.name
-    return None
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -125,23 +110,6 @@ async def _revoke_queue_role(member: discord.Member) -> None:
         return
     with contextlib.suppress(discord.Forbidden, discord.HTTPException):
         await member.remove_roles(role, reason="Left queue")
-
-
-async def _grant_match_role(member: discord.Member, role_name: str) -> None:
-    """Donne le role correspondant a la categorie de match (e.g. "Match #1")."""
-    role = discord.utils.get(member.guild.roles, name=role_name)
-    if role is None or role in member.roles:
-        return
-    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-        await member.add_roles(role, reason=f"Match formed in {role_name}")
-
-
-async def _revoke_match_role(member: discord.Member, role_name: str) -> None:
-    role = discord.utils.get(member.guild.roles, name=role_name)
-    if role is None or role not in member.roles:
-        return
-    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-        await member.remove_roles(role, reason="Match ended")
 
 
 async def _move_to_waiting_room(
@@ -306,14 +274,6 @@ class QueueView(discord.ui.View):
         if not isinstance(inter.user, discord.Member):
             await inter.followup.send(
                 "❌ Interaction invalide (hors serveur ou type d'utilisateur inattendu).",
-                ephemeral=True,
-            )
-            return
-        ongoing_role = _has_match_role(inter.user)
-        if ongoing_role is not None:
-            await inter.followup.send(
-                f"❌ Tu es deja dans un match en cours (role `{ongoing_role}`). "
-                "Attends la fin du vote pour rejoindre une nouvelle queue.",
                 ephemeral=True,
             )
             return

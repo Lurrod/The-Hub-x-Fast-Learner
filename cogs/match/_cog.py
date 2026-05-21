@@ -26,8 +26,6 @@ from discord.ext import commands, tasks
 from cogs.queue_v2 import (
     QUEUE_CHANNEL_NAMES,
     QUEUE_ROLE_NAME,
-    _grant_match_role,
-    _revoke_match_role,
 )
 from services import elo_calc, repository
 from services.captain_draft import (
@@ -64,9 +62,7 @@ from cogs.match._constants import (
     HENRIK_VERIFY_DELAY_MINUTES,
     HENRIK_VERIFY_TIMEOUT_MINUTES,
     MAJORITY_THRESHOLD,
-    MATCH_HOST_CLEANUP_DELAY_SECONDS,
     MATCH_HOST_ROLE_NAME,
-    MATCH_ROLE_CLEANUP_DELAY_SECONDS,
     MAX_REPLACE_ELO_DIFF,
     VOTE_TIMEOUT_MINUTES,
 )
@@ -202,16 +198,6 @@ class MatchCog(commands.Cog):
                 category,
                 player_ids_for_move,
             )
-            # Grant le role Match #N AVANT le draft. Sans ce role, les
-            # joueurs non-admin ne voient pas le salon match-preparation
-            # (overwrites de categorie), donc les capitaines non-modos
-            # ne peuvent pas interagir avec le Select de draft. Seuls
-            # les modos pouvaient pick — bug observe en prod.
-            draft_members = [m for m in (guild.get_member(p.id) for p in players) if m is not None]
-            await asyncio.gather(
-                *(_grant_match_role(m, free_cat_name) for m in draft_members),
-                return_exceptions=True,
-            )
             cap_a, cap_b = pick_captains(players, rng=self.rng)
             pool = tuple(p for p in players if p.id not in (cap_a.id, cap_b.id))
             session = CaptainDraftSession(
@@ -229,13 +215,6 @@ class MatchCog(commands.Cog):
                     "queue conservee, aucune action destructive",
                     exc.reason,
                     getattr(exc.actor, "id", None),
-                )
-                # Cleanup : revoke le role Match #N grant avant le draft.
-                # Sinon les joueurs gardent le role apres annulation et
-                # voient toujours le salon de match-preparation.
-                await asyncio.gather(
-                    *(_revoke_match_role(m, free_cat_name) for m in draft_members),
-                    return_exceptions=True,
                 )
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(
@@ -277,27 +256,19 @@ class MatchCog(commands.Cog):
             channel_id=prep_channel.id,
         )
 
-        # Etape 2 : grants de role AVANT d'annoncer. Sans le role
-        # `Match #N`, les joueurs ne voient pas le salon
-        # match-preparation, donc ne voient pas le message d'annonce
-        # (map, equipes, vocal a rejoindre). Best-effort : crash ici
-        # laisse roles partiels mais le match doc existe -> /match-cancel
-        # nettoie.
+        # Etape 2 : ajustement de roles AVANT d'annoncer. Best-effort :
+        # crash ici laisse roles partiels mais le match doc existe ->
+        # /match-cancel nettoie.
         #
-        # Consolidation 1 PATCH/joueur via member.edit(roles=...) au lieu
-        # de 2-3 PUT separes (revoke queue + grant match + grant host) :
-        # diff atomique cote Discord, divise par ~2 les appels API et
-        # supprime les 429 observes en prod (bucket per-guild PATCH
-        # /members/{u} ~10/10s). Semaphore(5) en garde-fou.
+        # Consolidation 1 PATCH/joueur via member.edit(roles=...) :
+        # diff atomique cote Discord, supprime les 429 observes en prod
+        # (bucket per-guild PATCH /members/{u} ~10/10s).
+        # Semaphore(5) en garde-fou.
         leader_id = int(plan.lobby_leader.id)
 
         async def _setup_roles_for(member: discord.Member) -> None:
-            # Lookups via member.guild.roles : identique a guild.roles en
-            # prod (meme Guild object) et coherent avec _fake_member dans
-            # les tests (member.guild.roles = [] explicite).
             mg = member.guild
             queue_role = discord.utils.get(mg.roles, name=QUEUE_ROLE_NAME)
-            match_role = discord.utils.get(mg.roles, name=free_cat_name)
             host_role = (
                 discord.utils.get(mg.roles, name=MATCH_HOST_ROLE_NAME)
                 if member.id == leader_id
@@ -307,8 +278,6 @@ class MatchCog(commands.Cog):
             target = set(current)
             if queue_role is not None:
                 target.discard(queue_role)
-            if match_role is not None:
-                target.add(match_role)
             if host_role is not None:
                 target.add(host_role)
             if target == current:
@@ -335,8 +304,7 @@ class MatchCog(commands.Cog):
             if isinstance(r, BaseException):
                 logger.warning("[match] role setup a echoue: %r", r)
 
-        # Etape 3 : envoyer l'annonce. Les joueurs ont desormais le
-        # role Match #N et peuvent voir le salon + le message.
+        # Etape 3 : envoyer l'annonce.
         mentions = " ".join(f"<@{p.id}>" for p in players)
         embed = build_match_embed(plan, guild.name, queue_type)
         try:
@@ -570,42 +538,10 @@ class MatchCog(commands.Cog):
         L'ELO sera applique en une seule passe par `_verify_match`
         apres ~HENRIK_VERIFY_DELAY_MINUTES (avec ponderation ACS si
         HenrikDev a retrouve le custom, plat sinon).
-
-        Ordre d'exécution : on planifie les nettoyages de roles AVANT
-        toute operation risquee (send Discord), pour garantir qu'un crash
-        sur l'annonce ne laisse jamais les roles "Match #N" / "Match Host"
-        attribues a vie.
         """
         guild = getattr(inter, "guild", None)
 
-        # Cleanups de roles persistes en base : `_timeout_loop` les
-        # appliquera quand l'echeance sera passee. Survit au redemarrage
-        # du bot (les anciens `asyncio.create_task` etaient perdus si le
-        # bot crashait dans la fenetre de 60s/600s).
-        if guild is not None:
-            now = datetime.now(UTC)
-            try:
-                await asyncio.to_thread(
-                    repository.schedule_role_cleanups,
-                    self.db,
-                    match_doc["_id"],
-                    match_role_at=now + timedelta(seconds=MATCH_ROLE_CLEANUP_DELAY_SECONDS),
-                    host_role_at=now + timedelta(seconds=MATCH_HOST_CLEANUP_DELAY_SECONDS),
-                )
-            except Exception:
-                logger.exception("[match] schedule role cleanups a leve")
-
-            # Revoke immediat du role Match #N : les joueurs peuvent
-            # rejoindre une nouvelle queue sans attendre le tick suivant.
-            # Le claim CAS empeche un double-traitement par
-            # _process_role_cleanups (qui verra match_role_cleanup_done=True).
-            try:
-                await self._revoke_match_role_immediately(guild, match_doc)
-            except Exception:
-                logger.exception("[match] immediate match role revoke a leve")
-
-        # 3) Annonce best-effort. Toute erreur ici ne doit pas empecher
-        #    le cleanup de tourner.
+        # Annonce best-effort.
         if guild is None:
             return
         try:
@@ -639,105 +575,6 @@ class MatchCog(commands.Cog):
             logger.exception("[match] envoi annonce Henrik HTTP error")
         except Exception:
             logger.exception("[match] envoi annonce attente Henrik a leve")
-
-    async def _revoke_match_role_immediately(self, guild, match_doc: dict) -> None:
-        """Retire le role `Match #N` aux 10 joueurs des qu'un vote valide
-        atteint la majorite. Utilise le meme claim CAS que
-        `_process_role_cleanups_for_guild` pour l'idempotence : si un autre
-        chemin (tick post-redemarrage) traite le meme cleanup, un seul
-        appel passe."""
-        claimed = await asyncio.to_thread(
-            repository.claim_match_role_cleanup,
-            self.db,
-            match_doc["_id"],
-        )
-        if not claimed:
-            return  # deja fait ailleurs (tick recovery apres crash)
-        category_name = match_doc.get("category_name")
-        if not category_name:
-            return
-        for team_key in ("team_a", "team_b"):
-            for player in match_doc.get(team_key, []):
-                uid = player.get("id")
-                if uid is None:
-                    continue
-                member = guild.get_member(int(uid))
-                if member is not None:
-                    await _revoke_match_role(member, category_name)
-
-    async def _process_role_cleanups(self, *, now: datetime | None = None) -> int:
-        """Traite les cleanups de roles dont l'echeance persistee est passee.
-
-        Reprend automatiquement les cleanups perdus suite a un redemarrage
-        du bot. Le claim atomique evite les double-traitements en cas de
-        ticks concurrents."""
-        now = now or datetime.now(UTC)
-        # Parallelisation per-guild : meme principe que les autres loops.
-        results = await asyncio.gather(
-            *[self._process_role_cleanups_for_guild(g, now) for g in self.bot.guilds],
-            return_exceptions=True,
-        )
-        processed = 0
-        for r in results:
-            if isinstance(r, BaseException):
-                logger.info(f"[match] _process_role_cleanups (guild) a leve : {r!r}")
-                continue
-            processed += r
-        return processed
-
-    async def _process_role_cleanups_for_guild(self, guild, now: datetime) -> int:
-        processed = 0
-        # Cleanup role "Match #N" pour les 10 joueurs.
-        pending = await asyncio.to_thread(
-            repository.find_pending_match_role_cleanups,
-            self.db,
-            now,
-            origin_guild_id=guild.id,
-        )
-        for match in pending:
-            claimed = await asyncio.to_thread(
-                repository.claim_match_role_cleanup,
-                self.db,
-                match["_id"],
-            )
-            if not claimed:
-                continue
-            category_name = match.get("category_name")
-            if not category_name:
-                continue
-            for team_key in ("team_a", "team_b"):
-                for player in match.get(team_key, []):
-                    uid = player.get("id")
-                    if uid is None:
-                        continue
-                    member = guild.get_member(int(uid))
-                    if member is not None:
-                        await _revoke_match_role(member, category_name)
-            processed += 1
-
-        # Cleanup role "Match Host" pour le lobby leader.
-        pending_host = await asyncio.to_thread(
-            repository.find_pending_host_role_cleanups,
-            self.db,
-            now,
-            origin_guild_id=guild.id,
-        )
-        for match in pending_host:
-            claimed = await asyncio.to_thread(
-                repository.claim_host_role_cleanup,
-                self.db,
-                match["_id"],
-            )
-            if not claimed:
-                continue
-            leader_id = match.get("lobby_leader_id")
-            if leader_id is None:
-                continue
-            member = guild.get_member(int(leader_id))
-            if member is not None:
-                await _revoke_match_role(member, MATCH_HOST_ROLE_NAME)
-            processed += 1
-        return processed
 
     # ── Timeout des votes ────────────────────────────────────────
     async def check_vote_timeouts(self, *, now: datetime | None = None) -> int:
@@ -848,29 +685,6 @@ class MatchCog(commands.Cog):
         # Note : la transition vers "contested" est faite par
         # check_vote_timeouts via transition_match_status (CAS atomique).
         # On entre ici uniquement si la transition a reussi.
-
-        # Retire immediatement le role "Match Host" au lobby leader :
-        # le vote n'a pas abouti dans VOTE_TIMEOUT_MINUTES, l'admin reprend la main.
-        leader_id = match.get("lobby_leader_id")
-        if leader_id is not None:
-            leader_member = guild.get_member(int(leader_id))
-            if leader_member is not None:
-                await _revoke_match_role(leader_member, MATCH_HOST_ROLE_NAME)
-
-        # Retire le role "Match #N" aux 10 joueurs : le match est conteste,
-        # ils ne devraient plus voir le salon match-preparation. La categorie
-        # se libere pour une nouvelle queue. Sans ce nettoyage, les rôles
-        # persistaient jusqu'a un /match-cancel manuel.
-        category_name = match.get("category_name")
-        if category_name:
-            for team_key in ("team_a", "team_b"):
-                for player in match.get(team_key, []):
-                    uid = player.get("id")
-                    if uid is None:
-                        continue
-                    member = guild.get_member(int(uid))
-                    if member is not None:
-                        await _revoke_match_role(member, category_name)
 
         admin_role = None
         for role_name in ADMIN_ROLE_NAMES:
@@ -1191,10 +1005,6 @@ class MatchCog(commands.Cog):
             await self.check_henrik_verifications()
         except Exception:
             logger.exception("[match] check_henrik_verifications a leve")
-        try:
-            await self._process_role_cleanups()
-        except Exception:
-            logger.exception("[match] _process_role_cleanups a leve")
 
     @_timeout_loop.before_loop
     async def _before_loop(self):
@@ -1243,24 +1053,18 @@ class MatchCog(commands.Cog):
             )
             return
 
-        guild = interaction.guild
+        guild = interaction.guild  # noqa: F841 (used in future tasks)
         category_name = match.get("category_name")
-        for team_key in ("team_a", "team_b"):
-            for player in match.get(team_key, []):
-                uid = player.get("id")
-                if uid is None:
-                    continue
-                member = guild.get_member(int(uid))
-                if member is None:
-                    continue
-                if category_name:
-                    await _revoke_match_role(member, category_name)
 
+        # Revoke du role "Match Host" au lobby leader.
         leader_id = match.get("lobby_leader_id")
         if leader_id is not None:
-            leader = guild.get_member(int(leader_id))
+            leader = interaction.guild.get_member(int(leader_id))
             if leader is not None:
-                await _revoke_match_role(leader, MATCH_HOST_ROLE_NAME)
+                host_role = discord.utils.get(interaction.guild.roles, name=MATCH_HOST_ROLE_NAME)
+                if host_role is not None and host_role in leader.roles:
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                        await leader.remove_roles(host_role, reason="Match annule")
 
         try:
             msg_id = match.get("message_id")
@@ -1271,7 +1075,7 @@ class MatchCog(commands.Cog):
             logger.exception("[match-cancel] retrait view a leve")
 
         await interaction.followup.send(
-            f"✅ Match annule. Categorie `{category_name or '?'}` liberee, roles retires.",
+            f"✅ Match annule. Categorie `{category_name or '?'}` liberee.",
             ephemeral=True,
         )
 
@@ -1406,20 +1210,20 @@ class MatchCog(commands.Cog):
             )
             return
 
-        category_name = match.get("category_name")
-        if category_name:
-            await _revoke_match_role(quitter, category_name)
-            await _grant_match_role(remplacant, category_name)
-
         # Transfert du role "Match Host" si c'est le leader qu'on remplace.
         if leader_replaced:
-            await _revoke_match_role(quitter, MATCH_HOST_ROLE_NAME)
-            await _grant_match_role(remplacant, MATCH_HOST_ROLE_NAME)
+            host_role = discord.utils.get(interaction.guild.roles, name=MATCH_HOST_ROLE_NAME)
+            if host_role is not None:
+                if host_role in quitter.roles:
+                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                        await quitter.remove_roles(host_role, reason="Match replace : host transferred")
+                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                    await remplacant.add_roles(host_role, reason="Match replace : host transferred")
 
         suffix = " (lobby host)" if leader_replaced else ""
         await interaction.followup.send(
             f"✅ {quitter.mention} remplace par {remplacant.mention} dans "
-            f"`{team_key}`{suffix}. Roles ajustes.",
+            f"`{team_key}`{suffix}.",
             ephemeral=True,
         )
 
