@@ -1279,6 +1279,54 @@ class MatchCog(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.command(
+        name="match-cleanup",
+        description="(Admin) Force la suppression de la categorie d'un match dispute ou bloque.",
+    )
+    async def match_cleanup(
+        self, interaction: discord.Interaction, match_id: str
+    ) -> None:
+        """Admin-only force teardown for disputed/blocked matches."""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Cette commande est reservee aux administrateurs.",
+                ephemeral=True,
+            )
+            return
+
+        match = self.db["matches"].find_one({"_id": match_id})
+        if match is None:
+            await interaction.response.send_message(
+                f"Match `{match_id}` introuvable.", ephemeral=True
+            )
+            return
+
+        category_id = match.get("category_id")
+        if not category_id:
+            await interaction.response.send_message(
+                f"Match `{match_id}` n'a pas de category_id "
+                "(probablement un match pre-migration).",
+                ephemeral=True,
+            )
+            return
+
+        await delete_match_category(
+            guild=interaction.guild,
+            category_id=category_id,
+            reason=f"Admin cleanup by {interaction.user} (match {match_id})",
+        )
+        self.db["matches"].update_one(
+            {"_id": match_id},
+            {"$set": {
+                "status": "cleaned_up",
+                "cleaned_up_at": datetime.utcnow(),
+                "cleaned_up_by": interaction.user.id,
+            }},
+        )
+        await interaction.response.send_message(
+            f"Match `{match_id}` nettoye.", ephemeral=True
+        )
+
     @match_cancel.error
     @match_replace.error
     async def _admin_perm_error(self, inter: discord.Interaction, error):
