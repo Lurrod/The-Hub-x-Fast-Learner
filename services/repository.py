@@ -375,6 +375,8 @@ def create_match(
     map_name: str,
     lobby_leader_id: int | str,
     category_name: str | None,
+    category_id: int | None = None,
+    match_number: int | None = None,
     message_id: int | None,
     channel_id: int | None,
 ) -> Any:
@@ -397,6 +399,8 @@ def create_match(
         "origin_guild_id": int(origin_guild_id),
         "lobby_leader_id": str(lobby_leader_id),
         "category_name": category_name,
+        "category_id": int(category_id) if category_id is not None else None,
+        "match_number": int(match_number) if match_number is not None else None,
         "status": "pending",
         "votes": {},
         "created_at": datetime.now(UTC),

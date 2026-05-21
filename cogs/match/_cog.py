@@ -39,13 +39,18 @@ from services.elo_updater import (
     apply_match_validation,
 )
 from services.leaderboard_refresh import refresh_leaderboard_channel
+from services.match_category import (
+    create_match_category,
+    delete_match_category,
+    cleanup_orphan_match_categories,
+)
 from services.match_service import (
     build_plan_from_draft,
     build_players,
-    find_free_match_prep,
     plan_match,
     serialize_team,
 )
+from services.repository import reserve_match_number
 from services.match_verifier import (
     compute_acs_multipliers,
     find_henrik_custom_match,
@@ -168,36 +173,29 @@ class MatchCog(commands.Cog):
             )
             return None
 
-        # Recherche d'un salon 'match-preparation' libre (categories Match #1/2/3/4/5)
-        free = find_free_match_prep(guild)
-        if free is None:
-            await self._fail(
-                interaction,
-                queue_doc,
-                "Aucun salon 'match-preparation' libre dans les categories Match #1/2/3/4/5.",
-                queue_type=queue_type,
+        # Reserve un numero de match atomique + cree la categorie Discord dynamiquement.
+        match_number = reserve_match_number(self.db, guild_id=guild.id)
+        try:
+            channels = await create_match_category(
+                guild=guild,
+                match_number=match_number,
+                player_ids=[p.id for p in players],
+                admin_role_ids=self._admin_role_ids(guild),
+            )
+        except Exception:
+            logger.exception("[match] create_match_category failed for #%d", match_number)
+            await interaction.followup.send(
+                "Erreur Discord lors de la creation de la categorie de match. Reessaie.",
+                ephemeral=True,
             )
             return None
-        free_cat_name, prep_channel = free
+        category = channels.category
+        prep_channel = channels.prep_channel
+        free_cat_name = category.name
 
         # Branche Pro Queue : draft capitaine au lieu d'auto-balance.
         # Les autres queues continuent avec plan_match comme avant.
         if queue_type == "pro":
-            # find_free_match_prep a deja garanti que prep_channel existe
-            # et appartient a une categorie Match #N libre. On reutilise
-            # sa back-reference plutot que de re-faire un discord.utils.get.
-            category = prep_channel.category
-            if category is None:
-                # Cas extreme : prep_channel orphelin. On annule l'evenement
-                # pour eviter un fallback silencieux qui ferait jouer une
-                # pro queue en mode auto-balance sans le savoir.
-                await self._fail(
-                    interaction,
-                    queue_doc,
-                    "Pro queue : structure de categorie inattendue (prep sans parent).",
-                    queue_type=queue_type,
-                )
-                return None
             player_ids_for_move = [str(p.id) for p in players]
             await self._move_players_to_waiting_match(
                 guild,
@@ -273,6 +271,8 @@ class MatchCog(commands.Cog):
             map_name=plan.map_name,
             lobby_leader_id=plan.lobby_leader.id,
             category_name=plan.category_name,
+            category_id=category.id,
+            match_number=match_number,
             message_id=None,
             channel_id=prep_channel.id,
         )
@@ -405,6 +405,16 @@ class MatchCog(commands.Cog):
             except Exception:
                 logger.exception("[match] echec re-post setup-queue")
         return match_id
+
+    def _admin_role_ids(self, guild: discord.Guild) -> list[int]:
+        """Return the list of admin role IDs for permission overwrites.
+
+        If the project has a config of admin role IDs, read from it here.
+        Otherwise return an empty list (admins still see the category via
+        their guild-wide administrator permission).
+        """
+        # TODO if the project later wires a config -- for now: empty list.
+        return []
 
     async def _move_players_to_waiting_match(
         self,
