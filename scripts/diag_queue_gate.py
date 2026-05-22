@@ -20,7 +20,9 @@ ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE: tuple[str, ...] = (
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(
+        description="Diagnostic READ-ONLY : matchs bloquant des joueurs dans le queue gate.",
+    )
     p.add_argument(
         "--guild",
         type=int,

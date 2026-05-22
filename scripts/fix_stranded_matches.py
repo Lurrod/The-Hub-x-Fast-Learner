@@ -19,7 +19,9 @@ BLOCKING_STATUSES: tuple[str, ...] = (
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p = argparse.ArgumentParser(
+        description="Fix MANUEL : libere des joueurs bloques dans le queue gate.",
+    )
     p.add_argument(
         "--guild",
         type=int,
