@@ -439,18 +439,20 @@ def get_match_by_message(db: Database, message_id: int) -> Mapping[str, Any] | N
     return get_matches_col(db).find_one({"message_id": _to_int_id(message_id, field="message_id")})
 
 
-# Statuts pour lesquels un joueur est considere encore engage dans un match
-# (categorie Discord encore presente, ELO pas encore applique). Sert au gate
-# anti-doublon de la queue : un joueur deja dans un de ces matchs ne peut pas
-# rejoindre une nouvelle queue.
-#   - "pending"      : vote ouvert
-#   - "validated_a"  : team A gagne, ELO pas encore claim par _verify_match
-#   - "validated_b"  : idem team B
+# Statuts pour lesquels un joueur est considere encore engage dans un match.
+# Sert au gate anti-doublon de la queue : un joueur deja dans un de ces
+# matchs ne peut pas rejoindre une nouvelle queue.
+#   - "pending"      : vote ouvert, match pas encore conclu
 #   - "contested"    : timeout vote, en attente de resolution admin
+#
+# Les statuts "validated_a" / "validated_b" sont volontairement EXCLUS du
+# gate : une fois le vote tranche, le match est logiquement clos. Bloquer
+# la queue sur "elo_applied != True" laisse toute defaillance Henrik
+# (tracker prive, mauvais compte joue, API down) figer les 10 joueurs
+# indefiniment. La distribution ELO est un job async independant du gate ;
+# _verify_match + le filet expire_stale_contested font le reste.
 _ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE: tuple[str, ...] = (
     "pending",
-    "validated_a",
-    "validated_b",
     "contested",
 )
 
