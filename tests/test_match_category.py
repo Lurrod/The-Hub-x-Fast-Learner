@@ -479,3 +479,104 @@ async def test_create_match_category_rollback_survives_cascade_delete_failures()
     text_channel.delete.assert_awaited_once()
     vc1.delete.assert_awaited_once()
     category.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_grants_player_level_access_to_viewer_roles():
+    """`viewer_role_ids` recoivent view/send/connect/speak (niveau joueur),
+    sans `manage_channels` (distinct des admin_role_ids).
+    """
+    from services.match_category import create_match_category
+
+    captured: dict = {}
+
+    async def fake_create_category(name, **kwargs):
+        captured["overwrites"] = kwargs.get("overwrites") or {}
+        category = MagicMock()
+        category.create_text_channel = AsyncMock(return_value=MagicMock())
+        category.create_voice_channel = AsyncMock(return_value=MagicMock())
+        return category
+
+    everyone = MagicMock(name="@everyone")
+    bot_top = MagicMock(name="bot top role")
+    admin_role = MagicMock(name="admin role")
+    viewer_role_a = MagicMock(name="Administrators")
+    viewer_role_b = MagicMock(name="Moderators")
+    roles_by_id = {42: admin_role, 100: viewer_role_a, 101: viewer_role_b}
+
+    guild = MagicMock()
+    guild.default_role = everyone
+    guild.me = MagicMock()
+    guild.me.top_role = bot_top
+    guild.create_category = AsyncMock(side_effect=fake_create_category)
+    guild.get_role = MagicMock(side_effect=lambda rid: roles_by_id.get(rid))
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=12,
+        player_ids=[],
+        admin_role_ids=[42],
+        viewer_role_ids=[100, 101, 999],  # 999 has no guild role, must skip
+    )
+
+    overwrites = captured["overwrites"]
+
+    assert admin_role in overwrites
+    assert overwrites[admin_role].manage_channels is True
+
+    for vrole in (viewer_role_a, viewer_role_b):
+        assert vrole in overwrites
+        assert overwrites[vrole].view_channel is True
+        assert overwrites[vrole].send_messages is True
+        assert overwrites[vrole].connect is True
+        assert overwrites[vrole].speak is True
+        # Niveau joueur : pas de manage_channels
+        assert overwrites[vrole].manage_channels is None
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_spectator_roles_can_view_but_not_join():
+    """`spectator_role_ids` voient la categorie et lisent l'historique,
+    mais ne peuvent ni envoyer de messages ni se connecter en vocal.
+    """
+    from services.match_category import create_match_category
+
+    captured: dict = {}
+
+    async def fake_create_category(name, **kwargs):
+        captured["overwrites"] = kwargs.get("overwrites") or {}
+        category = MagicMock()
+        category.create_text_channel = AsyncMock(return_value=MagicMock())
+        category.create_voice_channel = AsyncMock(return_value=MagicMock())
+        return category
+
+    everyone = MagicMock(name="@everyone")
+    bot_top = MagicMock(name="bot top role")
+    members_role = MagicMock(name="Members")
+    roles_by_id = {200: members_role}
+
+    guild = MagicMock()
+    guild.default_role = everyone
+    guild.me = MagicMock()
+    guild.me.top_role = bot_top
+    guild.create_category = AsyncMock(side_effect=fake_create_category)
+    guild.get_role = MagicMock(side_effect=lambda rid: roles_by_id.get(rid))
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=21,
+        player_ids=[],
+        admin_role_ids=[],
+        spectator_role_ids=[200, 888],  # 888 introuvable, doit etre skip
+    )
+
+    overwrites = captured["overwrites"]
+    assert members_role in overwrites
+    spec_ow = overwrites[members_role]
+    assert spec_ow.view_channel is True
+    assert spec_ow.read_message_history is True
+    assert spec_ow.send_messages is False
+    assert spec_ow.connect is False
+    assert spec_ow.speak is False

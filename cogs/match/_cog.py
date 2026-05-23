@@ -57,6 +57,8 @@ from services.riot_api import HenrikDevClient
 
 from cogs.match._constants import (
     ADMIN_ROLE_NAMES,
+    MATCH_SPECTATOR_ROLE_NAMES,
+    MATCH_VIEWER_ROLE_NAMES,
     CONTESTED_EXPIRY_HOURS,
     HENRIK_CIRCUIT_FAIL_THRESHOLD,
     HENRIK_CIRCUIT_OPEN_MINUTES,
@@ -178,6 +180,8 @@ class MatchCog(commands.Cog):
                 match_number=match_number,
                 player_ids=[p.id for p in players],
                 admin_role_ids=self._admin_role_ids(guild),
+                viewer_role_ids=self._viewer_role_ids(guild),
+                spectator_role_ids=self._spectator_role_ids(guild),
             )
         except Exception:
             logger.exception("[match] create_match_category failed for #%d", match_number)
@@ -436,6 +440,41 @@ class MatchCog(commands.Cog):
             bypass_id = None
         if isinstance(bypass_id, int) and bypass_id not in ids:
             ids.append(bypass_id)
+        return ids
+
+    def _viewer_role_ids(self, guild: discord.Guild) -> list[int]:
+        """Renvoie les IDs des roles staff "viewers" a inclure dans les
+        overwrites de la categorie de match (acces niveau joueur, pas admin).
+
+        Ces roles (cf. MATCH_VIEWER_ROLE_NAMES) recoivent les memes droits
+        que les 10 joueurs : view/send/connect/speak, sans manage_channels.
+        Utile pour que le staff (Administrators, Moderators, Coach/Analyst,
+        Head Administrators, THE HUB, Moderator En Chef) puisse suivre/aider
+        sur n'importe quelle categorie de match sans avoir les pouvoirs
+        admin (draft cancel, ping, gestion de salon).
+        """
+        return self._role_ids_by_names(guild, MATCH_VIEWER_ROLE_NAMES)
+
+    def _spectator_role_ids(self, guild: discord.Guild) -> list[int]:
+        """Renvoie les IDs des roles "spectateurs" (cf. MATCH_SPECTATOR_ROLE_NAMES,
+        ex: "Members") : voient la categorie + lisent l'historique, mais ne
+        peuvent ni rejoindre les vocaux ni envoyer de messages.
+        """
+        return self._role_ids_by_names(guild, MATCH_SPECTATOR_ROLE_NAMES)
+
+    @staticmethod
+    def _role_ids_by_names(guild: discord.Guild, names: tuple[str, ...]) -> list[int]:
+        wanted: set[str] = set(names)
+        ids: list[int] = []
+        try:
+            roles_iter = list(guild.roles)
+        except TypeError:
+            roles_iter = []
+        for role in roles_iter:
+            name = getattr(role, "name", None)
+            role_id = getattr(role, "id", None)
+            if isinstance(name, str) and name in wanted and isinstance(role_id, int):
+                ids.append(role_id)
         return ids
 
     async def _move_players_to_waiting_match(

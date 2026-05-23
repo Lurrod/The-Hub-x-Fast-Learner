@@ -37,16 +37,25 @@ async def create_match_category(
     match_number: int,
     player_ids: Iterable[int],
     admin_role_ids: Iterable[int],
+    viewer_role_ids: Iterable[int] = (),
+    spectator_role_ids: Iterable[int] = (),
 ) -> MatchChannels:
     """Create a 'Match #N' category with 4 channels and proper overwrites.
 
     Overwrites are posted *on the category only*; child channels inherit
     via Discord's sync mechanism.
+
+    - `viewer_role_ids` reçoivent les mêmes overwrites que les joueurs
+      (view/send/connect/speak, sans `manage_channels`).
+    - `spectator_role_ids` voient la catégorie et lisent l'historique,
+      mais ne peuvent pas rejoindre les vocaux ni envoyer de messages.
     """
     overwrites = _build_overwrites(
         guild=guild,
         player_ids=list(player_ids),
         admin_role_ids=list(admin_role_ids),
+        viewer_role_ids=list(viewer_role_ids),
+        spectator_role_ids=list(spectator_role_ids),
     )
     reason = f"Match #{match_number} created"
     category = await guild.create_category(
@@ -91,14 +100,18 @@ def _build_overwrites(
     guild: discord.Guild,
     player_ids: list[int],
     admin_role_ids: list[int],
+    viewer_role_ids: list[int] | None = None,
+    spectator_role_ids: list[int] | None = None,
 ) -> dict:
     """Build the permission overwrite matrix for a match category.
 
     - @everyone: deny view + connect (private category)
     - Bot's top role: full privileged access + manage_channels
     - Each admin role: full privileged access + manage_channels
+    - Each viewer role: view, send, connect, speak (no manage_channels)
+    - Each spectator role: view + read history, NO send / NO connect / NO speak
     - Each player (by member ID): view, send, connect, speak
-    - Members not found in the guild are silently skipped.
+    - Members/roles not found in the guild are silently skipped.
     """
     everyone_ow = discord.PermissionOverwrite(view_channel=False, connect=False)
     privileged_ow = discord.PermissionOverwrite(
@@ -116,6 +129,13 @@ def _build_overwrites(
         connect=True,
         speak=True,
     )
+    spectator_ow = discord.PermissionOverwrite(
+        view_channel=True,
+        read_message_history=True,
+        send_messages=False,
+        connect=False,
+        speak=False,
+    )
 
     overwrites: dict = {
         guild.default_role: everyone_ow,
@@ -126,6 +146,16 @@ def _build_overwrites(
         role = guild.get_role(role_id)
         if role is not None:
             overwrites[role] = privileged_ow
+
+    for role_id in viewer_role_ids or ():
+        role = guild.get_role(role_id)
+        if role is not None and role not in overwrites:
+            overwrites[role] = player_ow
+
+    for role_id in spectator_role_ids or ():
+        role = guild.get_role(role_id)
+        if role is not None and role not in overwrites:
+            overwrites[role] = spectator_ow
 
     for uid in player_ids:
         member = guild.get_member(uid)

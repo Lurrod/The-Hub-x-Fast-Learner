@@ -36,3 +36,20 @@ HENRIK_CIRCUIT_OPEN_MINUTES: Final[int] = 5
 
 # Roles cibles pour le ping admin (premier trouve gagne)
 ADMIN_ROLE_NAMES: Final[tuple[str, ...]] = ("Admin", "Match Staff", "Administrateur")
+
+# Roles staff "viewers" : voient et participent aux categories de match
+# (memes overwrites que les 10 joueurs), mais sans `manage_channels`.
+# Distinct de ADMIN_ROLE_NAMES qui donne des pouvoirs admin (draft cancel,
+# ping, gestion de salon).
+MATCH_VIEWER_ROLE_NAMES: Final[tuple[str, ...]] = (
+    "Administrators",
+    "Moderators",
+    "Coach/Analyst/Manager",
+    "Head Administrators",
+    "THE HUB",
+    "Moderator En Chef",
+)
+
+# Roles "spectateurs" : voient la categorie + lisent l'historique, mais
+# ne peuvent ni rejoindre les vocaux, ni envoyer de messages.
+MATCH_SPECTATOR_ROLE_NAMES: Final[tuple[str, ...]] = ("Members",)
