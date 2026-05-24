@@ -14,11 +14,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
+import discord
 import mongomock
 
 from cogs.applications import (
     ApplicationReviewView,
+    RankModal,
     RefuseReasonModal,
+    ReportModal,
+    TicketPanelView,
+    _open_ticket_channel,
     _parse_application_embed,
     _try_acquire_candidature_cooldown,
 )
@@ -386,3 +391,285 @@ async def test_refuse_modal_skips_dm_kick_when_member_gone():
     message.edit.assert_awaited()
     # Followup affiche succes
     inter.followup.send.assert_awaited()
+
+
+# ── Tickets : panel Reports / Ranks ──────────────────────────────
+def _forbidden() -> discord.Forbidden:
+    resp = MagicMock()
+    resp.status = 403
+    resp.reason = "Forbidden"
+    return discord.Forbidden(resp, "missing permissions")
+
+
+def _ticket_interaction(guild, user: MagicMock | None = None) -> MagicMock:
+    inter = MagicMock()
+    inter.guild = guild
+    inter.user = user or _fake_member(7, "Candidate", manage_guild=False)
+    inter.response = MagicMock()
+    inter.response.defer = AsyncMock()
+    inter.response.send_modal = AsyncMock()
+    inter.followup = MagicMock()
+    inter.followup.send = AsyncMock()
+    return inter
+
+
+def _ticket_guild(
+    guild_id: int = 99,
+    *,
+    has_category: bool = True,
+    channel_name: str = "ticket-1",
+    create_category_error: Exception | None = None,
+    create_channel_error: Exception | None = None,
+) -> tuple[MagicMock, MagicMock]:
+    """Construit un guild mock + le salon qu'il renverra (pour les asserts)."""
+    channel = MagicMock()
+    channel.name = channel_name
+    channel.mention = f"<#{guild_id}>"
+    channel.send = AsyncMock()
+
+    guild = MagicMock()
+    guild.id = guild_id
+
+    if has_category:
+        category = MagicMock()
+        category.name = "Tickets"
+        guild.categories = [category]
+        guild.create_category = AsyncMock()
+    else:
+        guild.categories = []
+        new_cat = MagicMock()
+        new_cat.name = "Tickets"
+        guild.create_category = (
+            AsyncMock(side_effect=create_category_error)
+            if create_category_error
+            else AsyncMock(return_value=new_cat)
+        )
+
+    guild.create_text_channel = (
+        AsyncMock(side_effect=create_channel_error)
+        if create_channel_error
+        else AsyncMock(return_value=channel)
+    )
+    return guild, channel
+
+
+# ── _open_ticket_channel ─────────────────────────────────────────
+async def test_open_ticket_channel_uses_existing_category_and_increments():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild()
+    inter = _ticket_interaction(guild)
+
+    result = await _open_ticket_channel(inter, db)
+
+    assert result is channel
+    guild.create_category.assert_not_awaited()
+    assert guild.create_text_channel.call_args.args[0] == "ticket-1"
+    # Compteur partage incremente en DB (scope par guild id, str)
+    doc = db["ticket_counters"].find_one({"_id": "99"})
+    assert doc["counter"] == 1
+
+
+async def test_open_ticket_channel_creates_category_when_missing():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild(has_category=False)
+    inter = _ticket_interaction(guild)
+
+    result = await _open_ticket_channel(inter, db)
+
+    assert result is channel
+    guild.create_category.assert_awaited_once()
+    # Le salon est cree dans la categorie nouvellement creee
+    created_cat = guild.create_category.return_value
+    assert guild.create_text_channel.call_args.kwargs["category"] is created_cat
+
+
+async def test_open_ticket_channel_returns_none_without_guild():
+    db = mongomock.MongoClient(tz_aware=True).db
+    inter = _ticket_interaction(guild=None)
+
+    result = await _open_ticket_channel(inter, db)
+
+    assert result is None
+    inter.followup.send.assert_awaited_once()
+    assert "serveur" in inter.followup.send.call_args.args[0].lower()
+
+
+async def test_open_ticket_channel_handles_category_forbidden():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, _ = _ticket_guild(has_category=False, create_category_error=_forbidden())
+    inter = _ticket_interaction(guild)
+
+    result = await _open_ticket_channel(inter, db)
+
+    assert result is None
+    guild.create_text_channel.assert_not_awaited()
+    inter.followup.send.assert_awaited_once()
+
+
+async def test_open_ticket_channel_handles_channel_forbidden():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, _ = _ticket_guild(create_channel_error=_forbidden())
+    inter = _ticket_interaction(guild)
+
+    result = await _open_ticket_channel(inter, db)
+
+    assert result is None
+    inter.followup.send.assert_awaited_once()
+
+
+# ── ReportModal (signalement anonyme) ────────────────────────────
+async def test_report_modal_creates_anonymous_ticket():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild()
+    inter = _ticket_interaction(guild)
+
+    modal = ReportModal(db=db, close_view=MagicMock())
+    for name, value in [
+        ("cible", "Cheater#1"),
+        ("queue", "Pro"),
+        ("raison", "Triche"),
+        ("details", "Aimbot evident sur la map Ascent"),
+        ("preuves", ""),  # vide -> champ optionnel omis
+    ]:
+        field = MagicMock()
+        field.value = value
+        setattr(modal, name, field)
+
+    await modal.on_submit(inter)
+
+    inter.response.defer.assert_awaited_once()
+    channel.send.assert_awaited_once()
+    embed = channel.send.call_args.kwargs["embed"]
+    assert embed.footer.text == "Report anonyme"
+    field_names = [f.name for f in embed.fields]
+    assert "Joueur reporte" in field_names
+    assert "Preuves" not in field_names  # vide -> non ajoute
+    assert channel.send.call_args.kwargs["view"] is modal.close_view
+    inter.followup.send.assert_awaited_once()
+    assert "anonyme" in inter.followup.send.call_args.args[0].lower()
+
+
+async def test_report_modal_includes_evidence_when_provided():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild()
+    inter = _ticket_interaction(guild)
+
+    modal = ReportModal(db=db, close_view=MagicMock())
+    for name, value in [
+        ("cible", "Cheater#1"),
+        ("queue", "Open"),
+        ("raison", "Toxicite"),
+        ("details", "Insultes repetees"),
+        ("preuves", "https://clips.twitch.tv/xyz"),
+    ]:
+        field = MagicMock()
+        field.value = value
+        setattr(modal, name, field)
+
+    await modal.on_submit(inter)
+
+    embed = channel.send.call_args.kwargs["embed"]
+    values = {f.name: f.value for f in embed.fields}
+    assert values["Preuves"] == "https://clips.twitch.tv/xyz"
+
+
+# ── RankModal (candidature de rank, identifiee) ──────────────────
+async def test_rank_modal_creates_identified_ticket():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild()
+    user = _fake_member(7, "Candidate", manage_guild=False)
+    inter = _ticket_interaction(guild, user=user)
+
+    modal = RankModal(db=db, close_view=MagicMock())
+    for name, value in [
+        ("rank", "Pro Queue"),
+        ("tracker", "https://tracker.gg/valorant/profile/x"),
+        ("experience", "VCT 2024, LAN Paris, equipe VLR"),
+    ]:
+        field = MagicMock()
+        field.value = value
+        setattr(modal, name, field)
+
+    await modal.on_submit(inter)
+
+    inter.response.defer.assert_awaited_once()
+    channel.send.assert_awaited_once()
+    embed = channel.send.call_args.kwargs["embed"]
+    values = {f.name: f.value for f in embed.fields}
+    # Identifie : la mention du candidat apparait
+    assert values["Membre"] == user.mention
+    assert values["Rank vise"] == "Pro Queue"
+    assert values["Tracker"] == "https://tracker.gg/valorant/profile/x"
+    assert "VCT 2024" in values["Experience (tournois / LANs / VLR)"]
+    assert "Candidature Rank" in embed.title
+    assert channel.send.call_args.kwargs["view"] is modal.close_view
+    inter.followup.send.assert_awaited_once()
+    assert "rank" in inter.followup.send.call_args.args[0].lower()
+
+
+async def test_rank_modal_reports_error_when_channel_post_fails():
+    """Le salon est cree mais l'envoi de l'embed echoue : l'utilisateur doit
+    voir une erreur, pas un faux message de succes."""
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild()
+    channel.send = AsyncMock(side_effect=_forbidden())
+    inter = _ticket_interaction(guild)
+
+    modal = RankModal(db=db, close_view=MagicMock())
+    for name in ("rank", "tracker", "experience"):
+        field = MagicMock()
+        field.value = "x"
+        setattr(modal, name, field)
+
+    await modal.on_submit(inter)
+
+    inter.followup.send.assert_awaited_once()
+    msg = inter.followup.send.call_args.args[0]
+    assert msg.startswith("❌")
+    assert "envoyee" not in msg  # pas de faux succes
+
+
+async def test_rank_modal_aborts_when_channel_creation_fails():
+    db = mongomock.MongoClient(tz_aware=True).db
+    guild, channel = _ticket_guild(create_channel_error=_forbidden())
+    inter = _ticket_interaction(guild)
+
+    modal = RankModal(db=db, close_view=MagicMock())
+    for name in ("rank", "tracker", "experience"):
+        field = MagicMock()
+        field.value = "x"
+        setattr(modal, name, field)
+
+    await modal.on_submit(inter)
+
+    # Pas de salon -> pas de message envoye dans le salon, mais erreur ephemere
+    channel.send.assert_not_awaited()
+    inter.followup.send.assert_awaited_once()
+
+
+# ── TicketPanelView : routage des 2 boutons ──────────────────────
+async def test_ticket_panel_reports_button_opens_report_modal():
+    db = mongomock.MongoClient(tz_aware=True).db
+    view = TicketPanelView(db=db, close_view=MagicMock())
+    inter = _ticket_interaction(guild=MagicMock())
+
+    await view.open_reports.callback(inter)
+
+    inter.response.send_modal.assert_awaited_once()
+    modal = inter.response.send_modal.call_args.args[0]
+    assert isinstance(modal, ReportModal)
+
+
+async def test_ticket_panel_ranks_button_opens_rank_modal():
+    db = mongomock.MongoClient(tz_aware=True).db
+    close_view = MagicMock()
+    view = TicketPanelView(db=db, close_view=close_view)
+    inter = _ticket_interaction(guild=MagicMock())
+
+    await view.open_ranks.callback(inter)
+
+    inter.response.send_modal.assert_awaited_once()
+    modal = inter.response.send_modal.call_args.args[0]
+    assert isinstance(modal, RankModal)
+    # La RankModal recoit bien la close_view partagee du panel
+    assert modal.close_view is close_view

@@ -5,8 +5,12 @@ Contient :
   - Systeme de candidatures (ApplicationModal, StaffModal, RefuseReasonModal,
     RoleChoiceView, WelcomeView, ApplicationReviewView).
   - /welcome : pose le bouton Postuler dans #verify.
-  - /report : pose le bouton de signalement anonyme dans le salon courant.
-  - CloseTicketView : ferme un ticket de report.
+  - /report : pose le panel d'ouverture de ticket (TicketPanelView) avec 2
+    options dans le salon courant :
+      * Reports -> ReportModal (signalement anonyme).
+      * Ranks   -> RankModal (candidature de rank, candidat identifie).
+  - _open_ticket_channel : cree le salon `ticket-{N}` (mutualise Reports/Ranks).
+  - CloseTicketView : ferme un ticket.
 
 Toutes les views persistantes (custom_id stable) sont enregistrees via
 `bot.add_view(...)` dans `setup()`. Les Modals et la RoleChoiceView (timeout =
@@ -323,6 +327,59 @@ class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
         )
 
 
+async def _open_ticket_channel(
+    interaction: discord.Interaction, db
+) -> discord.TextChannel | None:
+    """Cree le salon `ticket-{N}` dans la categorie `Tickets`.
+
+    Mutualise par les tickets Reports et Ranks. Renvoie le salon cree, ou
+    `None` si l'operation echoue (dans ce cas l'utilisateur a deja recu un
+    message d'erreur ephemere via `followup`). L'appelant doit avoir defer
+    l'interaction au prealable (`defer(..., thinking=True)`).
+    """
+    guild = interaction.guild
+    if guild is None:
+        await interaction.followup.send(
+            "❌ Cette commande doit etre utilisee dans un serveur.",
+            ephemeral=True,
+        )
+        return None
+
+    category = discord.utils.get(guild.categories, name=TICKETS_CATEGORY_NAME)
+    if category is None:
+        try:
+            category = await guild.create_category(TICKETS_CATEGORY_NAME)
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ Le bot n'a pas la permission **Gerer les salons** pour "
+                f"creer la categorie `{TICKETS_CATEGORY_NAME}`.",
+                ephemeral=True,
+            )
+            return None
+
+    # Le compteur est incremente AVANT la creation du salon : si la creation
+    # echoue (Forbidden), le numero est "consomme" et il restera un trou dans
+    # la numerotation. C'est volontairement tolere — les trous dans les numeros
+    # de tickets sont inoffensifs et evitent une logique de rollback fragile.
+    counter_doc = db["ticket_counters"].find_one_and_update(
+        {"_id": str(guild.id)},
+        {"$inc": {"counter": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    next_number = int(counter_doc["counter"])
+    channel_name = f"ticket-{next_number}"
+
+    try:
+        return await guild.create_text_channel(channel_name, category=category)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "❌ Le bot n'a pas la permission de creer le salon ticket.",
+            ephemeral=True,
+        )
+        return None
+
+
 class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
     cible: discord.ui.TextInput = discord.ui.TextInput(
         label="Qui report-tu ?",
@@ -367,49 +424,12 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        guild = interaction.guild
-        if guild is None:
-            await interaction.followup.send(
-                "❌ Cette commande doit etre utilisee dans un serveur.",
-                ephemeral=True,
-            )
-            return
-
-        category = discord.utils.get(guild.categories, name=TICKETS_CATEGORY_NAME)
-        if category is None:
-            try:
-                category = await guild.create_category(TICKETS_CATEGORY_NAME)
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    "❌ Le bot n'a pas la permission **Gerer les salons** pour "
-                    f"creer la categorie `{TICKETS_CATEGORY_NAME}`.",
-                    ephemeral=True,
-                )
-                return
-
-        counter_doc = self.db["ticket_counters"].find_one_and_update(
-            {"_id": str(guild.id)},
-            {"$inc": {"counter": 1}},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        next_number = int(counter_doc["counter"])
-        channel_name = f"ticket-{next_number}"
-
-        try:
-            ticket_channel = await guild.create_text_channel(
-                channel_name,
-                category=category,
-            )
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "❌ Le bot n'a pas la permission de creer le salon ticket.",
-                ephemeral=True,
-            )
+        ticket_channel = await _open_ticket_channel(interaction, self.db)
+        if ticket_channel is None:
             return
 
         embed = discord.Embed(
-            title=f"🎫 Nouveau report — {channel_name}",
+            title=f"🎫 Nouveau report — {ticket_channel.name}",
             color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
@@ -424,9 +444,84 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
             await ticket_channel.send(embed=embed, view=self.close_view)
         except discord.HTTPException:
             logger.exception("[ticket] envoi du message initial a leve")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'envoi de ton report.",
+                ephemeral=True,
+            )
+            return
 
         await interaction.followup.send(
             f"✅ Ton report anonyme a ete envoye ({ticket_channel.mention}).",
+            ephemeral=True,
+        )
+
+
+class RankModal(discord.ui.Modal, title="Candidature de rank"):
+    """Ouvre un ticket de candidature de rank (candidat identifie).
+
+    Pose 3 questions automatiquement puis cree un salon `ticket-{N}` dans la
+    categorie `Tickets` avec un embed recapitulatif + bouton de fermeture.
+    """
+
+    rank: discord.ui.TextInput = discord.ui.TextInput(
+        label="Pour quel rank souhaites-tu postuler ?",
+        placeholder="Pro Queue / Open Queue / GC Queue",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100,
+    )
+    tracker: discord.ui.TextInput = discord.ui.TextInput(
+        label="Le lien de ton tracker",
+        placeholder="https://tracker.gg/valorant/profile/...",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=300,
+    )
+    experience: discord.ui.TextInput = discord.ui.TextInput(
+        label="Ton experience en tournois/LANs et/ou VLR",
+        placeholder="Decris ton parcours competitif : tournois, LANs, equipes VLR...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=1500,
+    )
+
+    def __init__(self, db, close_view: CloseTicketView) -> None:
+        super().__init__()
+        self.db = db
+        self.close_view = close_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ticket_channel = await _open_ticket_channel(interaction, self.db)
+        if ticket_channel is None:
+            return
+
+        embed = discord.Embed(
+            title=f"🎖️ Candidature Rank — {ticket_channel.name}",
+            color=0x9B59B6,
+            timestamp=datetime.now(UTC),
+        )
+        embed.add_field(name="Membre", value=interaction.user.mention, inline=False)
+        embed.add_field(name="Rank vise", value=self.rank.value, inline=False)
+        embed.add_field(name="Tracker", value=self.tracker.value, inline=False)
+        embed.add_field(
+            name="Experience (tournois / LANs / VLR)",
+            value=self.experience.value,
+            inline=False,
+        )
+        embed.set_footer(text=f"Candidature de {interaction.user}")
+        try:
+            await ticket_channel.send(embed=embed, view=self.close_view)
+        except discord.HTTPException:
+            logger.exception("[ticket] envoi du message initial (rank) a leve")
+            await interaction.followup.send(
+                "❌ Une erreur est survenue lors de l'envoi de ta candidature.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Ta candidature de rank a ete envoyee ({ticket_channel.mention}).",
             ephemeral=True,
         )
 
@@ -669,6 +764,37 @@ class ReportView(discord.ui.View):
         await interaction.response.send_modal(ReportModal(db=self.db, close_view=self.close_view))
 
 
+class TicketPanelView(discord.ui.View):
+    """Vue persistante : panel d'ouverture de ticket a 2 options.
+
+    - **Reports** -> ReportModal (signalement anonyme).
+    - **Ranks**   -> RankModal (candidature de rank, candidat identifie).
+    """
+
+    def __init__(self, db, close_view: CloseTicketView) -> None:
+        super().__init__(timeout=None)
+        self.db = db
+        self.close_view = close_view
+
+    @discord.ui.button(
+        label="Reports",
+        style=discord.ButtonStyle.danger,
+        emoji="🚨",
+        custom_id="ticket_panel_reports_btn",
+    )
+    async def open_reports(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReportModal(db=self.db, close_view=self.close_view))
+
+    @discord.ui.button(
+        label="Ranks",
+        style=discord.ButtonStyle.primary,
+        emoji="🎖️",
+        custom_id="ticket_panel_ranks_btn",
+    )
+    async def open_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RankModal(db=self.db, close_view=self.close_view))
+
+
 # ── Cog ──────────────────────────────────────────────────────────
 class ApplicationsCog(commands.Cog):
     def __init__(self, bot: commands.Bot, db) -> None:
@@ -679,6 +805,7 @@ class ApplicationsCog(commands.Cog):
         self.review_view = ApplicationReviewView(db=db)
         self.welcome_view = WelcomeView(db=db, review_view=self.review_view)
         self.report_view = ReportView(db=db, close_view=self.close_view)
+        self.ticket_panel_view = TicketPanelView(db=db, close_view=self.close_view)
 
     @app_commands.command(
         name="welcome", description="Envoie le message de bienvenue dans le salon verify"
@@ -709,7 +836,8 @@ class ApplicationsCog(commands.Cog):
             )
 
     @app_commands.command(
-        name="report", description="Poste le message de report avec le bouton dans ce salon"
+        name="report",
+        description="Poste le panel d'ouverture de ticket (Reports / Ranks) dans ce salon",
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def report(self, interaction: discord.Interaction) -> None:
@@ -721,23 +849,20 @@ class ApplicationsCog(commands.Cog):
             )
             return
         embed = discord.Embed(
-            title="🎫 Envoyer un report anonyme",
+            title="🎫 Ouvrir un ticket",
             description=(
-                "Clique sur le bouton **Report** ci-dessous pour ouvrir un ticket "
-                "anonyme dans la categorie `Tickets`.\n\n"
-                "Le formulaire te demandera :\n"
-                "• **Qui** tu reportes (pseudo / @mention / ID)\n"
-                "• **Dans quelle queue** l'incident a eu lieu (Pro / Open / GC)\n"
-                "• **Pour quelle raison** (triche, toxicite, throw, etc.)\n"
-                "• **Les details** de la situation (quand, ou, ce qu'il s'est passe)\n"
-                "• **Les preuves** (liens, clips, screenshots) — optionnel\n\n"
-                "Ton identite ne sera pas revelee au staff."
+                "Choisis le type de ticket que tu souhaites ouvrir :\n\n"
+                "🚨 **Reports** — Signaler un joueur (triche, toxicite, throw, "
+                "insultes, AFK...). Ton report est **anonyme** : ton identite "
+                "n'est pas revelee au staff.\n\n"
+                "🎖️ **Ranks** — Postuler pour un rank. On te demandera le rank "
+                "vise, le lien de ton tracker et ton experience en tournois/LANs/VLR."
             ),
-            color=0xE67E22,
+            color=0x5865F2,
             timestamp=datetime.now(UTC),
         )
-        embed.set_footer(text=interaction.guild.name if interaction.guild else "Report")
-        await channel.send(embed=embed, view=self.report_view)
+        embed.set_footer(text=interaction.guild.name if interaction.guild else "Tickets")
+        await channel.send(embed=embed, view=self.ticket_panel_view)
         await interaction.response.send_message(
             f"Message envoye dans {channel.mention} !",
             ephemeral=True,
@@ -760,4 +885,8 @@ async def setup(bot: commands.Bot, db) -> None:
     bot.add_view(cog.review_view)
     bot.add_view(cog.welcome_view)
     bot.add_view(cog.close_view)
+    bot.add_view(cog.ticket_panel_view)
+    # Conserve pour router les anciens panels "Report" deja postes (custom_id
+    # report_open_btn) apres restart ; les nouveaux panels utilisent
+    # ticket_panel_view.
     bot.add_view(cog.report_view)
