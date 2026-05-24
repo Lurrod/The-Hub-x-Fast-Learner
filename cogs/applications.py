@@ -779,7 +779,6 @@ class TicketPanelView(discord.ui.View):
     @discord.ui.button(
         label="Reports",
         style=discord.ButtonStyle.danger,
-        emoji="🚨",
         custom_id="ticket_panel_reports_btn",
     )
     async def open_reports(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -788,7 +787,6 @@ class TicketPanelView(discord.ui.View):
     @discord.ui.button(
         label="Ranks",
         style=discord.ButtonStyle.primary,
-        emoji="🎖️",
         custom_id="ticket_panel_ranks_btn",
     )
     async def open_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -852,10 +850,10 @@ class ApplicationsCog(commands.Cog):
             title="🎫 Ouvrir un ticket",
             description=(
                 "Choisis le type de ticket que tu souhaites ouvrir :\n\n"
-                "🚨 **Reports** — Signaler un joueur (triche, toxicite, throw, "
+                "**Reports** - Signaler un joueur (triche, toxicite, throw, "
                 "insultes, AFK...). Ton report est **anonyme** : ton identite "
                 "n'est pas revelee au staff.\n\n"
-                "🎖️ **Ranks** — Postuler pour un rank. On te demandera le rank "
+                "**Ranks** - Postuler pour un rank. On te demandera le rank "
                 "vise, le lien de ton tracker et ton experience en tournois/LANs/VLR."
             ),
             color=0x5865F2,
