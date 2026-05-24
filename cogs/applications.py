@@ -429,7 +429,7 @@ class ReportModal(discord.ui.Modal, title="Envoyer un report anonyme"):
             return
 
         embed = discord.Embed(
-            title=f"🎫 Nouveau report — {ticket_channel.name}",
+            title=f"🎫 Nouveau report - {ticket_channel.name}",
             color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
@@ -497,7 +497,7 @@ class RankModal(discord.ui.Modal, title="Candidature de rank"):
             return
 
         embed = discord.Embed(
-            title=f"🎖️ Candidature Rank — {ticket_channel.name}",
+            title=f"🎖️ Candidature Rank - {ticket_channel.name}",
             color=0x9B59B6,
             timestamp=datetime.now(UTC),
         )
@@ -816,7 +816,7 @@ class ApplicationsCog(commands.Cog):
             return
         embed = discord.Embed(
             title="Bienvenu sur The Hub Matchmaking",
-            description="Bienvenue sur un serveur de **10mans français** avec 3 queues :\n\n• **Pro Queue** — TOP VRC\n• **Open Queue** — Immortal peak\n• **GC Queue** — Ascendant peak\n\nPour pouvoir accéder au serveur, merci de cliquer sur le bouton **Postuler** juste en dessous.\n\n**Amusez-vous ! 🍀**",
+            description="Bienvenue sur un serveur de **10mans français** avec 3 queues :\n\n• **Pro Queue** - TOP VRC\n• **Open Queue** - Immortal peak\n• **GC Queue** - Ascendant peak\n\nPour pouvoir accéder au serveur, merci de cliquer sur le bouton **Postuler** juste en dessous.\n\n**Amusez-vous ! 🍀**",
             color=0x5865F2,
             timestamp=datetime.now(UTC),
         )
