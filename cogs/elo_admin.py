@@ -1,6 +1,6 @@
 """
 Cog ELO admin : /win, /lose, /elomodify, /winmodify, /losemodify, /resetelo,
-/reset-queue, /stats, /leaderboard. Extrait de bot.py (refactor monolithe).
+/reset-queue, /stats, /leaderboard, /inactivity. Extrait de bot.py (refactor monolithe).
 
 Commandes admin reservees a manage_guild OU role bypass.
 `/stats` est public (visible par tous).
@@ -18,6 +18,11 @@ from discord.ext import commands
 from pymongo import ReturnDocument
 
 from services import elo_calc, repository
+from services.inactivity import (
+    DEFAULT_INACTIVITY_LIMIT,
+    format_inactivity,
+    rank_by_inactivity,
+)
 from services.leaderboard_refresh import (
     build_leaderboard_payload,
     refresh_leaderboard_channel,
@@ -650,6 +655,48 @@ class ELOAdminCog(commands.Cog):
         embed.add_field(name="🎮 Parties", value=f"**{total}**", inline=True)
         embed.set_footer(text=interaction.guild.name)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── /inactivity ────────────────────────────────────────────
+    @app_commands.command(
+        name="inactivity",
+        description="Affiche les joueurs les plus inactifs d'une queue",
+    )
+    @app_commands.describe(queue="Type de queue")
+    @app_commands.choices(queue=_QUEUE_CHOICES)
+    async def inactivity(self, interaction: discord.Interaction, queue: str):
+        if not _has_access(interaction, self.db):
+            await interaction.response.send_message("Pas la permission.", ephemeral=True)
+            return
+
+        col = repository.get_elo_col(self.db)
+        docs = list(col.find({"queue_type": queue}))
+        ranked = rank_by_inactivity(docs, limit=DEFAULT_INACTIVITY_LIMIT)
+
+        if not ranked:
+            await interaction.response.send_message(
+                f"Aucun joueur dans la queue {queue.upper()}.", ephemeral=True
+            )
+            return
+
+        now = datetime.now(UTC)
+        lines = []
+        for rank, doc in enumerate(ranked, start=1):
+            user_id = doc.get("user_id") or str(doc["_id"]).rsplit(":", 1)[0]
+            duration = format_inactivity(doc.get("last_played"), now)
+            lines.append(f"`{rank:>2}.` <@{user_id}> - {duration}")
+
+        embed = discord.Embed(
+            title=f"Inactivité — {queue.upper()} Queue",
+            description="\n".join(lines),
+            color=discord.Color.orange(),
+            timestamp=now,
+        )
+        embed.set_footer(text=f"Top {len(ranked)} joueurs les plus inactifs")
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
 
 async def setup(bot: commands.Bot, db) -> None:
