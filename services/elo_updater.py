@@ -9,6 +9,7 @@ Le gain/loss est proportionnel a la moyenne d'effective_elo (Riot) des
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from pymongo import ReturnDocument
@@ -214,7 +215,9 @@ def _apply_player(
     inc_field = "wins" if win else "losses"
     update: dict[str, Any] = {
         "$inc": {"elo": delta, inc_field: 1},
-        "$set": {"name": name},
+        # last_played : horodate la derniere partie jouee. Lu par le
+        # leaderboard Pro permanent pour retirer les inactifs (> 7 jours).
+        "$set": {"name": name, "last_played": datetime.now(UTC)},
     }
     if match_id_str is not None:
         update["$addToSet"] = {"processed_matches": match_id_str}

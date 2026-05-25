@@ -130,8 +130,10 @@ def test_chunk_empty_when_out_of_bounds():
     assert chunk == []
 
 
-import mongomock
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
+
+import mongomock
 
 
 @pytest.mark.asyncio
@@ -151,6 +153,7 @@ async def test_build_leaderboard_payload_filters_by_queue_type():
                 "wins": 5,
                 "losses": 1,
                 "queue_type": "pro",
+                "last_played": datetime.now(UTC),
             },
             {
                 "_id": player_doc_id(1, "open"),
@@ -215,9 +218,10 @@ def _seed_pro_open(db, guild_id: int, n: int = 1) -> None:
                 "user_id": str(uid),
                 "name": f"P{uid}",
                 "elo": 2500 + i,
-                "wins": 1,
+                "wins": 5,
                 "losses": 0,
                 "queue_type": "pro",
+                "last_played": datetime.now(UTC),
             }
         )
         docs.append(

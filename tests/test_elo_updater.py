@@ -104,6 +104,20 @@ def test_winners_get_plus_gain_in_db():
         assert doc["losses"] == 0
 
 
+def test_apply_match_validation_stamps_last_played():
+    import bot as bot_module
+    from datetime import datetime
+
+    _seed_baseline_elo(bot_module.db, 42, range(10), baseline=2000)
+    match = _make_match(elo=2400)
+    apply_match_validation(bot_module.db, match)
+
+    elo_col = repository.get_elo_col(bot_module.db)
+    for i in range(10):  # winners + losers
+        doc = elo_col.find_one({"_id": f"{i}:open"})
+        assert isinstance(doc.get("last_played"), datetime)
+
+
 def test_losers_get_minus_loss_in_db():
     import bot as bot_module
 

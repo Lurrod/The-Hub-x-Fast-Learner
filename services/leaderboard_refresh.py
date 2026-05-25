@@ -16,7 +16,7 @@ import logging
 import asyncio
 import re
 from collections import OrderedDict
-from datetime import datetime, UTC
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 
 import discord
@@ -30,6 +30,32 @@ logger = logging.getLogger(__name__)
 LEADERBOARD_CHANNEL_NAME = "leaderboard"
 LEADERBOARD_FILENAME = "leaderboard.png"
 PAGE_SIZE = 15
+
+# Regles d'apparition sur le leaderboard Pro Queue PERMANENT uniquement
+# (open / gc / hebdo ne sont pas concernes) :
+#   - un joueur doit avoir joue au moins 5 games (wins + losses) ;
+#   - un joueur inactif depuis strictement plus de 7 jours (ou sans date
+#     `last_played` enregistree) est retire jusqu'a ce qu'il rejoue.
+PRO_LEADERBOARD_MIN_GAMES = 5
+PRO_LEADERBOARD_INACTIVITY = timedelta(days=7)
+
+
+def _is_pro_leaderboard_eligible(doc: dict, now: datetime) -> bool:
+    """Le joueur Pro `doc` doit-il apparaitre sur le leaderboard permanent ?
+
+    `now` doit etre tz-aware (UTC). Renvoie False si moins de 5 games, si
+    aucune date `last_played` n'est enregistree, ou si la derniere partie
+    remonte a plus de 7 jours.
+    """
+    if doc.get("wins", 0) + doc.get("losses", 0) < PRO_LEADERBOARD_MIN_GAMES:
+        return False
+    last = doc.get("last_played")
+    if not isinstance(last, datetime):
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return last >= now - PRO_LEADERBOARD_INACTIVITY
+
 
 # Debounce per-guild : evite de regenerer + reposter le leaderboard
 # en rafale apres N modifs ELO consecutives (ex: /win + /lose + autres
@@ -350,9 +376,16 @@ async def build_leaderboard_payload(
     if not docs:
         return None, None
 
+    # Le leaderboard Pro PERMANENT applique les regles 5 games / 7 jours.
+    # Open, GC et la version hebdo (weekly) ne sont pas filtres.
+    apply_pro_rules = queue_type == "pro" and not weekly
+    now = datetime.now(UTC)
+
     all_players = []
     rank = 1
     for doc in docs:
+        if apply_pro_rules and not _is_pro_leaderboard_eligible(doc, now):
+            continue
         uid = doc.get("user_id") or doc["_id"].split(":")[0]
         try:
             member = guild.get_member(int(uid))
