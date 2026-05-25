@@ -465,7 +465,7 @@ class RankModal(discord.ui.Modal, title="Candidature de rank"):
 
     rank: discord.ui.TextInput = discord.ui.TextInput(
         label="Pour quel rank souhaites-tu postuler ?",
-        placeholder="Pro Queue / Open Queue / GC Queue",
+        placeholder="Pro Queue / Advanced Queue",
         style=discord.TextStyle.short,
         required=True,
         max_length=100,
@@ -785,7 +785,7 @@ class TicketPanelView(discord.ui.View):
         await interaction.response.send_modal(ReportModal(db=self.db, close_view=self.close_view))
 
     @discord.ui.button(
-        label="Ranks",
+        label="Candidature Queue",
         style=discord.ButtonStyle.primary,
         custom_id="ticket_panel_ranks_btn",
     )
@@ -851,10 +851,12 @@ class ApplicationsCog(commands.Cog):
             description=(
                 "Choisis le type de ticket que tu souhaites ouvrir :\n\n"
                 "**Reports** - Signaler un joueur (triche, toxicite, throw, "
-                "insultes, AFK...). Ton report est **anonyme** : ton identite "
+                "insultes, AFK...). Ton report est anonyme : ton identite "
                 "n'est pas revelee au staff.\n\n"
-                "**Ranks** - Postuler pour un rank. On te demandera le rank "
-                "vise, le lien de ton tracker et ton experience en tournois/LANs/VLR."
+                "**Candidature Queue** - Postuler pour une queue privée. On te "
+                "demandera la queue visée dont les critères sont :\n"
+                "• Pro Queue : 600rr Peak récent ou 5 lignes VLR 2025/2026\n"
+                "• Advanced Queue : Immo 3 actuel ou sur invitation"
             ),
             color=0x5865F2,
             timestamp=datetime.now(UTC),
