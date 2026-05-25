@@ -545,6 +545,9 @@ async def test_report_modal_creates_anonymous_ticket():
     assert "Joueur reporte" in field_names
     assert "Preuves" not in field_names  # vide -> non ajoute
     assert channel.send.call_args.kwargs["view"] is modal.close_view
+    # Anonymat : aucun overwrite individuel -> le salon reste synchronise avec
+    # la categorie et le reporter n'obtient aucun acces explicite.
+    assert "overwrites" not in guild.create_text_channel.call_args.kwargs
     inter.followup.send.assert_awaited_once()
     assert "anonyme" in inter.followup.send.call_args.args[0].lower()
 
@@ -601,8 +604,13 @@ async def test_rank_modal_creates_identified_ticket():
     assert values["Rank vise"] == "Pro Queue"
     assert values["Tracker"] == "https://tracker.gg/valorant/profile/x"
     assert "VCT 2024" in values["Experience (tournois / LANs / VLR)"]
-    assert "Candidature Rank" in embed.title
+    assert "Candidature Queue" in embed.title
     assert channel.send.call_args.kwargs["view"] is modal.close_view
+    # Candidat identifie : il recoit un acces lecture/ecriture a SON ticket
+    overwrites = guild.create_text_channel.call_args.kwargs["overwrites"]
+    assert user in overwrites
+    assert overwrites[user].view_channel is True
+    assert overwrites[user].send_messages is True
     inter.followup.send.assert_awaited_once()
     assert "rank" in inter.followup.send.call_args.args[0].lower()
 

@@ -328,14 +328,24 @@ class RefuseReasonModal(discord.ui.Modal, title="Raison du refus"):
 
 
 async def _open_ticket_channel(
-    interaction: discord.Interaction, db
+    interaction: discord.Interaction,
+    db,
+    *,
+    member_access: discord.Member | discord.User | None = None,
 ) -> discord.TextChannel | None:
     """Cree le salon `ticket-{N}` dans la categorie `Tickets`.
 
-    Mutualise par les tickets Reports et Ranks. Renvoie le salon cree, ou
-    `None` si l'operation echoue (dans ce cas l'utilisateur a deja recu un
-    message d'erreur ephemere via `followup`). L'appelant doit avoir defer
-    l'interaction au prealable (`defer(..., thinking=True)`).
+    Mutualise par les tickets Reports et Candidature Queue. Renvoie le salon
+    cree, ou `None` si l'operation echoue (dans ce cas l'utilisateur a deja
+    recu un message d'erreur ephemere via `followup`). L'appelant doit avoir
+    defer l'interaction au prealable (`defer(..., thinking=True)`).
+
+    Si `member_access` est fourni (ex. Candidature Queue, ou le candidat est
+    identifie), le salon recoit des overwrites copies de la categorie + un
+    acces lecture/ecriture pour ce membre, afin qu'il puisse echanger avec le
+    staff dans SON ticket. Sans `member_access` (ex. Reports anonymes), le
+    salon reste synchronise avec la categorie : le createur n'a aucun acces
+    explicite et l'anonymat est preserve.
     """
     guild = interaction.guild
     if guild is None:
@@ -370,8 +380,23 @@ async def _open_ticket_channel(
     next_number = int(counter_doc["counter"])
     channel_name = f"ticket-{next_number}"
 
+    # Pour un ticket identifie (Candidature Queue), on copie les overwrites de
+    # la categorie pour preserver sa config (staff / @everyone) puis on ajoute
+    # un acces dedie au candidat. Sans `member_access`, on laisse le salon se
+    # synchroniser avec la categorie (comportement des Reports anonymes).
+    create_kwargs: dict = {"category": category}
+    if member_access is not None:
+        overwrites = dict(category.overwrites)
+        overwrites[member_access] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+        )
+        create_kwargs["overwrites"] = overwrites
+
     try:
-        return await guild.create_text_channel(channel_name, category=category)
+        return await guild.create_text_channel(channel_name, **create_kwargs)
     except discord.Forbidden:
         await interaction.followup.send(
             "❌ Le bot n'a pas la permission de creer le salon ticket.",
@@ -492,12 +517,14 @@ class RankModal(discord.ui.Modal, title="Candidature de rank"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        ticket_channel = await _open_ticket_channel(interaction, self.db)
+        ticket_channel = await _open_ticket_channel(
+            interaction, self.db, member_access=interaction.user
+        )
         if ticket_channel is None:
             return
 
         embed = discord.Embed(
-            title=f"🎖️ Candidature Rank - {ticket_channel.name}",
+            title=f"🎖️ Candidature Queue - {ticket_channel.name}",
             color=0x9B59B6,
             timestamp=datetime.now(UTC),
         )
