@@ -137,6 +137,7 @@ async def _load_v2_cogs() -> None:
     from cogs.prefix_legacy import setup as setup_prefix_legacy
     from cogs.queue_v2 import setup as setup_queue_v2
     from cogs.riot_link import setup as setup_riot_link
+    from cogs.rules import setup as setup_rules
 
     await setup_riot_link(bot, db, riot_client)
     match_cog = await setup_match(bot, db, henrik_client=riot_client)
@@ -147,6 +148,7 @@ async def _load_v2_cogs() -> None:
     await setup_moderation(bot, db)
     await setup_prefix_legacy(bot, db)
     await setup_leaderboard_weekly(bot, db)
+    await setup_rules(bot, db)
 
 
 @bot.event
