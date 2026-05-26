@@ -956,6 +956,7 @@ async def test_pro_queue_rejects_second_qualification_pro():
 
     # 2e joueur Rank Q tente de rejoindre -> refus
     _seed_riot_link(db, 42, 2)
+    repository.record_rules_acceptance(db, 2, display_name="P2")
     member2 = _fake_member(2)
     member2.roles = [rank_q]
 
@@ -999,6 +1000,7 @@ async def test_pro_queue_rank_s_can_join_with_qualification_pro_present():
     member1.roles = [rank_q]
 
     _seed_riot_link(db, 42, 2)
+    repository.record_rules_acceptance(db, 2, display_name="P2")
     member2 = _fake_member(2)
     member2.roles = [rank_s]
 
@@ -1011,3 +1013,77 @@ async def test_pro_queue_rank_s_can_join_with_qualification_pro_present():
 
     doc = repository.get_active_queue(db, 42, "pro")
     assert "2" in doc["players"]
+
+
+# ── Tests gate reglement (Pro Queue) ─────────────────────────────
+async def test_join_pro_queue_blocked_without_rules_acceptance():
+    """Pro Queue : refus si le reglement n'est pas accepte (role + riot OK)."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView
+
+    db = bot_module.db
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999
+    )
+    _seed_riot_link(db, 42, 1)
+
+    member = _fake_member(1)
+    member.roles = [_make_rank_role("Rank S | Pro Queue")]
+    inter = _fake_interaction(member, channel_name="pro-queue")
+    inter.user = member
+
+    view = QueueView(db, queue_type="pro")
+    await view._join_callback(inter)
+
+    inter.followup.send.assert_called()
+    msg = inter.followup.send.call_args[0][0]
+    assert "reglement" in msg.lower() or "règlement" in msg.lower()
+    doc = repository.get_active_queue(db, 42, "pro")
+    assert "1" not in (doc["players"] if doc else [])
+
+
+async def test_join_pro_queue_allowed_after_rules_acceptance():
+    """Pro Queue : join OK une fois le reglement accepte."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView
+
+    db = bot_module.db
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999
+    )
+    _seed_riot_link(db, 42, 1)
+    repository.record_rules_acceptance(db, 1, display_name="P1")
+
+    member = _fake_member(1)
+    member.roles = [_make_rank_role("Rank S | Pro Queue")]
+    inter = _fake_interaction(member, channel_name="pro-queue")
+    inter.user = member
+
+    view = QueueView(db, queue_type="pro")
+    await view._join_callback(inter)
+
+    doc = repository.get_active_queue(db, 42, "pro")
+    assert "1" in doc["players"]
+
+
+async def test_join_open_queue_not_gated_by_rules():
+    """Open Queue : pas de gate reglement (join OK sans acceptation)."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView
+
+    db = bot_module.db
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="open", channel_id=100, message_id=999
+    )
+    _seed_riot_link(db, 42, 1)
+
+    member = _fake_member(1)
+    member.roles = []  # open n'a pas de gate de role
+    inter = _fake_interaction(member, channel_name="open-queue")
+    inter.user = member
+
+    view = QueueView(db, queue_type="open")
+    await view._join_callback(inter)
+
+    doc = repository.get_active_queue(db, 42, "open")
+    assert "1" in doc["players"]

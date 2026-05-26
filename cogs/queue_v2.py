@@ -371,6 +371,10 @@ class QueueView(discord.ui.View):
                         "Termine le vote ou demande l'annulation a un admin."
                     )
 
+            rules_err = await self._check_rules_accepted(inter)
+            if rules_err is not None:
+                return rules_err
+
             cap_err = await self._check_qualification_pro_cap(inter, current)
             if cap_err is not None:
                 return cap_err
@@ -437,6 +441,26 @@ class QueueView(discord.ui.View):
                 f"**{PRO_QUALIFICATION_ROLE}**. Attends qu'un slot se libere."
             )
         return None
+
+    async def _check_rules_accepted(
+        self, inter: discord.Interaction
+    ) -> _JoinFailure | None:
+        """Gate Pro Queue : refuse si le joueur n'a pas accepte le reglement.
+        Skip pour les queues non-pro (Open/GC ne sont pas gatees)."""
+        if self.queue_type != "pro":
+            return None
+        accepted = await asyncio.to_thread(
+            repository.has_accepted_rules,
+            self.db,
+            inter.user.id,
+        )
+        if accepted:
+            return None
+        return _JoinFailure(
+            "❌ Tu dois d'abord accepter le reglement pour rejoindre la Pro "
+            "Queue. Demande a un admin de poster /rules, puis clique sur "
+            "« J'accepte »."
+        )
 
     async def _broadcast_join_side_effects(
         self,
