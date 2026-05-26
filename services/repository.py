@@ -218,6 +218,34 @@ def unlink_riot_account(db: Database, user_id: int | str) -> bool:
     return res.deleted_count > 0
 
 
+# ── Reglement (acceptation obligatoire Pro Queue) ─────────────────
+def get_rules_col(db: Database) -> Collection:
+    """Collection globale d'acceptation du reglement (clé = user_id).
+
+    Acceptation par joueur (pas par guild ni par queue), valable une fois
+    pour toutes. Sert au gate Pro Queue dans cogs/queue_v2.py."""
+    col = db["rules"]
+    _ensure_indexes(col, "rules")
+    return col
+
+
+def has_accepted_rules(db: Database, user_id: int | str) -> bool:
+    """True si le joueur a deja accepte le reglement."""
+    return get_rules_col(db).find_one({"_id": str(user_id)}) is not None
+
+
+def record_rules_acceptance(
+    db: Database, user_id: int | str, *, display_name: str
+) -> None:
+    """Enregistre (ou met a jour) l'acceptation du reglement. Idempotent :
+    un re-clic reecrit simplement accepted_at."""
+    get_rules_col(db).update_one(
+        {"_id": str(user_id)},
+        {"$set": {"accepted_at": datetime.now(UTC), "display_name": display_name}},
+        upsert=True,
+    )
+
+
 # ── V2 : queue 10mans ─────────────────────────────────────────────
 QUEUE_SIZE_DEFAULT = 10
 
