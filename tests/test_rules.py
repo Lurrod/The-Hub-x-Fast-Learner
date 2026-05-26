@@ -73,3 +73,19 @@ async def test_accept_button_records_acceptance():
     assert repository.has_accepted_rules(db, 7) is True
     inter.response.send_message.assert_awaited_once()
     assert inter.response.send_message.call_args.kwargs.get("ephemeral") is True
+
+
+async def test_rules_command_posts_in_current_channel():
+    import bot as bot_module
+
+    cog = RulesCog(MagicMock(), bot_module.db)
+    inter = _fake_rules_interaction()
+
+    await cog.rules.callback(cog, inter)
+
+    inter.channel.send.assert_awaited_once()
+    kwargs = inter.channel.send.call_args.kwargs
+    assert isinstance(kwargs["embed"], discord.Embed)
+    assert kwargs["view"] is cog.rules_view
+    inter.response.send_message.assert_awaited_once()
+    assert inter.response.send_message.call_args.kwargs.get("ephemeral") is True
