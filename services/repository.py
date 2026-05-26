@@ -87,6 +87,12 @@ def _ensure_indexes(col, kind: str) -> None:
             # Dedup PUUID : empeche un meme compte Riot d'etre lie a 2
             # comptes Discord (multi-account farming du seed ELO).
             col.create_index([("puuid", 1)], unique=True, sparse=True)
+        elif kind == "rules":
+            # Acces uniquement par _id (user_id), indexe d'office par
+            # MongoDB. Aucun index applicatif a creer : branche explicite
+            # pour lever l'ambiguite (sinon "rules" tombe dans le no-op
+            # silencieux du if/elif et un futur dev croirait l'oubli).
+            pass
     except Exception as e:
         logger.error(f"[repository] _ensure_indexes({kind}) a leve : {e}", exc_info=True)
     _indexed_collections.add(name)
