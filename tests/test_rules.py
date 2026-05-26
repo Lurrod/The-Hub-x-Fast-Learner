@@ -89,3 +89,17 @@ async def test_rules_command_posts_in_current_channel():
     assert kwargs["view"] is cog.rules_view
     inter.response.send_message.assert_awaited_once()
     assert inter.response.send_message.call_args.kwargs.get("ephemeral") is True
+
+
+async def test_rules_command_handles_none_channel():
+    import bot as bot_module
+
+    cog = RulesCog(MagicMock(), bot_module.db)
+    inter = _fake_rules_interaction()
+    inter.channel = None
+
+    await cog.rules.callback(cog, inter)
+
+    # No crash; an ephemeral error is sent instead of posting.
+    inter.response.send_message.assert_awaited_once()
+    assert inter.response.send_message.call_args.kwargs.get("ephemeral") is True

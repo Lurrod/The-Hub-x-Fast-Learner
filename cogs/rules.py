@@ -99,18 +99,26 @@ class RulesCog(commands.Cog):
     )
     @app_commands.checks.has_permissions(manage_guild=True)
     async def rules(self, interaction: discord.Interaction) -> None:
+        if interaction.channel is None:
+            await interaction.response.send_message(
+                "❌ Salon introuvable, relance la commande dans un salon texte.",
+                ephemeral=True,
+            )
+            return
         await self.post_rules_message(interaction.channel)
         await interaction.response.send_message(
             f"✅ Règlement posté dans {interaction.channel.mention}.",
             ephemeral=True,
         )
 
-    async def post_rules_message(self, channel: discord.TextChannel) -> None:
+    async def post_rules_message(self, channel: discord.abc.Messageable) -> None:
         """Pose le message permanent (embed + RulesView) dans `channel`."""
         await channel.send(embed=build_rules_embed(), view=self.rules_view)
 
     @rules.error
-    async def _rules_perm_error(self, inter: discord.Interaction, error):
+    async def _rules_perm_error(
+        self, inter: discord.Interaction, error: app_commands.AppCommandError
+    ):
         if isinstance(error, app_commands.MissingPermissions):
             await inter.response.send_message(
                 "🚫 Réservé aux administrateurs.",

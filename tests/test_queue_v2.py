@@ -1083,3 +1083,24 @@ async def test_join_open_queue_not_gated_by_rules():
 
     doc = repository.get_active_queue(db, 42, "open")
     assert "1" in doc["players"]
+
+
+async def test_join_gc_queue_not_gated_by_rules():
+    """GC Queue : pas de gate reglement (join OK sans acceptation)."""
+    import bot as bot_module
+    from cogs.queue_v2 import QueueView
+
+    db = bot_module.db
+    repository.setup_active_queue(db, guild_id=42, queue_type="gc", channel_id=100, message_id=999)
+    _seed_riot_link(db, 42, 1)
+
+    member = _fake_member(1)
+    member.roles = [_make_rank_role("GC")]
+    inter = _fake_interaction(member, channel_name="gc-queue")
+    inter.user = member
+
+    view = QueueView(db, queue_type="gc")
+    await view._join_callback(inter)
+
+    doc = repository.get_active_queue(db, 42, "gc")
+    assert "1" in doc["players"]
