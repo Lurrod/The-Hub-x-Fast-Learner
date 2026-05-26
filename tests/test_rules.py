@@ -29,3 +29,47 @@ def test_record_rules_acceptance_idempotent():
     repository.record_rules_acceptance(bot_module.db, 1, display_name="Bob2")
     col = repository.get_rules_col(bot_module.db)
     assert col.count_documents({"_id": "1"}) == 1
+
+
+def _fake_rules_interaction(user_id: int = 1, display_name: str = "User"):
+    inter = MagicMock()
+    inter.user = MagicMock()
+    inter.user.id = user_id
+    inter.user.display_name = display_name
+    inter.channel = MagicMock()
+    inter.channel.mention = "#general"
+    inter.channel.send = AsyncMock(return_value=MagicMock(id=999))
+    inter.response = MagicMock()
+    inter.response.send_message = AsyncMock()
+    return inter
+
+
+def test_build_rules_embed_contains_all_rules():
+    embed = build_rules_embed()
+    text = (embed.description or "") + " ".join(f.value for f in embed.fields)
+    assert "type in game" in text
+    assert "insulte" in text
+    assert "Tbag" in text
+    assert "troll" in text
+    assert "tickets-reports" in text
+
+
+async def test_accept_button_custom_id_is_fixed():
+    import bot as bot_module
+
+    view = RulesView(bot_module.db)
+    assert view.accept_btn.custom_id == "rules:accept"
+
+
+async def test_accept_button_records_acceptance():
+    import bot as bot_module
+
+    db = bot_module.db
+    view = RulesView(db)
+    inter = _fake_rules_interaction(user_id=7, display_name="Seven")
+
+    await view._accept_callback(inter)
+
+    assert repository.has_accepted_rules(db, 7) is True
+    inter.response.send_message.assert_awaited_once()
+    assert inter.response.send_message.call_args.kwargs.get("ephemeral") is True
