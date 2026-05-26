@@ -442,9 +442,7 @@ class QueueView(discord.ui.View):
             )
         return None
 
-    async def _check_rules_accepted(
-        self, inter: discord.Interaction
-    ) -> _JoinFailure | None:
+    async def _check_rules_accepted(self, inter: discord.Interaction) -> _JoinFailure | None:
         """Gate Pro Queue : refuse si le joueur n'a pas accepte le reglement.
         Skip pour les queues non-pro (Open/GC ne sont pas gatees)."""
         if self.queue_type != "pro":

@@ -31,8 +31,7 @@ RULES_LINES: tuple[str, ...] = (
 )
 
 RULES_RECLAMATIONS = (
-    "Pour toutes plaintes / réclamations vous pouvez ouvrir un ticket "
-    "dans #tickets-reports"
+    "Pour toutes plaintes / réclamations vous pouvez ouvrir un ticket dans #tickets-reports"
 )
 
 
@@ -45,9 +44,7 @@ def build_rules_embed() -> discord.Embed:
         color=0x5865F2,
     )
     embed.add_field(name="Réclamations", value=RULES_RECLAMATIONS, inline=False)
-    embed.set_footer(
-        text="Clique sur « J'accepte » pour pouvoir rejoindre la Pro Queue."
-    )
+    embed.set_footer(text="Clique sur « J'accepte » pour pouvoir rejoindre la Pro Queue.")
     return embed
 
 

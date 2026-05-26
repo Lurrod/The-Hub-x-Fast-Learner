@@ -1022,9 +1022,7 @@ async def test_join_pro_queue_blocked_without_rules_acceptance():
     from cogs.queue_v2 import QueueView
 
     db = bot_module.db
-    repository.setup_active_queue(
-        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999
-    )
+    repository.setup_active_queue(db, guild_id=42, queue_type="pro", channel_id=100, message_id=999)
     _seed_riot_link(db, 42, 1)
 
     member = _fake_member(1)
@@ -1048,9 +1046,7 @@ async def test_join_pro_queue_allowed_after_rules_acceptance():
     from cogs.queue_v2 import QueueView
 
     db = bot_module.db
-    repository.setup_active_queue(
-        db, guild_id=42, queue_type="pro", channel_id=100, message_id=999
-    )
+    repository.setup_active_queue(db, guild_id=42, queue_type="pro", channel_id=100, message_id=999)
     _seed_riot_link(db, 42, 1)
     repository.record_rules_acceptance(db, 1, display_name="P1")
 

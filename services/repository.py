@@ -240,9 +240,7 @@ def has_accepted_rules(db: Database, user_id: int | str) -> bool:
     return get_rules_col(db).find_one({"_id": str(user_id)}) is not None
 
 
-def record_rules_acceptance(
-    db: Database, user_id: int | str, *, display_name: str
-) -> None:
+def record_rules_acceptance(db: Database, user_id: int | str, *, display_name: str) -> None:
     """Enregistre (ou met a jour) l'acceptation du reglement. Idempotent :
     un re-clic reecrit simplement accepted_at."""
     get_rules_col(db).update_one(
