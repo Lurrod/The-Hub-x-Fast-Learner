@@ -80,7 +80,7 @@ def test_migration_idempotent_when_both_source_and_dest_present(env):
     assert rc == 0
     # m1 still present (idempotent upsert)
     assert fake_db["matches"].find_one({"_id": "m1"})["rev"] == 1
-    # m2 (destination-only) MUST still be there — not deleted
+    # m2 (destination-only) MUST still be there - not deleted
     m2 = fake_db["matches"].find_one({"_id": "m2"})
     assert m2 is not None, "Migration must not delete destination-only docs"
     assert m2["rev"] == 99

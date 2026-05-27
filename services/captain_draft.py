@@ -236,7 +236,7 @@ class CaptainDraftSession:
         view = self._build_view()
         content = (
             f"<@{self.state.cap_a.id}> <@{self.state.cap_b.id}> "
-            f"— vous etes capitaines, a vous de drafter !"
+            f"- vous etes capitaines, a vous de drafter !"
         )
         self.message = await self.prep_channel.send(content=content, embed=embed, view=view)
         logger.info(
@@ -255,12 +255,12 @@ class CaptainDraftSession:
             color=discord.Color.gold(),
         )
         e.add_field(
-            name=f"🅰️ Team 1 — Cap. <@{self.state.cap_a.id}>",
+            name=f"🅰️ Team 1 - Cap. <@{self.state.cap_a.id}>",
             value=_build_player_lines(self.state.team_a),
             inline=False,
         )
         e.add_field(
-            name=f"🅱️ Team 2 — Cap. <@{self.state.cap_b.id}>",
+            name=f"🅱️ Team 2 - Cap. <@{self.state.cap_b.id}>",
             value=_build_player_lines(self.state.team_b),
             inline=False,
         )
@@ -275,7 +275,7 @@ class CaptainDraftSession:
             cur = self.state.current_captain
             seq = _build_sequence_marker(self.state.turn_index)
             e.add_field(
-                name=f"⏳ Au tour de <@{cur.id}> — pick #{self.state.turn_index + 1}",
+                name=f"⏳ Au tour de <@{cur.id}> - pick #{self.state.turn_index + 1}",
                 value=f"Sequence : {seq}",
                 inline=False,
             )

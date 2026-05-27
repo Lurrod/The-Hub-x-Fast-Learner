@@ -1,4 +1,4 @@
-"""Tests unitaires de services.elo_calc — logique pure."""
+"""Tests unitaires de services.elo_calc - logique pure."""
 
 from services import elo_calc
 

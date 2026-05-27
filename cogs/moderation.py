@@ -110,14 +110,14 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             dm_failed = True
             logger.info(
-                "[warn] DM fermes pour %s (id=%s) — warn par %s",
+                "[warn] DM fermes pour %s (id=%s) - warn par %s",
                 member.display_name,
                 member.id,
                 interaction.user.display_name,
             )
         except discord.HTTPException:
             # Erreur transitoire (rate-limit, 5xx) : on log et on persiste
-            # quand meme — perdre le warn pour un blip reseau serait pire
+            # quand meme - perdre le warn pour un blip reseau serait pire
             # que ne pas avoir prevenu l'utilisateur. dm_failed=True =>
             # message final indique l'echec DM.
             dm_failed = True
@@ -154,7 +154,7 @@ class ModerationCog(commands.Cog):
             )
 
         logger.info(
-            "[warn] %s a warn %s — raison: %s",
+            "[warn] %s a warn %s - raison: %s",
             interaction.user.display_name,
             member.display_name,
             reason,
@@ -228,7 +228,7 @@ class ModerationCog(commands.Cog):
             moderator = warn.get("moderator_name", "?")
             reason = _truncate(str(warn.get("reason", "")), 200)
             embed.add_field(
-                name=f"{ts_str} — {target}",
+                name=f"{ts_str} - {target}",
                 value=f"**Par :** {moderator}\n**Raison :** {reason}",
                 inline=False,
             )

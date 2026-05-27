@@ -20,7 +20,7 @@ def _fake_member(member_id: int, name: str = "User"):
     m.mention = f"<@{member_id}>"
     m.roles = []
     m.voice = None
-    # Methodes async explicites — necessaires car __class__=discord.Member
+    # Methodes async explicites - necessaires car __class__=discord.Member
     # ci-dessous fige le type et empeche l'auto-creation d'AsyncMock.
     m.add_roles = AsyncMock()
     m.remove_roles = AsyncMock()

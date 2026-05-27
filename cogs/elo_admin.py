@@ -686,7 +686,7 @@ class ELOAdminCog(commands.Cog):
             lines.append(f"`{rank:>2}.` <@{user_id}> - {duration}")
 
         embed = discord.Embed(
-            title=f"Inactivité — {queue.upper()} Queue",
+            title=f"Inactivité - {queue.upper()} Queue",
             description="\n".join(lines),
             color=discord.Color.orange(),
             timestamp=now,

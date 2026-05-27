@@ -1,5 +1,9 @@
+# Bornes hautes au major suivant : evite qu'un `pip install` futur tire un
+# major cassant (pymongo 5.x, requests 3.x...) et rende le build non
+# deterministe. Bornes basses = versions minimales testees. Releve le plafond
+# explicitement apres avoir valide la suite contre le nouveau major.
 discord.py>=2.5,<3
-pymongo>=4.6
-pillow>=10.0
-requests>=2.31
-python-dotenv>=1.0
+pymongo>=4.6,<5
+pillow>=10.0,<12
+requests>=2.31,<3
+python-dotenv>=1.0,<2

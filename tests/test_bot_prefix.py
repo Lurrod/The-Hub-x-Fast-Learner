@@ -117,7 +117,7 @@ async def test_win_grants_elo_with_admin(discord_bot, fake_guild):
 
     await dpytest.message(f"!win {target.mention}")
 
-    # Verifier en base — le prefix !win s'applique sur la queue open par defaut
+    # Verifier en base - le prefix !win s'applique sur la queue open par defaut
     col = bot_module.get_elo_col()
     doc = col.find_one({"_id": f"{target.id}:open"})
     assert doc is not None, "Le joueur n'a pas ete cree en base"

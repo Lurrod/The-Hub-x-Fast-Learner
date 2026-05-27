@@ -100,3 +100,47 @@ async def test_match_cleanup_happy_path(monkeypatch):
     assert set_payload["status"] == "cleaned_up"
     assert "cleaned_up_by" in set_payload
     assert "cleaned_up_at" in set_payload
+
+
+def test_resolve_match_id_converts_hex_and_falls_back():
+    """L'hex string d'un ObjectId doit etre convertie ; toute autre
+    valeur est renvoyee telle quelle (compat docs legacy a _id string)."""
+    from bson import ObjectId
+
+    from cogs.match._cog import MatchCog
+
+    oid = ObjectId()
+    resolved = MatchCog._resolve_match_id(str(oid))
+    assert isinstance(resolved, ObjectId)
+    assert resolved == oid
+    assert MatchCog._resolve_match_id("not-an-objectid") == "not-an-objectid"
+
+
+@pytest.mark.asyncio
+async def test_match_cleanup_queries_by_objectid(monkeypatch):
+    """Regression : un match reel (cree via repository.create_match) a un
+    _id ObjectId. La commande doit convertir l'hex saisie en ObjectId,
+    sinon find_one ne matche jamais et le match reste 'introuvable'."""
+    from bson import ObjectId
+
+    from cogs.match import _cog as match_cog_module
+
+    monkeypatch.setattr(match_cog_module, "delete_match_category", AsyncMock())
+
+    oid = ObjectId()
+    cog = _build_cog_with_db(matches_doc={"_id": oid, "status": "contested", "category_id": 4242})
+    interaction = MagicMock()
+    interaction.user.id = 1
+    interaction.user.guild_permissions.administrator = True
+    interaction.guild = MagicMock()
+    interaction.response.send_message = AsyncMock()
+
+    await cog.match_cleanup.callback(cog, interaction, match_id=str(oid))
+
+    # find_one doit etre interroge avec un ObjectId, pas l'hex string brute.
+    find_call = cog.db["matches"].find_one.call_args
+    assert find_call.args[0] == {"_id": oid}
+    assert isinstance(find_call.args[0]["_id"], ObjectId)
+    # Les operations suivantes ciblent le vrai _id du doc trouve.
+    status_call = cog.db["matches"].update_one.call_args_list[-1]
+    assert status_call.args[0] == {"_id": oid}

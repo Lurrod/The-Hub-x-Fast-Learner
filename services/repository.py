@@ -555,9 +555,14 @@ def add_match_vote(
     polluer `votes` apres-coup."""
     if choice not in ("a", "b"):
         raise ValueError(f"choice doit etre 'a' ou 'b', recu {choice!r}")
+    # Coercion centrale comme partout ailleurs dans ce module : garantit une
+    # clef de champ numerique (`votes.<id>`) et rejette tout id non-numerique
+    # avant qu'il n'atteigne Mongo. Sans ca, un `user_id` contenant `.`/`$`
+    # serait interprete comme un chemin de champ imbrique (CWE-943).
+    uid = _to_int_id(user_id, field="user_id")
     return get_matches_col(db).find_one_and_update(
         {"_id": match_id, "status": "pending"},
-        {"$set": {f"votes.{user_id}": choice}},
+        {"$set": {f"votes.{uid}": choice}},
         return_document=ReturnDocument.AFTER,
     )
 

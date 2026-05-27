@@ -122,7 +122,7 @@ class RiotLinkCog(commands.Cog):
         # l'ELO de chaque queue demarre a ELO_START au premier match.
         # DuplicateKeyError : course condition avec un autre Discord qui
         # linke le meme PUUID en parallele. L'index unique sur puuid
-        # protege la data — on remonte le meme message friendly que le
+        # protege la data - on remonte le meme message friendly que le
         # check de dedup ci-dessus.
         try:
             repository.link_riot_account(

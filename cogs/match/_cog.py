@@ -1,4 +1,4 @@
-"""MatchCog — orchestrateur du flow match.
+"""MatchCog - orchestrateur du flow match.
 
 Reste un gros cog (~1300 lignes) car les transitions match (formation,
 vote, verification Henrik, cleanups) partagent l'etat `self` (db,
@@ -18,6 +18,9 @@ import random
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from bson import ObjectId
+from bson.errors import InvalidId
 
 import discord
 from discord import app_commands
@@ -216,7 +219,7 @@ class MatchCog(commands.Cog):
                 result = await session.run()
             except DraftCancelledError as exc:
                 logger.info(
-                    "[match] Pro draft annule (reason=%s actor=%s) — "
+                    "[match] Pro draft annule (reason=%s actor=%s) - "
                     "queue conservee, aucune action destructive",
                     exc.reason,
                     getattr(exc.actor, "id", None),
@@ -670,7 +673,7 @@ class MatchCog(commands.Cog):
             # C'est un probleme de config recoltable par l'operateur.
             logger.warning(
                 "[match] envoi annonce Henrik refuse (Forbidden) sur #%s "
-                "guild=%s — verifier les permissions du bot.",
+                "guild=%s - verifier les permissions du bot.",
                 elo_log_channel.name,
                 guild.id,
             )
@@ -1390,6 +1393,22 @@ class MatchCog(commands.Cog):
             ephemeral=True,
         )
 
+    @staticmethod
+    def _resolve_match_id(match_id: str) -> ObjectId | str:
+        """Convertit l'id saisi par l'admin en ObjectId.
+
+        Les matchs crees via `repository.create_match` ont un `_id`
+        ObjectId (insert_one sans `_id`). pymongo ne convertit PAS une hex
+        string en ObjectId : `{"_id": "<hex>"}` ne matche jamais un doc a
+        `_id` ObjectId. On convertit donc explicitement. Fallback sur la
+        valeur brute si ce n'est pas une hex ObjectId valide, pour rester
+        compatible avec d'eventuels docs legacy a `_id` string.
+        """
+        try:
+            return ObjectId(match_id)
+        except (InvalidId, TypeError):
+            return match_id
+
     @app_commands.command(
         name="match-cleanup",
         description="(Admin) Force la suppression de la categorie d'un match dispute ou bloque.",
@@ -1403,7 +1422,8 @@ class MatchCog(commands.Cog):
             )
             return
 
-        match = self.db["matches"].find_one({"_id": match_id})
+        query_id = self._resolve_match_id(match_id)
+        match = self.db["matches"].find_one({"_id": query_id})
         if match is None:
             await interaction.response.send_message(
                 f"Match `{match_id}` introuvable.", ephemeral=True
@@ -1418,14 +1438,17 @@ class MatchCog(commands.Cog):
             )
             return
 
-        repository.mark_match_cleanup_started(self.db, match_id)
+        # On reutilise le `_id` reel du doc trouve pour les ops suivantes :
+        # garantit qu'on cible le bon document quel que soit le type d'id.
+        real_id = match["_id"]
+        repository.mark_match_cleanup_started(self.db, real_id)
         await delete_match_category(
             guild=interaction.guild,
             category_id=category_id,
             reason=f"Admin cleanup by {interaction.user} (match {match_id})",
         )
         self.db["matches"].update_one(
-            {"_id": match_id},
+            {"_id": real_id},
             {
                 "$set": {
                     "status": "cleaned_up",

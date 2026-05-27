@@ -46,7 +46,7 @@ def main() -> int:
 
     for dst_name, src_name in mappings.items():
         if src_name not in db.list_collection_names():
-            print(f"  skip {src_name} (not present — already migrated?)")
+            print(f"  skip {src_name} (not present - already migrated?)")
             continue
 
         src = db[src_name]

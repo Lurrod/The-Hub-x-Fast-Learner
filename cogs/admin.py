@@ -139,7 +139,7 @@ class AdminCog(commands.Cog):
     async def bypass(self, interaction: discord.Interaction, role: discord.Role):
         if role.id == interaction.guild_id or role.is_default():
             await interaction.response.send_message(
-                "❌ Impossible d'accorder le bypass a @everyone — cela donnerait l'acces admin a tout le serveur.",
+                "❌ Impossible d'accorder le bypass a @everyone - cela donnerait l'acces admin a tout le serveur.",
                 ephemeral=True,
             )
             return
@@ -253,12 +253,12 @@ class AdminCog(commands.Cog):
             )
             embed.add_field(
                 name="/win queue @j1..@j5",
-                value="Victoire — Pro Queue : flat ±16 ; Open/GC : pondéré par position",
+                value="Victoire - Pro Queue : flat ±16 ; Open/GC : pondéré par position",
                 inline=False,
             )
             embed.add_field(
                 name="/lose queue @j1..@j5",
-                value="Défaite — Pro Queue : flat ±16 ; Open/GC : pondéré par position",
+                value="Défaite - Pro Queue : flat ±16 ; Open/GC : pondéré par position",
                 inline=False,
             )
             embed.add_field(name="/map", value="Map aleatoire", inline=False)
@@ -284,7 +284,7 @@ class AdminCog(commands.Cog):
             )
             embed.add_field(
                 name="/reset-queue queue",
-                value="Drop complet d'une queue (ELO + matchs + leaderboard) — confirmation requise",
+                value="Drop complet d'une queue (ELO + matchs + leaderboard) - confirmation requise",
                 inline=False,
             )
             embed.add_field(

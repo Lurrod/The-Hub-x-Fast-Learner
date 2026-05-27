@@ -53,7 +53,7 @@ def test_pick_captains_ignores_elo():
     """Le top ELO n'est PAS garanti d'etre capitaine (selection purement aleatoire).
 
     On verifie qu'au moins sur quelques seeds, le joueur top ELO n'est pas pris
-    comme capitaine — preuve que l'ELO n'influence plus la selection.
+    comme capitaine - preuve que l'ELO n'influence plus la selection.
     """
     players = [_p(1, 5000)] + [_p(i, 1000) for i in range(2, 11)]
     top_elo_id = 1

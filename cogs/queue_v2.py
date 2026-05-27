@@ -167,7 +167,7 @@ def build_queue_embed(
         state = "🔵 En attente de joueurs"
 
     embed = discord.Embed(
-        title=f"🎮 {label} 10mans — {count}/{QUEUE_SIZE}",
+        title=f"🎮 {label} 10mans - {count}/{QUEUE_SIZE}",
         description=state,
         color=color,
         timestamp=datetime.now(UTC),

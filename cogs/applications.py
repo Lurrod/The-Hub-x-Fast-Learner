@@ -369,7 +369,7 @@ async def _open_ticket_channel(
 
     # Le compteur est incremente AVANT la creation du salon : si la creation
     # echoue (Forbidden), le numero est "consomme" et il restera un trou dans
-    # la numerotation. C'est volontairement tolere — les trous dans les numeros
+    # la numerotation. C'est volontairement tolere - les trous dans les numeros
     # de tickets sont inoffensifs et evitent une logique de rollback fragile.
     counter_doc = db["ticket_counters"].find_one_and_update(
         {"_id": str(guild.id)},

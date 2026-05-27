@@ -155,7 +155,7 @@ class PrefixLegacyCog(commands.Cog):
         col = repository.get_elo_col(self.db)
         avg_elo = _compute_match_change(self.db, players, queue)
         embed = discord.Embed(
-            title="🏆 Résultats Open — Victoire enregistrée !",
+            title="🏆 Résultats Open - Victoire enregistrée !",
             description=f"Avg ELO du groupe : **{avg_elo}** -> gains pondérés par position (joueur1→joueur5)",
             color=0x2ECC71,
             timestamp=datetime.now(UTC),
@@ -202,7 +202,7 @@ class PrefixLegacyCog(commands.Cog):
         col = repository.get_elo_col(self.db)
         avg_elo = _compute_match_change(self.db, players, queue)
         embed = discord.Embed(
-            title="💀 Résultats — Défaite enregistrée !",
+            title="💀 Résultats - Défaite enregistrée !",
             description=f"Avg ELO du groupe : **{avg_elo}** -> pertes pondérées par position (joueur1→joueur5)",
             color=0xE74C3C,
             timestamp=datetime.now(UTC),

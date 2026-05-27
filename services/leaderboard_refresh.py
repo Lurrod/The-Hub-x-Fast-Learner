@@ -503,7 +503,7 @@ async def refresh_leaderboard_channel(
     # caches pour eviter de servir des donnees perimees. La page 1
     # fraichement rendue ci-dessous repeuplera le cache via _cache_set.
     # Note : si le debounce avait renvoye plus haut, on n'invalide PAS
-    # — le message poste reste l'ancien, donc le cache reste coherent.
+    # - le message poste reste l'ancien, donc le cache reste coherent.
     _cache_invalidate(guild.id, queue_type, weekly=weekly)
 
     chan = _find_leaderboard_channel(guild, weekly=weekly)

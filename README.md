@@ -1,4 +1,4 @@
-# The Hub — Bot Discord Valorant 10mans
+# The Hub - Bot Discord Valorant 10mans
 
 Bot Discord de matchmaking Valorant 5v5 customs (10mans) pour communauté **EU Immortal+**.
 Gère **3 queues parallèles** (Pro / Open / GC), équilibrage automatique des équipes par ELO,
@@ -65,7 +65,7 @@ Cycle complet d'une partie :
 - Tie-breakers : peak diff puis ordre des IDs (déterministe).
 - Source d'ELO utilisée : **ELO serveur** (`elo_<guild>.elo`), seedée au `/link-riot`.
 
-### Formation de match — catégories dynamiques
+### Formation de match - catégories dynamiques
 
 - Catégorie créée à la volée : `Match #N` où N est attribué par compteur monotone Mongo. Supprimée automatiquement en fin de match (vote validé, cancel admin, ou échec draft).
 - **Parallélisation Discord API** (depuis v3) : les 10 overwrites + 10 voice moves
@@ -76,7 +76,7 @@ Cycle complet d'une partie :
 ### Cycle de vie de la catégorie de match
 
 - **Création** : à chaque match trouvé, catégorie `Match #N` + salons `match-preparation` (texte), `Team 1`, `Team 2`, `Waiting Match` (vocaux) créés dynamiquement.
-- **Visibilité** : permissions directes sur les 10 joueurs (deny `@everyone`, allow joueurs + admins + bot) — le rôle `Match #N` n'existe plus depuis V3.13.
+- **Visibilité** : permissions directes sur les 10 joueurs (deny `@everyone`, allow joueurs + admins + bot) - le rôle `Match #N` n'existe plus depuis V3.13.
 - **Suppression** : automatique sur vote validé, cancel admin (`/match-cancel`), ou échec draft. Conservée sur vote contesté jusqu'à résolution.
 - **Cleanup contesté** : commande admin `/match-cleanup <match_id>` pour forcer la suppression après résolution manuelle.
 - **Cleanup au boot** : les catégories `Match #N` orphelines (sans match actif en base) sont supprimées automatiquement au démarrage du bot.
@@ -222,7 +222,7 @@ de queue, et pré-poste les 3 leaderboards. **Idempotent**, ré-exécutable sans
 
 **Rôles** :
 - `En Queue` (donné aux joueurs en queue)
-- `Match #N` *(supprimé V3.13 — visibilité via overwrites par utilisateur)*
+- `Match #N` *(supprimé V3.13 - visibilité via overwrites par utilisateur)*
 - `Match Host` (donné au lobby leader, retiré après 10 min)
 - `Rank S | Pro Queue` ou `Rank Q | Qualification Pro` (gate de la queue Pro)
 - `GC` (gate de la queue GC)
@@ -254,7 +254,7 @@ Le bot doit avoir : `Voir les salons`, `Envoyer des messages`, `Intégrer des li
 | `/stats queue: @joueur` | Stats ELO d'un joueur dans la queue choisie (éphémère)                 |
 | `/coinflip`           | Pile ou face                                                             |
 
-### Admin — Setup
+### Admin - Setup
 
 | Commande                       | Description                                              |
 |--------------------------------|----------------------------------------------------------|
@@ -265,14 +265,14 @@ Le bot doit avoir : `Voir les salons`, `Envoyer des messages`, `Intégrer des li
 | `/report`                      | Pose le message de report dans le salon courant          |
 | `/bypass role:`                | Donne accès aux commandes admin à un rôle                |
 
-### Admin — Match
+### Admin - Match
 
 | Commande                                       | Description                                          |
 |------------------------------------------------|------------------------------------------------------|
 | `/match-cancel`                                | Annule le match en cours dans ce salon               |
 | `/match-replace quitter: remplacant:`          | Remplace un joueur (ELO diff < 500 requis)           |
 
-### Admin — ELO manuel (par queue)
+### Admin - ELO manuel (par queue)
 
 | Commande                                              | Description                                  |
 |-------------------------------------------------------|----------------------------------------------|
@@ -284,7 +284,7 @@ Le bot doit avoir : `Voir les salons`, `Envoyer des messages`, `Intégrer des li
 | `/resetelo queue: joueur: \| all:True`                | Reset ELO à 2000 (joueur ou tous)            |
 | `/reset-queue queue:`                                 | Drop toutes les données d'une queue          |
 
-### Admin — Utilitaires
+### Admin - Utilitaires
 
 | Commande           | Description                                  |
 |--------------------|----------------------------------------------|
@@ -294,7 +294,7 @@ Le bot doit avoir : `Voir les salons`, `Envoyer des messages`, `Intégrer des li
 
 ### Commandes prefix (legacy)
 
-`!leaderboard`, `!stats`, `!win`, `!lose`, `!map` — comportement équivalent
+`!leaderboard`, `!stats`, `!win`, `!lose`, `!map` - comportement équivalent
 aux slash mais avec syntaxe prefix. Conservées pour compat ascendante.
 
 ---
@@ -406,4 +406,4 @@ pytest
 
 ## Licence
 
-MIT — voir [LICENSE](LICENSE).
+MIT - voir [LICENSE](LICENSE).

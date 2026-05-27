@@ -156,7 +156,7 @@ def build_elo_changes_embed(
     desc_extra = (
         "\nPonderation ACS appliquee via stats HenrikDev."
         if weighted
-        else "\n⚠️ Match Riot non retrouve sur HenrikDev — ELO plat applique."
+        else "\n⚠️ Match Riot non retrouve sur HenrikDev - ELO plat applique."
     )
 
     embed = discord.Embed(
@@ -181,7 +181,7 @@ def build_elo_changes_embed(
 
     w_lines = "\n".join(_fmt(c) for c in winners)
     l_lines = "\n".join(_fmt(c) for c in losers)
-    embed.add_field(name="🟢 Gagnants", value=w_lines or "—", inline=False)
-    embed.add_field(name="🔴 Perdants", value=l_lines or "—", inline=False)
+    embed.add_field(name="🟢 Gagnants", value=w_lines or "-", inline=False)
+    embed.add_field(name="🔴 Perdants", value=l_lines or "-", inline=False)
     embed.set_footer(text=guild_name)
     return embed

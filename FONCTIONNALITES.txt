@@ -107,7 +107,7 @@ critere.
 
   /link-riot riot_id:Pseudo#TAG
     Lie ton compte Discord a ton compte Valorant via l'API HenrikDev.
-    Region forcee a EU (pas de parametre region — serveur reserve EU).
+    Region forcee a EU (pas de parametre region - serveur reserve EU).
 
     RESTRICTION : peak Immortal 1+ (effective_elo >= 2400) requis.
       - Si max(peak detecte, MMR courant) < 2400 -> link refuse
@@ -266,7 +266,7 @@ attend la verification HenrikDev pour ponderer par performance individuelle.
 
 
 ================================================================================
-7. COMMANDES ADMIN — MATCH EN COURS
+7. COMMANDES ADMIN - MATCH EN COURS
 ================================================================================
 
   /match-cancel
@@ -576,7 +576,7 @@ Permissions Discord requises pour le bot :
   HENRIK_CIRCUIT_FAIL_THRESHOLD  = 3      Echecs avant ouverture circuit
   HENRIK_CIRCUIT_OPEN_MINUTES    = 5      Duree suspension des appels
   MATCH_HOST_CLEANUP_DELAY       = 600    Role Match Host retire apres 10 min
-  # Role Match #N supprime en V3.13 — visibilite via overwrites par utilisateur
+  # Role Match #N supprime en V3.13 - visibilite via overwrites par utilisateur
   MAX_REPLACE_ELO_DIFF           = 500    Ecart max pour /match-replace
 
   services/elo_calc.py :

@@ -197,6 +197,37 @@ def test_create_match_persists_queue_type():
     assert doc["queue_type"] == "pro"
 
 
+def test_add_match_vote_coerces_user_id_to_numeric_field():
+    """La clef de `votes` est normalisee numeriquement : un id int et son
+    equivalent str produisent la meme clef, et un id non-numerique est
+    rejete avant d'atteindre Mongo (anti injection de chemin de champ)."""
+    from services.repository import add_match_vote
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    match_id = create_match(
+        db,
+        origin_guild_id=42,
+        queue_type="pro",
+        team_a=[{"id": "1", "name": "A", "elo": 2000}],
+        team_b=[{"id": "2", "name": "B", "elo": 2000}],
+        map_name="Ascent",
+        lobby_leader_id=1,
+        category_name="Match #1",
+        message_id=999,
+        channel_id=100,
+    )
+
+    # int et str numerique -> meme clef "3" (idempotent sur re-vote).
+    add_match_vote(db, match_id, 3, "a")
+    assert get_match(db, match_id=match_id)["votes"] == {"3": "a"}
+    add_match_vote(db, match_id, "3", "b")
+    assert get_match(db, match_id=match_id)["votes"] == {"3": "b"}
+
+    # Un id non-numerique (ex. tentative d'injection de chemin) est rejete.
+    with pytest.raises(TypeError, match="user_id"):
+        add_match_vote(db, match_id, "evil.$gt", "a")
+
+
 def test_reserve_match_number_starts_at_one(mongo_db):
     from services.repository import reserve_match_number
 

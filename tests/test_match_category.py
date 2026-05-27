@@ -1,4 +1,4 @@
-"""Tests for services/match_category.py — dynamic match category lifecycle."""
+"""Tests for services/match_category.py - dynamic match category lifecycle."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ async def test_create_match_category_overwrites_deny_everyone_and_allow_players(
     assert overwrites[player_a].send_messages is True
 
     assert player_b in overwrites
-    # 9999 has no guild member — silently skipped, must not raise
+    # 9999 has no guild member - silently skipped, must not raise
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ async def test_cleanup_orphan_only_targets_match_pattern():
 
     weird_cat = MagicMock(spec=discord.CategoryChannel)
     weird_cat.id = 3
-    weird_cat.name = "Match Hub"  # No #N — must not match
+    weird_cat.name = "Match Hub"  # No #N - must not match
     weird_cat.channels = []
     weird_cat.delete = AsyncMock()
 

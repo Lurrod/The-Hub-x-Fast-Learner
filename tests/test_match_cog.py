@@ -340,7 +340,7 @@ async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
     assert "annule" in sent_content.lower()
 
 
-# ── VoteView stub (Phase 4 — Phase 5 implementera) ────────────────
+# ── VoteView stub (Phase 4 - Phase 5 implementera) ────────────────
 async def test_vote_view_buttons_have_stable_custom_ids():
     import bot as bot_module
 
@@ -355,7 +355,7 @@ async def test_vote_view_buttons_have_stable_custom_ids():
 @pytest.mark.asyncio
 async def test_overwrites_set_before_match_message_sent(monkeypatch):
     """create_match_category (which sets channel overwrites) must be awaited
-    BEFORE prep_channel.send — otherwise players can't see the announce."""
+    BEFORE prep_channel.send - otherwise players can't see the announce."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
 
@@ -714,7 +714,7 @@ def _make_10_players():
 def _patch_build_players(monkeypatch, players):
     """Monkeypatch build_players dans cogs.match._cog pour court-circuiter le fetch Mongo.
 
-    `cogs.match` est un package depuis le split — `MatchCog.on_queue_full` vit
+    `cogs.match` est un package depuis le split - `MatchCog.on_queue_full` vit
     dans le sous-module `_cog`, qui importe `build_players` dans son propre
     namespace. Patcher l'alias du package n'aurait aucun effet.
     """
@@ -856,7 +856,7 @@ async def test_admin_cancel_deletes_match_category(monkeypatch):
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
     await cog.on_queue_full(inter_start, queue_doc, "open")
 
-    # The match is stored with channel_id = prep_channel.id (999) — use that.
+    # The match is stored with channel_id = prep_channel.id (999) - use that.
     inter_cancel = _fake_interaction(guild)
     inter_cancel.channel_id = fake_prep.id  # 999
     inter_cancel.channel = channel
