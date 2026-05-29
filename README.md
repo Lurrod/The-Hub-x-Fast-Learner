@@ -206,7 +206,7 @@ The `.env` is **never** deployed via CI (excluded from rsync and `.gitignore`).
 /setup
 ```
 
-Creates the `🎮 Valorant 10mans` category and all required text channels
+Creates the `Valorant 10mans` category and all required text channels
 (`leaderboard`, `pro-queue`, `semi-pro-queue`, `open-queue`, `gc-queue`, `matches`), posts the 4 queue
 messages, and pre-posts the 4 leaderboards. **Idempotent**, safe to re-run.
 
