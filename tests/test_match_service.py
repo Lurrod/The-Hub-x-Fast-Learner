@@ -1,4 +1,4 @@
-"""Tests de la logique pure de formation de match."""
+"""Tests of the pure match formation logic."""
 
 import random
 
@@ -43,7 +43,7 @@ def test_build_players_skips_unlinked():
         member_names={"1": "A", "2": "B", "3": "C"},
         bot_elos={"1": 1500, "2": 999, "3": 1700},
     )
-    # Joueur 2 sans compte Riot -> ignore (meme s'il a une ELO bot)
+    # Player 2 without a Riot account -> ignored (even if they have a bot ELO)
     assert len(players) == 2
     assert {p.id for p in players} == {1, 3}
 
@@ -52,25 +52,25 @@ def test_build_players_falls_back_to_riot_name():
     players = build_players(
         player_ids=["1"],
         riot_accounts={"1": _riot_doc(name="RiotName")},
-        member_names={},  # aucun member resolu
+        member_names={},  # no resolved member
         bot_elos={"1": 1500},
     )
     assert players[0].name == "RiotName"
 
 
 def test_build_players_uses_bot_elo_not_riot():
-    """L'ELO de matchmaking provient de la collection partagée `elo`, jamais des riot_accounts."""
+    """Matchmaking ELO comes from the shared `elo` collection, never from riot_accounts."""
     players = build_players(
         player_ids=["1"],
-        riot_accounts={"1": _riot_doc()},  # peak_elo 2500 ignore
+        riot_accounts={"1": _riot_doc()},  # peak_elo 2500 ignored
         member_names={"1": "A"},
-        bot_elos={"1": 1234},  # source de verite
+        bot_elos={"1": 1234},  # source of truth
     )
     assert players[0].elo == 1234
 
 
 def test_build_players_zero_when_no_bot_elo():
-    """Si la collection partagée `elo` n'a pas de doc pour le joueur, ELO = 0."""
+    """If the shared `elo` collection has no doc for the player, ELO = 0."""
     players = build_players(
         player_ids=["1"],
         riot_accounts={"1": _riot_doc()},
@@ -89,13 +89,13 @@ def test_plan_match_rejects_wrong_size():
 
 def test_plan_match_returns_balanced_teams_and_random_choices():
     players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
-    rng = random.Random(42)  # deterministe pour le test
+    rng = random.Random(42)  # deterministic for the test
 
     plan = plan_match(players, free_category="Match #1", rng=rng)
 
     assert len(plan.teams.team_a) == 5
     assert len(plan.teams.team_b) == 5
-    # avec rng seede : on peut verifier la stabilite
+    # with a seeded rng we can verify stability
     assert plan.map_name in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven", "Pearl")
     assert plan.lobby_leader in players
     assert plan.category_name == "Match #1"
@@ -116,7 +116,7 @@ def test_plan_match_lobby_leader_is_one_of_the_players():
 
 
 def test_plan_match_balance_optimal():
-    """Cas connu : avec 10 elos varies, l'algo brute force trouve le mieux."""
+    """Known case: with 10 varied ELOs, the brute-force algo finds the best split."""
     players = [
         Player(id=i, name=f"P{i}", elo=elo)
         for i, elo in enumerate([3000, 2500, 2000, 1800, 1500, 1300, 1200, 900, 500, 300])
@@ -125,7 +125,7 @@ def test_plan_match_balance_optimal():
     assert plan.teams.elo_diff <= 200
 
 
-# ── serialize_team ────────────────────────────────────────────────
+# -- serialize_team --
 def test_serialize_team_returns_list_of_dicts():
     team = (Player(id=1, name="A", elo=1500), Player(id=2, name="B", elo=1600))
     out = serialize_team(team)

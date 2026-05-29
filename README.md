@@ -1,355 +1,358 @@
-# The Hub - Bot Discord Valorant 10mans
+# The Hub - Valorant 10mans Discord Bot
 
-Bot Discord de matchmaking Valorant 5v5 customs (10mans) pour communauté **EU Immortal+**.
-Gère **3 queues parallèles** (Pro / Open / GC), équilibrage automatique des équipes par ELO,
-vote de résultat, vérification HenrikDev avec pondération ACS, et leaderboard généré en image.
+Valorant 5v5 customs (10mans) matchmaking Discord bot for the **EU Immortal+** community.
+Manages **4 parallel queues** (Pro / Semi Pro / Open / GC), automatic team balancing by ELO,
+result voting, HenrikDev verification with ACS weighting, and an image-generated leaderboard.
 
 ---
 
-## Sommaire
+## Table of Contents
 
-- [Aperçu](#aperçu)
-- [Fonctionnalités principales](#fonctionnalités-principales)
+- [Overview](#overview)
+- [Main Features](#main-features)
 - [Architecture](#architecture)
-- [Installation locale](#installation-locale)
-- [Variables d'environnement](#variables-denvironnement)
-- [Configuration Discord](#configuration-discord)
-- [Commandes](#commandes)
-- [Système ELO](#système-elo)
-- [Vérification HenrikDev (ACS)](#vérification-henrikdev-acs)
-- [Déploiement Kimsufi + PM2](#déploiement-kimsufi--pm2)
+- [Local Installation](#local-installation)
+- [Environment Variables](#environment-variables)
+- [Discord Configuration](#discord-configuration)
+- [Commands](#commands)
+- [ELO System](#elo-system)
+- [HenrikDev Verification (ACS)](#henrikdev-verification-acs)
+- [Deployment Kimsufi + PM2](#deployment-kimsufi--pm2)
 - [Tests](#tests)
-- [Stack technique](#stack-technique)
-- [Licence](#licence)
+- [Tech Stack](#tech-stack)
+- [License](#license)
 
 ---
 
-## Aperçu
+## Overview
 
-Cycle complet d'une partie :
+Full lifecycle of a match:
 
-1. 10 joueurs cliquent **Rejoindre** sur le message persistant de leur queue (Pro / Open / GC).
-2. À 10/10, le bot ferme la queue, **équilibre les équipes** (brute-force optimal sur les
-   126 partitions 5+5), crée dynamiquement une catégorie `Match #N` dédiée au match (compteur monotone persisté en MongoDB), choisit map + lobby host.
-3. Les permissions de visibilité sont posées directement sur les 10 joueurs, puis le message d'annonce
-   est posté avec 2 boutons de vote.
-4. Les joueurs sont déplacés vocalement vers `Waiting Match` de leur catégorie.
-5. Après la partie, **7/10 votes** suffisent pour valider (cliquer "Team A" / "Team B").
-6. 5 min plus tard, le bot interroge **HenrikDev** pour récupérer les stats du custom et
-   appliquer un multiplicateur **ACS** sur les gains/pertes ELO. Si Henrik ne trouve pas
-   le match dans les 30 min, ELO plat appliqué.
-7. Le leaderboard est régénéré automatiquement (image PIL) dans `#leaderboard`.
+1. 10 players click **Join** on the persistent message of their queue (Pro / Semi Pro / Open / GC).
+2. At 10/10, the bot closes the queue, **balances the teams** (brute-force optimal across the
+   126 5+5 partitions), dynamically creates a `Match #N` category dedicated to the match (monotonic counter persisted in MongoDB), picks a map + lobby host.
+3. Visibility permissions are applied directly to the 10 players, then the announcement message
+   is posted with 2 vote buttons.
+4. Players are voice-moved to the `Waiting Match` channel of their category.
+5. After the game, **7/10 votes** are enough to validate (click "Team A" / "Team B").
+6. 5 minutes later, the bot queries **HenrikDev** to retrieve the custom stats and
+   apply an **ACS** multiplier on ELO gains/losses. If Henrik can't find the
+   match within 30 min, flat ELO is applied.
+7. The leaderboard is automatically regenerated (PIL image) in `#leaderboard`.
 
 ---
 
-## Fonctionnalités principales
+## Main Features
 
-### 3 queues simultanées avec gates de rôle
+### 4 simultaneous queues with role gates
 
-| Queue  | Salon dédié   | Rôle requis              | Vocal d'attente        |
-|--------|---------------|--------------------------|------------------------|
-| Pro    | `#pro-queue`  | `Rank S \| Pro Queue`    | `Waiting Room Pro`     |
-| Open   | `#open-queue` | aucun                    | `Waiting Room Open`    |
-| GC     | `#gc-queue`   | `GC`                     | `Waiting Room GC`      |
+| Queue    | Dedicated channel  | Required role | Waiting voice channel    |
+|----------|--------------------|---------------|--------------------------|
+| Pro      | `#pro-queue`       | `FL PRO`      | `Waiting Room Pro`       |
+| Semi Pro | `#semi-pro-queue`  | `FL SEMIPRO`  | `Waiting Room Semi Pro`  |
+| Open     | `#open-queue`      | `FL HUB`      | `Waiting Room Open`      |
+| GC       | `#gc-queue`        | `FL GC`       | `Waiting Room GC`        |
 
-- Un joueur ne peut être que dans **une seule queue à la fois**.
-- Les boutons Rejoindre / Quitter sont **persistants** (survivent au restart du bot).
-- Refusé si pas de compte Riot lié, déjà en queue, déjà dans un match en cours (catégorie `Match #N` encore active), ou rôle gate manquant.
-- Le joueur qui quitte le serveur est automatiquement retiré des queues (`on_member_remove`).
+- A player can only be in **one queue at a time**.
+- The Join / Leave buttons are **persistent** (they survive bot restarts).
+- Rejected if no linked Riot account, already in queue, already in an ongoing match (`Match #N` category still active), or missing role gate.
+- A player who leaves the server is automatically removed from queues (`on_member_remove`).
 
-### Équilibrage des équipes
+### Team balancing
 
-- Algo **brute-force optimal** : itère les 126 partitions 5+5 uniques parmi 10.
-- Minimise `|sum(team_a) - sum(team_b)|`.
-- Tie-breakers : peak diff puis ordre des IDs (déterministe).
-- Source d'ELO utilisée : **ELO serveur** (`elo_<guild>.elo`), seedée au `/link-riot`.
+- **Brute-force optimal** algorithm: iterates through the 126 unique 5+5 partitions among 10.
+- Minimizes `|sum(team_a) - sum(team_b)|`.
+- Tie-breakers: peak diff then ID order (deterministic).
+- ELO source used: **server ELO** (`elo_<guild>.elo`), seeded at `/link-riot`.
 
-### Formation de match - catégories dynamiques
+### Match formation - dynamic categories
 
-- Catégorie créée à la volée : `Match #N` où N est attribué par compteur monotone Mongo. Supprimée automatiquement en fin de match (vote validé, cancel admin, ou échec draft).
-- **Parallélisation Discord API** (depuis v3) : les 10 overwrites + 10 voice moves
-  sont exécutés en `asyncio.gather`, réduisant le temps de formation de ~7-10 s à ~1.5-2 s.
-- Invariants préservés : permissions posées sur les 10 joueurs **avant** l'envoi du message d'annonce
-  (sinon les joueurs ne voient pas le salon).
+- Category created on the fly: `Match #N` where N is assigned by a monotonic Mongo counter. Automatically deleted at the end of the match (vote validated, admin cancel, or failed draft).
+- **Discord API parallelization** (since v3): the 10 overwrites + 10 voice moves
+  are executed in `asyncio.gather`, reducing formation time from ~7-10s to ~1.5-2s.
+- Preserved invariants: permissions are applied to the 10 players **before** sending the announcement message
+  (otherwise players don't see the channel).
 
-### Cycle de vie de la catégorie de match
+### Match category lifecycle
 
-- **Création** : à chaque match trouvé, catégorie `Match #N` + salons `match-preparation` (texte), `Team 1`, `Team 2`, `Waiting Match` (vocaux) créés dynamiquement.
-- **Visibilité** : permissions directes sur les 10 joueurs (deny `@everyone`, allow joueurs + admins + bot) - le rôle `Match #N` n'existe plus depuis V3.13.
-- **Suppression** : automatique sur vote validé, cancel admin (`/match-cancel`), ou échec draft. Conservée sur vote contesté jusqu'à résolution.
-- **Cleanup contesté** : commande admin `/match-cleanup <match_id>` pour forcer la suppression après résolution manuelle.
-- **Cleanup au boot** : les catégories `Match #N` orphelines (sans match actif en base) sont supprimées automatiquement au démarrage du bot.
+- **Creation**: for each match found, a `Match #N` category + `match-preparation` (text), `Team 1`, `Team 2`, `Waiting Match` (voice) channels are dynamically created.
+- **Visibility**: direct permissions on the 10 players (deny `@everyone`, allow players + admins + bot) - the `Match #N` role no longer exists as of V3.13.
+- **Deletion**: automatic on validated vote, admin cancel (`/match-cancel`), or failed draft. Kept on contested vote until resolved.
+- **Contested cleanup**: admin command `/match-cleanup <match_id>` to force deletion after manual resolution.
+- **Boot cleanup**: orphaned `Match #N` categories (with no active match in DB) are automatically deleted on bot startup.
 
-### Vote de résultat
+### Result vote
 
-- 2 boutons attachés au message du match : `Team A a gagné` / `Team B a gagné`.
-- **Seuls les 10 participants** peuvent voter. Vote modifiable.
-- **Majorité 7/10** → match validé automatiquement (transition CAS atomique : pas de double validation).
-- Timeout **90 min** sans majorité → status `contested`, ping du rôle admin avec score actuel.
-- La catégorie `Match #N` est supprimée automatiquement après validation pour libérer les ressources.
+- 2 buttons attached to the match message: `Team A won` / `Team B won`.
+- **Only the 10 participants** can vote. Vote is modifiable.
+- **7/10 majority** → match automatically validated (atomic CAS transition: no double validation).
+- **90 min** timeout without majority → status `contested`, ping of the admin role with the current score.
+- The `Match #N` category is automatically deleted after validation to free up resources.
 
-### Vérification HenrikDev + pondération ACS
+### HenrikDev verification + ACS weighting
 
-- ~5 min après validation, le bot interroge l'API HenrikDev pour retrouver le custom joué.
-- Si trouvé → calcule un **multiplicateur ACS** par joueur (perf individuelle).
-- Si pas trouvé après 30 min → ELO plat appliqué (gain/loss = 16 chacun).
-- **Circuit breaker** : si 3 appels Henrik consécutifs échouent, on suspend les
-  tentatives pendant 5 min (évite de saturer les threads et de polluer les logs).
+- ~5 min after validation, the bot queries the HenrikDev API to find the played custom.
+- If found → computes an **ACS multiplier** per player (individual performance).
+- If not found after 30 min → flat ELO applied (gain/loss = 16 each).
+- **Circuit breaker**: if 3 consecutive Henrik calls fail, attempts are
+  suspended for 5 min (avoids saturating threads and polluting logs).
 
 ### Leaderboard
 
-- 3 leaderboards distincts cohabitent dans `#leaderboard` (un par queue_type).
-- Image PNG générée via Pillow (`leaderboard_img.py`), 15 joueurs par page.
-- Pagination par boutons `<` / `>` **persistante après restart**.
-- Auto-refresh après chaque modification ELO (debounced per-guild).
+- 4 distinct leaderboards coexist in `#leaderboard` (one per queue_type).
+- PNG image generated via Pillow (`leaderboard_img.py`), 15 players per page.
+- Pagination via `<` / `>` buttons, **persistent after restart**.
+- Auto-refresh after each ELO change (debounced per-guild).
 
-### Système de candidatures (héritage)
+### Application system (legacy)
 
-- `/welcome` pose un bouton **Postuler** persistant dans `#verify`.
-- Modale Joueur (pseudo, tracker, expérience) ou Staff (poste, expérience).
-- Cooldown 1h entre deux candidatures par utilisateur.
-- Admin accepte → rôle `Members` (ou `Coach/Analyst/Manager`) + rename + DM.
-- Admin refuse → DM avec raison + kick.
+- `/welcome` places a persistent **Apply** button in `#verify`.
+- Player modal (in-game name, tracker, experience) or Staff modal (role, experience).
+- 1h cooldown between two applications per user.
+- Admin accepts → `Members` role (or `Coach/Analyst/Manager`) + rename + DM.
+- Admin denies → DM with reason + kick.
 
 ---
 
 ## Architecture
 
 ```
-bot.py                     # Entry point : tree slash commands + prefix commands + candidatures
+bot.py                     # Entry point: slash command tree + prefix commands + applications
 cogs/
-  ├── queue_v2.py          # QueueCog + QueueView (Rejoindre/Quitter, 3 queues)
-  ├── match.py             # MatchCog + VoteView (formation, vote, Henrik, ELO update, cleanup roles)
+  ├── queue_v2.py          # QueueCog + QueueView (Join/Leave, 4 queues)
+  ├── match.py             # MatchCog + VoteView (formation, vote, Henrik, ELO update, role cleanup)
   └── riot_link.py         # /link-riot, /unlink-riot
 services/
-  ├── elo_calc.py          # Constantes (ELO_START=2000, BASE=16) + helpers purs
-  ├── elo_mapping.py       # Conversion tier numérique <-> nom (Iron 1 → Radiant)
-  ├── elo_updater.py       # apply_match_validation : distribue gains/pertes avec multiplicateurs ACS
-  ├── leaderboard_refresh.py  # LeaderboardView paginée + refresh debounced
-  ├── match_service.py     # Logique pure : build_players, plan_match, find_free_match_prep
+  ├── elo_calc.py          # Constants (ELO_START=2000, BASE=16) + pure helpers
+  ├── elo_mapping.py       # Numeric tier <-> name conversion (Iron 1 → Radiant)
+  ├── elo_updater.py       # apply_match_validation: distributes gains/losses with ACS multipliers
+  ├── leaderboard_refresh.py  # Paginated LeaderboardView + debounced refresh
+  ├── match_service.py     # Pure logic: build_players, plan_match, find_free_match_prep
   ├── match_verifier.py    # find_henrik_custom_match + compute_acs_multipliers
-  ├── repository.py        # Accès MongoDB centralisé (toutes les collections)
-  ├── riot_api.py          # Client HenrikDev (cache 1h, retry, gestion 404/429)
-  ├── riot_id.py           # Parsing Riot ID (Pseudo#TAG)
-  └── team_balancer.py     # Brute-force optimal sur 126 partitions
-leaderboard_img.py         # Génération PNG du leaderboard (Pillow)
-preview_leaderboard.py     # Outil dev : aperçu local du leaderboard
-seed_users.py              # Outil dev : peuple Mongo de faux joueurs
-test_*.py                  # 255 tests pytest
+  ├── repository.py        # Centralized MongoDB access (all collections)
+  ├── riot_api.py          # HenrikDev client (1h cache, retry, 404/429 handling)
+  ├── riot_id.py           # Riot ID parsing (Name#TAG)
+  └── team_balancer.py     # Brute-force optimal across 126 partitions
+leaderboard_img.py         # Leaderboard PNG generation (Pillow)
+preview_leaderboard.py     # Dev tool: local leaderboard preview
+seed_users.py              # Dev tool: populates Mongo with fake players
+test_*.py                  # 255 pytest tests
 ```
 
-### Couches
+### Layers
 
-- **`services/`** = logique pure, testable sans Discord ni Mongo (sauf `repository.py`).
-- **`cogs/`** = wiring Discord : reçoit les interactions, appelle `services/`, applique les side-effects.
-- **`bot.py`** = entry point + commandes legacy (candidatures, `/win` manuel, `/setup`).
+- **`services/`** = pure logic, testable without Discord or Mongo (except `repository.py`).
+- **`cogs/`** = Discord wiring: receives interactions, calls `services/`, applies side-effects.
+- **`bot.py`** = entry point + legacy commands (applications, manual `/win`, `/setup`).
 
-### Collections MongoDB (`elobot` database)
+### MongoDB collections (`elobot` database)
 
-| Collection                  | Contenu                                                                 |
+| Collection                  | Content                                                                 |
 |-----------------------------|-------------------------------------------------------------------------|
-| `elo_<guild_id>`            | ELO serveur par joueur+queue (`_id = "<uid>:<queue_type>"`)             |
-| `riot_accounts_<guild_id>`  | Lien Discord ↔ Riot (puuid, effective_elo, peak, source)                |
-| `queue_<guild_id>`          | Queues actives (1 doc par queue_type, `_id = "active:<qt>"`)            |
-| `matches_<guild_id>`        | Historique des matchs (teams, votes, status, ACS, cleanup flags)        |
-| `bypass`                    | Rôles ayant accès aux commandes admin (per-guild)                       |
-| `candidature_cooldowns`     | Cooldowns 1h pour le système de candidatures                            |
+| `elo_<guild_id>`            | Server ELO per player+queue (`_id = "<uid>:<queue_type>"`)              |
+| `riot_accounts_<guild_id>`  | Discord ↔ Riot link (puuid, effective_elo, peak, source)                |
+| `queue_<guild_id>`          | Active queues (1 doc per queue_type, `_id = "active:<qt>"`)             |
+| `matches_<guild_id>`        | Match history (teams, votes, status, ACS, cleanup flags)                |
+| `bypass`                    | Roles with access to admin commands (per-guild)                         |
+| `candidature_cooldowns`     | 1h cooldowns for the application system                                 |
 
 ---
 
-## Installation locale
+## Local Installation
 
-### Prérequis
+### Prerequisites
 
-- Python **3.11+** (testé sur 3.12 et 3.13)
-- MongoDB (local ou Atlas)
-- Un bot Discord avec **Server Members Intent** activé
+- Python **3.11+** (tested on 3.12 and 3.13)
+- MongoDB (local or Atlas)
+- A Discord bot with **Server Members Intent** enabled
 
 ### Setup
 
 ```bash
-git clone <url-du-repo>
+git clone <repo-url>
 cd "The Hub"
 
 python -m venv venv
-source venv/bin/activate         # Windows : venv\Scripts\activate
+source venv/bin/activate         # Windows: venv\Scripts\activate
 
 pip install -r requirements.txt
 
-# Copier le template et remplir les valeurs
+# Copy the template and fill in the values
 cp .env.example .env
-# DISCORD_TOKEN, MONGO_URI, HENRIK_API_KEY (optionnel)
+# DISCORD_TOKEN, MONGO_URI, HENRIK_API_KEY (optional)
 
 python bot.py
 ```
 
 ---
 
-## Variables d'environnement
+## Environment Variables
 
-| Nom              | Obligatoire | Description                                                  |
-|------------------|:-----------:|--------------------------------------------------------------|
-| `DISCORD_TOKEN`  | oui         | Token du bot Discord                                         |
-| `MONGO_URI`      | oui         | URI MongoDB (Atlas ou local : `mongodb://localhost:27017`)   |
-| `HENRIK_API_KEY` | non         | Clé HenrikDev (augmente la rate limit, recommandé en prod)   |
+| Name             | Required | Description                                                  |
+|------------------|:--------:|--------------------------------------------------------------|
+| `DISCORD_TOKEN`  | yes      | Discord bot token                                            |
+| `MONGO_URI`      | yes      | MongoDB URI (Atlas or local: `mongodb://localhost:27017`)    |
+| `HENRIK_API_KEY` | no       | HenrikDev key (increases rate limit, recommended in prod)    |
 
-Le `.env` n'est **jamais** déployé via CI (exclu du rsync et `.gitignore`).
+The `.env` is **never** deployed via CI (excluded from rsync and `.gitignore`).
 
 ---
 
-## Configuration Discord
+## Discord Configuration
 
-### Setup automatique
+### Automatic setup
 
 ```
 /setup
 ```
 
-Crée la catégorie `🎮 Valorant 10mans` et tous les salons textuels nécessaires
-(`leaderboard`, `pro-queue`, `open-queue`, `gc-queue`, `matchs`), pose les 3 messages
-de queue, et pré-poste les 3 leaderboards. **Idempotent**, ré-exécutable sans risque.
+Creates the `🎮 Valorant 10mans` category and all required text channels
+(`leaderboard`, `pro-queue`, `semi-pro-queue`, `open-queue`, `gc-queue`, `matches`), posts the 4 queue
+messages, and pre-posts the 4 leaderboards. **Idempotent**, safe to re-run.
 
-### Manuel (à créer si nécessaire)
+### Manual (create if necessary)
 
-**Catégories de matchs** : créées automatiquement par le bot (aucune configuration manuelle requise).
-- Le bot génère `Match #N` à chaque match, avec `match-preparation`, `Team 1`, `Team 2` et `Waiting Match`.
-- Les catégories orphelines sont nettoyées au démarrage.
+**Match categories**: created automatically by the bot (no manual configuration required).
+- The bot generates `Match #N` for each match, with `match-preparation`, `Team 1`, `Team 2` and `Waiting Match`.
+- Orphaned categories are cleaned up on startup.
 
-**Rôles** :
-- `En Queue` (donné aux joueurs en queue)
-- `Match #N` *(supprimé V3.13 - visibilité via overwrites par utilisateur)*
-- `Match Host` (donné au lobby leader, retiré après 10 min)
-- `Rank S | Pro Queue` (gate de la queue Pro)
-- `GC` (gate de la queue GC)
-- `Admin` / `Match Staff` / `Administrateur` (ping si vote en timeout)
-- `Members`, `Coach/Analyst/Manager` (système de candidatures, optionnel)
+**Roles**:
+- `In Queue` (given to players in queue)
+- `Match #N` *(removed in V3.13 - visibility via per-user overwrites)*
+- `Match Host` (given to the lobby leader, removed after 10 min)
+- `FL PRO` (Pro queue gate)
+- `FL SEMIPRO` (Semi Pro queue gate)
+- `FL HUB` (Open queue gate)
+- `FL GC` (GC queue gate)
+- `FAST LEARNER x The Hub` / `ADMINISTRATORS` / `FL STAFF PRO` / `FL STAFF SEMIPRO` / `FL STAFF GC` (pinged on vote timeout)
+- `Members`, `Coach/Analyst/Manager` (application system, optional)
 
-**Salons annexes** (optionnels) :
-- `verify` : pour `/welcome` (bouton candidature)
-- `candidatures` : pour les modales soumises
-- `elo-adding` : annonces de vérification Henrik
+**Auxiliary channels** (optional):
+- `verify`: for `/welcome` (application button)
+- `candidatures`: for submitted modals
+- `elo-adding`: Henrik verification announcements
 
-### Permissions Discord requises
+### Required Discord permissions
 
-Le bot doit avoir : `Voir les salons`, `Envoyer des messages`, `Intégrer des liens`,
-`Joindre des fichiers`, `Gérer les salons` (pour `/setup`), `Gérer les messages` (pour `/clear`),
-`Déplacer les membres` (pour les voice moves), `Gérer les rôles`, `Utiliser les commandes slash`.
+The bot needs: `View Channels`, `Send Messages`, `Embed Links`,
+`Attach Files`, `Manage Channels` (for `/setup`), `Manage Messages` (for `/clear`),
+`Move Members` (for voice moves), `Manage Roles`, `Use Slash Commands`.
 
 ---
 
-## Commandes
+## Commands
 
-### Joueurs
+### Players
 
-| Commande              | Description                                                              |
+| Command               | Description                                                              |
 |-----------------------|--------------------------------------------------------------------------|
-| `/link-riot riot_id:` | Lie le compte Discord à un compte Valorant (EU, Immortal+ requis)        |
-| `/unlink-riot`        | Supprime le lien Riot                                                    |
-| `/leaderboard queue:` | Affiche le classement de la queue choisie (Pro/Open/GC)                  |
-| `/stats queue: @joueur` | Stats ELO d'un joueur dans la queue choisie (éphémère)                 |
-| `/coinflip`           | Pile ou face                                                             |
+| `/link-riot riot_id:` | Links the Discord account to a Valorant account (EU, Immortal+ required) |
+| `/unlink-riot`        | Removes the Riot link                                                    |
+| `/leaderboard queue:` | Displays the ranking of the chosen queue (Pro/Semi Pro/Open/GC)          |
+| `/stats queue: @player` | ELO stats of a player in the chosen queue (ephemeral)                  |
+| `/coinflip`           | Heads or tails                                                           |
 
 ### Admin - Setup
 
-| Commande                       | Description                                              |
-|--------------------------------|----------------------------------------------------------|
-| `/setup`                       | Crée catégorie + salons + pose les 3 messages de queue   |
-| `/setup-queue queue:`          | Re-pose le message d'une queue manuellement              |
-| `/close-queue queue:`          | Ferme la queue active d'un type                          |
-| `/welcome`                     | Pose le bouton **Postuler** dans `#verify`               |
-| `/report`                      | Pose le message de report dans le salon courant          |
-| `/bypass role:`                | Donne accès aux commandes admin à un rôle                |
+| Command                        | Description                                                  |
+|--------------------------------|--------------------------------------------------------------|
+| `/setup`                       | Creates category + channels + posts the 4 queue messages     |
+| `/setup-queue queue:`          | Re-posts a queue message manually                            |
+| `/close-queue queue:`          | Closes the active queue of a given type                      |
+| `/welcome`                     | Places the **Apply** button in `#verify`                     |
+| `/report`                      | Places the report message in the current channel             |
+| `/bypass role:`                | Grants admin command access to a role                        |
 
 ### Admin - Match
 
-| Commande                                       | Description                                          |
+| Command                                        | Description                                          |
 |------------------------------------------------|------------------------------------------------------|
-| `/match-cancel`                                | Annule le match en cours dans ce salon               |
-| `/match-replace quitter: remplacant:`          | Remplace un joueur (ELO diff < 500 requis)           |
+| `/match-cancel`                                | Cancels the ongoing match in this channel            |
+| `/match-replace leaver: replacement:`         | Replaces a player (ELO diff < 500 required)          |
 
-### Admin - ELO manuel (par queue)
+### Admin - Manual ELO (per queue)
 
-| Commande                                              | Description                                  |
+| Command                                               | Description                                  |
 |-------------------------------------------------------|----------------------------------------------|
-| `/win queue: @j1..@j5`                                | Enregistre une victoire manuelle             |
-| `/lose queue: @j1..@j5`                               | Enregistre une défaite manuelle              |
-| `/elomodify queue: @joueur action: montant:`          | Ajoute/retire de l'ELO                       |
-| `/winmodify queue: @joueur action: montant:`          | Ajoute/retire des victoires                  |
-| `/losemodify queue: @joueur action: montant:`         | Ajoute/retire des défaites                   |
-| `/resetelo queue: joueur: \| all:True`                | Reset ELO à 2000 (joueur ou tous)            |
-| `/reset-queue queue:`                                 | Drop toutes les données d'une queue          |
+| `/win queue: @p1..@p5`                                | Records a manual win                         |
+| `/lose queue: @p1..@p5`                               | Records a manual loss                        |
+| `/elomodify queue: @player action: amount:`           | Adds/removes ELO                             |
+| `/winmodify queue: @player action: amount:`           | Adds/removes wins                            |
+| `/losemodify queue: @player action: amount:`          | Adds/removes losses                          |
+| `/resetelo queue: player: \| all:True`                | Resets ELO to 2000 (player or all)           |
+| `/reset-queue queue:`                                 | Drops all data of a queue                    |
 
-### Admin - Utilitaires
+### Admin - Utilities
 
-| Commande           | Description                                  |
+| Command            | Description                                  |
 |--------------------|----------------------------------------------|
-| `/map`             | Map aléatoire parmi les 7 maps               |
-| `/clear nombre:`   | Supprime jusqu'à 100 messages                |
-| `/help type:`      | Liste des commandes (membres ou admin)       |
+| `/map`             | Random map from the 7 maps                   |
+| `/clear amount:`   | Deletes up to 100 messages                   |
+| `/help type:`      | List of commands (members or admin)          |
 
-### Commandes prefix (legacy)
+### Prefix commands (legacy)
 
-`!leaderboard`, `!stats`, `!win`, `!lose`, `!map` - comportement équivalent
-aux slash mais avec syntaxe prefix. Conservées pour compat ascendante.
-
----
-
-## Système ELO
-
-- **ELO de départ** : `2000`
-- **Base zero-sum** : gain = loss = `16` par match (formule constante quelle que soit la moyenne).
-- **Pondération ACS** : multiplicateur calculé par joueur via stats HenrikDev.
-- **Plancher** : ELO d'un perdant ne descend jamais sous `0`.
-- **Wins / losses** : incrémentés automatiquement à chaque validation.
-- **Per-queue** : chaque joueur a un ELO indépendant par queue (Pro / Open / GC), via
-  un compound `_id = "<uid>:<queue_type>"` dans la collection `elo_<guild_id>`.
-
-### Restriction Immortal+
-
-Le bot refuse de lier un compte dont le `max(peak_elo, current_mmr) < 2400`.
-Calcul de l'effective ELO :
-- Si peak < 6 mois → peak utilisé.
-- Sinon → moyenne des MMR sur les 6 derniers mois.
-- Fallback peak si pas de matchs récents.
+`!leaderboard`, `!stats`, `!win`, `!lose`, `!map` - behavior equivalent
+to the slash commands but with prefix syntax. Kept for backward compatibility.
 
 ---
 
-## Vérification HenrikDev (ACS)
+## ELO System
 
-| Constante                            | Valeur  | Effet                                              |
+- **Starting ELO**: `2000`
+- **Zero-sum base**: gain = loss = `16` per match (constant formula regardless of the average).
+- **ACS weighting**: multiplier computed per player from HenrikDev stats.
+- **Floor**: a loser's ELO never drops below `0`.
+- **Wins / losses**: incremented automatically on each validation.
+- **Per-queue**: each player has an independent ELO per queue (Pro / Semi Pro / Open / GC), via
+  a compound `_id = "<uid>:<queue_type>"` in the `elo_<guild_id>` collection.
+
+### Immortal+ restriction
+
+The bot refuses to link an account whose `max(peak_elo, current_mmr) < 2400`.
+Effective ELO computation:
+- If peak is < 6 months old → peak used.
+- Otherwise → average of MMR over the last 6 months.
+- Fallback to peak if no recent matches.
+
+---
+
+## HenrikDev Verification (ACS)
+
+| Constant                             | Value   | Effect                                             |
 |--------------------------------------|---------|----------------------------------------------------|
-| `HENRIK_VERIFY_DELAY_MINUTES`        | 5 min   | Premier essai de récupération du custom            |
-| `HENRIK_VERIFY_TIMEOUT_MINUTES`      | 30 min  | Abandon → ELO plat (16/16)                         |
-| `HENRIK_CIRCUIT_FAIL_THRESHOLD`      | 3       | Échecs consécutifs avant ouverture du circuit      |
-| `HENRIK_CIRCUIT_OPEN_MINUTES`        | 5 min   | Durée de suspension des appels Henrik              |
+| `HENRIK_VERIFY_DELAY_MINUTES`        | 5 min   | First attempt to fetch the custom                  |
+| `HENRIK_VERIFY_TIMEOUT_MINUTES`      | 30 min  | Give up → flat ELO (16/16)                         |
+| `HENRIK_CIRCUIT_FAIL_THRESHOLD`      | 3       | Consecutive failures before circuit opens          |
+| `HENRIK_CIRCUIT_OPEN_MINUTES`        | 5 min   | Duration of Henrik call suspension                 |
 
-Le multiplicateur ACS récompense les top frags et pénalise les bottom frags **à l'intérieur
-de leur propre équipe**, en gardant la somme zero-sum.
+The ACS multiplier rewards top fraggers and penalizes bottom fraggers **within
+their own team**, while keeping the sum zero-sum.
 
 ---
 
-## Déploiement Kimsufi + PM2
+## Deployment Kimsufi + PM2
 
-Le bot tourne sur un **serveur Kimsufi** (OVH) via PM2, déployé automatiquement par
-**GitHub Actions** à chaque push sur `main`. Détails complets dans `DEPLOY.md`.
+The bot runs on a **Kimsufi server** (OVH) via PM2, automatically deployed by
+**GitHub Actions** on every push to `main`. Full details in `DEPLOY.md`.
 
-### Pipeline CI/CD
+### CI/CD pipeline
 
-- `.github/workflows/ci.yml` : `pytest` sur chaque PR + chaque push (sauf `main`).
-- `.github/workflows/deploy.yml` : sur push `main` → tests → rsync vers Kimsufi →
+- `.github/workflows/ci.yml`: `pytest` on every PR + every push (except `main`).
+- `.github/workflows/deploy.yml`: on push to `main` → tests → rsync to Kimsufi →
   `pip install` → `pm2 reload vrc-bot`.
 
-### Commandes PM2 utiles
+### Useful PM2 commands
 
 ```bash
 pm2 status
 pm2 logs vrc-bot --lines 100
 pm2 restart vrc-bot
-pm2 restart vrc-bot --update-env   # après édition du .env
+pm2 restart vrc-bot --update-env   # after editing the .env
 pm2 monit
 ```
 
-### Modifier le `.env` en prod
+### Edit the `.env` in prod
 
 ```bash
 ssh ubuntu@<kimsufi-host>
@@ -366,39 +369,39 @@ pip install -r requirements-test.txt
 pytest
 ```
 
-**255 tests** automatisés, exécutés en ~10 s. Couverture :
+**255 automated tests**, run in ~10 s. Coverage:
 
-| Module                         | Aspects testés                                                 |
+| Module                         | Aspects tested                                                 |
 |--------------------------------|----------------------------------------------------------------|
-| `test_elo_calc.py`             | Formules ELO + ACS                                             |
-| `test_elo_updater.py`          | Distribution gains/pertes en base                              |
-| `test_team_balancer.py`        | Algo brute-force et tie-breakers                               |
+| `test_elo_calc.py`             | ELO + ACS formulas                                             |
+| `test_elo_updater.py`          | Gain/loss distribution in DB                                   |
+| `test_team_balancer.py`        | Brute-force algorithm and tie-breakers                         |
 | `test_match_service.py`        | `build_players`, `plan_match`, `find_free_match_prep`          |
-| `test_match_cog.py`            | Intégration formation de match (Discord mocké)                 |
-| `test_vote.py`                 | Vote, transitions CAS, timeout, MAJ ELO                        |
-| `test_queue_v2.py`             | Repository + QueueView + confirmation éphémère                 |
-| `test_riot_api.py`             | Client HenrikDev (mocks HTTP, cache, 404/429)                  |
-| `test_riot_link.py`            | Cog `/link-riot` + check Immortal+                             |
-| `test_riot_id.py`              | Parsing Riot ID                                                |
-| `test_pagination.py`           | Logique de pagination du leaderboard                           |
-| `test_repository_helpers.py`   | Helpers Mongo (compound id, CAS)                               |
-| `test_bot_slash.py`            | Slash commands + `/setup` + `/win` (Discord mocké)             |
-| `test_bot_prefix.py`           | Commandes prefix legacy (dpytest)                              |
+| `test_match_cog.py`            | Match formation integration (Discord mocked)                   |
+| `test_vote.py`                 | Vote, CAS transitions, timeout, ELO update                     |
+| `test_queue_v2.py`             | Repository + QueueView + ephemeral confirmation                |
+| `test_riot_api.py`             | HenrikDev client (HTTP mocks, cache, 404/429)                  |
+| `test_riot_link.py`            | `/link-riot` cog + Immortal+ check                             |
+| `test_riot_id.py`              | Riot ID parsing                                                |
+| `test_pagination.py`           | Leaderboard pagination logic                                   |
+| `test_repository_helpers.py`   | Mongo helpers (compound id, CAS)                               |
+| `test_bot_slash.py`            | Slash commands + `/setup` + `/win` (Discord mocked)            |
+| `test_bot_prefix.py`           | Legacy prefix commands (dpytest)                               |
 
 ---
 
-## Stack technique
+## Tech Stack
 
 - **Python** 3.11+
 - **discord.py** 2.3.2
-- **pymongo** 4.6+ (avec `retryWrites`, `retryReads`, `serverSelectionTimeoutMS=5000`)
-- **Pillow** 10+ (rendu PNG du leaderboard)
-- **requests** 2.31+ (client HenrikDev)
+- **pymongo** 4.6+ (with `retryWrites`, `retryReads`, `serverSelectionTimeoutMS=5000`)
+- **Pillow** 10+ (leaderboard PNG rendering)
+- **requests** 2.31+ (HenrikDev client)
 - **python-dotenv** 1.0+
 - **pytest** 8+ / **pytest-asyncio** / **mongomock** / **dpytest** / **faker** (tests)
 
 ---
 
-## Licence
+## License
 
-MIT - voir [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

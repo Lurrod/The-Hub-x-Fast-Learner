@@ -1,10 +1,10 @@
 module.exports = {
   apps: [
     {
-      name: 'vrc-bot',
+      name: 'fl-bot',
       script: 'bot.py',
       interpreter: './venv/bin/python',
-      cwd: '/home/ubuntu/vrc-bot',
+      cwd: '/home/ubuntu/fl-bot',
       autorestart: true,
       watch: false,
       max_restarts: 10,

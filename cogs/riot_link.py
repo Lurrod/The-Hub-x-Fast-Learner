@@ -1,17 +1,17 @@
 """
-Cog V2 : association compte Discord <-> compte Riot.
+V2 cog: Discord account <-> Riot account linking.
 
-Commandes :
-  /link-riot riot_id:Pseudo#TAG     (region forcee a EU)
+Commands:
+  /link-riot riot_id:Username#TAG     (region forced to EU)
   /unlink-riot
 
-Aucun gate-keeping : la verification du rang des nouveaux membres est
-faite manuellement a l'entree sur le serveur Discord.
+No gate-keeping: rank verification for new members is done manually
+when they enter the Discord server.
 
-Le link Riot persiste uniquement la metadata du compte Riot (PUUID,
-pseudo, tag) pour permettre les verifications post-match via l'API
-HenrikDev. Aucun ELO n'est seede : les joueurs demarrent a `ELO_START`
-(=2000) au moment ou ils apparaissent dans une queue donnee.
+The Riot link only persists the Riot account metadata (PUUID,
+username, tag) to enable post-match verification via the HenrikDev
+API. No ELO is seeded: players start at `ELO_START` (=2000) when
+they first appear in a given queue.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from services.riot_id import parse_riot_id
 logger = logging.getLogger(__name__)
 
 
-# Serveur reserve aux EU
+# Server reserved to EU
 DEFAULT_REGION = "eu"
 
 
@@ -49,10 +49,10 @@ class RiotLinkCog(commands.Cog):
 
     # ── /link-riot ────────────────────────────────────────────────
     @app_commands.command(
-        name="link-riot", description="Lie ton compte Discord a ton compte Riot (EU)"
+        name="link-riot", description="Link your Discord account to your Riot account (EU)"
     )
     @app_commands.describe(
-        riot_id="Ton Riot ID au format Pseudo#TAG (ex: Player#EUW)",
+        riot_id="Your Riot ID in Username#TAG format (e.g. Player#EUW)",
     )
     async def link_riot(
         self,
@@ -69,40 +69,40 @@ class RiotLinkCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        # 2) Verifier l'existence du compte Riot + recuperer le rang actuel (display).
-        # Les appels HenrikDev sont synchrones (`requests`) et bloqueraient l'event
-        # loop Discord pendant ~10s en cas de lenteur API. On les execute dans un
-        # thread pour preserver la reactivite du bot.
+        # 2) Verify the Riot account's existence + fetch current rank (display).
+        # HenrikDev calls are synchronous (`requests`) and would block the
+        # Discord event loop for ~10s if the API is slow. We run them in a
+        # thread to preserve the bot's responsiveness.
         try:
             account = await asyncio.to_thread(self.riot_client.get_account, name, tag)
             mmr = await asyncio.to_thread(self.riot_client.get_current_mmr, region, name, tag)
         except PlayerNotFoundError:
             await interaction.followup.send(
-                f"❌ Joueur **{name}#{tag}** introuvable.", ephemeral=True
+                f"❌ Player **{name}#{tag}** not found.", ephemeral=True
             )
             return
         except RateLimitedError:
             await interaction.followup.send(
-                "⏳ API HenrikDev rate-limited, reessaie dans 1 minute.", ephemeral=True
+                "⏳ HenrikDev API rate-limited, try again in 1 minute.", ephemeral=True
             )
             return
         except RiotApiError as e:
-            # Ne pas leak la reponse brute de l'API (contient potentiellement
-            # des details internes ou des extraits HTML d'erreur). On log
-            # cote serveur et on remonte un message generique a l'utilisateur.
+            # Do not leak the raw API response (potentially contains
+            # internal details or HTML error excerpts). We log on the
+            # server side and return a generic message to the user.
             logger.error(
-                f"[link-riot] RiotApiError pour user={interaction.user.id} : {e!r}", exc_info=True
+                f"[link-riot] RiotApiError for user={interaction.user.id}: {e!r}", exc_info=True
             )
             await interaction.followup.send(
-                "❌ Erreur API Riot temporaire. Reessaie dans quelques instants.",
+                "❌ Temporary Riot API error. Try again in a few moments.",
                 ephemeral=True,
             )
             return
 
-        # 2.5) Dedup PUUID : un compte Riot ne peut etre lie qu'a un seul
-        # compte Discord par serveur. Sans ce check, un joueur pourrait
-        # tenir 2 places en queue avec un seul compte de jeu via deux
-        # comptes Discord lies au meme PUUID.
+        # 2.5) PUUID dedup: a Riot account can only be linked to a single
+        # Discord account per server. Without this check, a player could
+        # hold 2 spots in queue with a single in-game account via two
+        # Discord accounts linked to the same PUUID.
         existing = await asyncio.to_thread(
             repository.find_riot_account_by_puuid,
             self.db,
@@ -110,20 +110,20 @@ class RiotLinkCog(commands.Cog):
         )
         if existing is not None and str(existing.get("_id")) != str(interaction.user.id):
             await interaction.followup.send(
-                f"❌ Le compte Riot **{name}#{tag}** est deja lie a un autre "
-                "membre du serveur. Un compte Riot ne peut etre lie qu'a un "
-                "seul compte Discord par serveur.",
+                f"❌ The Riot account **{name}#{tag}** is already linked to another "
+                "member of the server. A Riot account can only be linked to "
+                "a single Discord account per server.",
                 ephemeral=True,
             )
             return
 
-        # 3) Persister la metadata Riot (utilisee pour la queue gate-keep
-        # et la verification post-match via HenrikDev). Aucun seed ELO :
-        # l'ELO de chaque queue demarre a ELO_START au premier match.
-        # DuplicateKeyError : course condition avec un autre Discord qui
-        # linke le meme PUUID en parallele. L'index unique sur puuid
-        # protege la data - on remonte le meme message friendly que le
-        # check de dedup ci-dessus.
+        # 3) Persist the Riot metadata (used for queue gate-keeping and
+        # post-match verification via HenrikDev). No ELO seed: each
+        # queue's ELO starts at ELO_START on the first match.
+        # DuplicateKeyError: race condition with another Discord linking
+        # the same PUUID in parallel. The unique index on puuid protects
+        # the data - we return the same friendly message as the dedup
+        # check above.
         try:
             repository.link_riot_account(
                 self.db,
@@ -137,36 +137,36 @@ class RiotLinkCog(commands.Cog):
             )
         except DuplicateKeyError:
             await interaction.followup.send(
-                f"❌ Le compte Riot **{name}#{tag}** est deja lie a un autre "
-                "membre du serveur. Un compte Riot ne peut etre lie qu'a un "
-                "seul compte Discord par serveur.",
+                f"❌ The Riot account **{name}#{tag}** is already linked to another "
+                "member of the server. A Riot account can only be linked to "
+                "a single Discord account per server.",
                 ephemeral=True,
             )
             return
 
-        # 5) Embed de confirmation
+        # 5) Confirmation embed
         embed = discord.Embed(
-            title="🎯 Compte Riot lie !",
+            title="🎯 Riot account linked!",
             color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
         embed.add_field(name="Riot ID", value=f"**{name}#{tag}**", inline=True)
         embed.add_field(name="Region", value=region.upper(), inline=True)
-        embed.add_field(name="Rang actuel", value=mmr.tier_name, inline=True)
+        embed.add_field(name="Current rank", value=mmr.tier_name, inline=True)
         embed.set_footer(text=f"Discord: {interaction.user.display_name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /unlink-riot ──────────────────────────────────────────────
-    @app_commands.command(name="unlink-riot", description="Supprime le lien avec ton compte Riot")
+    @app_commands.command(name="unlink-riot", description="Remove the link to your Riot account")
     async def unlink_riot(self, interaction: discord.Interaction) -> None:
         ok = repository.unlink_riot_account(
             self.db,
             interaction.user.id,
         )
         if ok:
-            await interaction.response.send_message("✅ Compte Riot delie.", ephemeral=True)
+            await interaction.response.send_message("✅ Riot account unlinked.", ephemeral=True)
         else:
-            await interaction.response.send_message("ℹ️ Aucun compte Riot lie.", ephemeral=True)
+            await interaction.response.send_message("ℹ️ No Riot account linked.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot, db, riot_client: HenrikDevClient) -> None:

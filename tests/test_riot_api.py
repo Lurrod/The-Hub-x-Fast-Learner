@@ -1,6 +1,6 @@
 """
-Tests du client HenrikDev avec mocks de requests.Session.
-On NE fait JAMAIS d'appel reseau reel ici.
+Tests of the HenrikDev client with requests.Session mocks.
+We NEVER make a real network call here.
 """
 
 from datetime import datetime, UTC
@@ -71,7 +71,7 @@ def test_network_error_wrapped_as_riot_api_error():
     session = MagicMock()
     session.get.side_effect = _requests.ConnectionError("DNS fail")
     client = HenrikDevClient(session=session)
-    with pytest.raises(RiotApiError, match="reseau"):
+    with pytest.raises(RiotApiError, match="Network"):
         client.get_account("X", "1")
 
 
@@ -115,7 +115,7 @@ def test_get_current_mmr_handles_missing_fields():
 def test_get_current_mmr_rejects_invalid_region():
     session = _make_session(_mock_response(200))
     client = HenrikDevClient(session=session)
-    with pytest.raises(ValueError, match="Region"):
+    with pytest.raises(ValueError, match="region"):
         client.get_current_mmr("middle-earth", "X", "1")
 
 
@@ -200,12 +200,12 @@ def test_cache_avoids_double_api_calls():
     client.get_account("Player", "EUW")
     client.get_account("Player", "EUW")
 
-    # 1 seul appel HTTP, les 2 suivants viennent du cache
+    # Single HTTP call, the next 2 come from the cache
     assert session.get.call_count == 1
 
 
 def test_cache_distinct_keys():
-    """Pseudo different = cle different = pas de hit."""
+    """Different nickname = different key = no hit."""
     session = MagicMock()
     session.get.side_effect = [
         _mock_response(200, {"status": 200, "data": {"puuid": "alice"}}),
@@ -232,8 +232,8 @@ def test_clear_cache_forces_refresh():
 
 
 def test_get_match_history_bypasses_cache():
-    """Le polling de match_history doit toujours faire un appel reseau frais.
-    Sans bypass, le 1er retry renverrait stale 'pas encore indexe' pendant 1h."""
+    """match_history polling must always issue a fresh network call.
+    Without bypass, the 1st retry would return stale 'not yet indexed' for 1h."""
     session = MagicMock()
     session.get.side_effect = [
         _mock_response(200, {"status": 200, "data": []}),
@@ -268,7 +268,7 @@ def test_get_match_history_bypasses_cache():
 
 
 def test_get_match_history_does_not_pollute_cache():
-    """Apres un appel match_history, aucune entree n'est ajoutee au cache."""
+    """After a match_history call, no entry is added to the cache."""
     session = _make_session(_mock_response(200, {"status": 200, "data": []}))
     client = HenrikDevClient(session=session)
     client.get_match_history("eu", "Player", "EUW", mode="custom")

@@ -1,12 +1,12 @@
 """
-Verification d'un match du bot via HenrikDev API et calcul des multiplicateurs
-ACS pour ajustement individualise de l'ELO.
+Verification of a bot match via the HenrikDev API and computation of ACS
+multipliers for per-player ELO adjustment.
 
-Flux :
-  1. Recuperer l'historique custom recent du lobby leader.
-  2. Trouver le match contenant les 10 puuids attendus, demarre apres `after`.
-  3. Calculer l'ACS de chaque joueur et son multiplicateur (clampe [0.7, 1.3])
-     par rapport a la moyenne d'equipe.
+Flow:
+  1. Fetch the recent custom match history of the lobby leader.
+  2. Find the match containing the 10 expected puuids, started after `after`.
+  3. Compute each player's ACS and their multiplier (clamped to [0.7, 1.3])
+     relative to the team average.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class PlayerPerformance:
 class VerifiedMatch:
     matchid: str
     started_at: datetime
-    winning_team: str  # "Red" ou "Blue" (vide si nul)
+    winning_team: str  # "Red" or "Blue" (empty if draw)
     performances: tuple[PlayerPerformance, ...]
 
 
@@ -56,8 +56,8 @@ def find_henrik_custom_match(
     after: datetime,
     history_size: int = 10,
 ) -> MatchSummary | None:
-    """Cherche un match custom du `leader` qui contient `expected_puuids` et
-    qui a demarre apres `after`. Retourne le `MatchSummary` ou None.
+    """Look up a custom match of `leader` that contains `expected_puuids`
+    and started after `after`. Returns the `MatchSummary` or None.
     """
     try:
         history = client.get_match_history(
@@ -89,16 +89,16 @@ def compute_acs_multipliers(
     mult_min: float = DEFAULT_MULT_MIN,
     mult_max: float = DEFAULT_MULT_MAX,
 ) -> VerifiedMatch:
-    """Calcule l'ACS et le multiplicateur clampe pour chaque joueur, en se
-    basant sur la moyenne d'equipe (cote Henrik : Red / Blue, mappee aux
-    teams a/b du bot via les puuids fournis)."""
+    """Compute the ACS and clamped multiplier for each player, based on
+    the team average (Henrik side: Red / Blue, mapped to the bot's
+    teams a/b via the provided puuids)."""
     rounds = max(match.rounds_played, 1)
     if match.rounds_red > match.rounds_blue:
         winning = "Red"
     elif match.rounds_blue > match.rounds_red:
         winning = "Blue"
     else:
-        winning = ""  # nul, edge case
+        winning = ""  # draw, edge case
 
     by_puuid: dict[str, MatchPlayerStats] = {p.puuid: p for p in match.players}
 
@@ -106,7 +106,7 @@ def compute_acs_multipliers(
     for team_uids in (team_a_uid_by_puuid, team_b_uid_by_puuid):
         labels = {by_puuid[pu].team for pu in team_uids if pu in by_puuid}
         if len(labels) != 1:
-            continue  # equipe incoherente cote Henrik
+            continue  # inconsistent team on the Henrik side
         side = next(iter(labels))
 
         team_acs = [by_puuid[pu].score / rounds for pu in team_uids if pu in by_puuid]

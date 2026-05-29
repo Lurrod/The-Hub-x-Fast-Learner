@@ -10,7 +10,7 @@ from pymongo import MongoClient
 DB_NAME = "elobot"
 MATCHES_COLL = "matches"
 
-# Doit rester aligne avec services.repository._ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE
+# Must stay aligned with services.repository._ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE
 ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE: tuple[str, ...] = (
     "pending",
     "validated_a",
@@ -21,25 +21,25 @@ ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE: tuple[str, ...] = (
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Diagnostic READ-ONLY : matchs bloquant des joueurs dans le queue gate.",
+        description="READ-ONLY diagnostic: matches blocking players in the queue gate.",
     )
     p.add_argument(
         "--guild",
         type=int,
         default=None,
-        help="Filtre sur un origin_guild_id (defaut: toutes les guilds)",
+        help="Filter on a single origin_guild_id (default: all guilds)",
     )
     p.add_argument(
         "--status",
         choices=ACTIVE_MATCH_STATUSES_FOR_QUEUE_GATE,
         default=None,
-        help="Filtre sur un status precis",
+        help="Filter on a specific status",
     )
     p.add_argument(
         "--older-than-hours",
         type=float,
         default=0.0,
-        help="Garde uniquement les matches plus vieux que N heures",
+        help="Keep only matches older than N hours",
     )
     return p.parse_args()
 
@@ -48,7 +48,7 @@ def main() -> int:
     args = parse_args()
     mongo_url = os.environ.get("MONGO_URL")
     if not mongo_url:
-        print("[ERREUR] MONGO_URL non defini", file=sys.stderr)
+        print("[ERROR] MONGO_URL not set", file=sys.stderr)
         return 2
 
     client: MongoClient = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
@@ -68,7 +68,7 @@ def main() -> int:
         query["created_at"] = {"$lt": cutoff}
 
     docs = list(matches.find(query).sort("created_at", 1))
-    print(f"[INFO] {len(docs)} match(s) actif(s) sans ELO applique\n")
+    print(f"[INFO] {len(docs)} active match(es) without applied ELO\n")
 
     blocked_ids: set[int] = set()
     by_status: dict[str, int] = {}
@@ -90,10 +90,10 @@ def main() -> int:
         print(f"    team_a={team_a}")
         print(f"    team_b={team_b}")
 
-    print("\n[RESUME]")
+    print("\n[SUMMARY]")
     for s, n in sorted(by_status.items()):
         print(f"  {s:<13} : {n}")
-    print(f"  joueurs bloques (uniques) : {len(blocked_ids)}")
+    print(f"  blocked players (unique)  : {len(blocked_ids)}")
     if blocked_ids:
         print(f"  ids                       : {sorted(blocked_ids)}")
     return 0

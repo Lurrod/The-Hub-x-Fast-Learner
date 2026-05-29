@@ -1,10 +1,10 @@
 """
-Cog moderation : commandes /warn et /warn-list.
+Moderation cog: /warn and /warn-list commands.
 
-Reserve aux roles de moderation (Head Administrators, Administrators,
-Modo Pro Queue, Moderators, THE HUB) OU aux membres avec la permission
-Discord manage_guild. Les warns sont stockes par guild dans la collection
-`warns_{guild_id}`.
+Reserved for moderation roles (FAST LEARNER x The Hub, ADMINISTRATORS,
+FL STAFF PRO, FL STAFF SEMIPRO, FL STAFF GC) OR members with the
+Discord manage_guild permission. Warns are stored per guild in the
+`warns_{guild_id}` collection.
 """
 
 from __future__ import annotations
@@ -22,20 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 WARN_ROLE_NAMES: tuple[str, ...] = (
-    "Head Administrators",
-    "Administrators",
-    "Modo Pro Queue",
-    "Moderators",
-    "THE HUB",
+    "FAST LEARNER x The Hub",
+    "ADMINISTRATORS",
+    "FL STAFF PRO",
+    "FL STAFF SEMIPRO",
+    "FL STAFF GC",
 )
 
-WARN_MESSAGE = "Vous venez de recevoir un warn, au prochain, vous serez sanctionné."
+WARN_MESSAGE = "You just received a warn. On the next one, you will be sanctioned."
 
 WARN_LIST_PAGE_SIZE = 10
 
 
 def _has_warn_access(user: discord.Member) -> bool:
-    """manage_guild OU role dont le nom est dans WARN_ROLE_NAMES."""
+    """manage_guild OR role whose name is in WARN_ROLE_NAMES."""
     perms = getattr(user, "guild_permissions", None)
     if perms is not None and getattr(perms, "manage_guild", False):
         return True
@@ -54,11 +54,11 @@ class ModerationCog(commands.Cog):
     # ── /warn ──────────────────────────────────────────────────
     @app_commands.command(
         name="warn",
-        description="Avertit un utilisateur par DM avec une raison.",
+        description="Warn a user via DM with a reason.",
     )
     @app_commands.describe(
-        member="Le membre a avertir",
-        reason="La raison du warn",
+        member="The member to warn",
+        reason="The reason for the warn",
     )
     async def warn(
         self,
@@ -68,41 +68,41 @@ class ModerationCog(commands.Cog):
     ) -> None:
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                "❌ Commande utilisable uniquement dans un serveur.",
+                "❌ Command usable only inside a server.",
                 ephemeral=True,
             )
             return
 
         if not _has_warn_access(interaction.user):
             await interaction.response.send_message(
-                "❌ Tu n'as pas la permission d'utiliser cette commande.",
+                "❌ You do not have permission to use this command.",
                 ephemeral=True,
             )
             return
 
         if member.bot:
             await interaction.response.send_message(
-                "❌ Impossible de warn un bot.",
+                "❌ Cannot warn a bot.",
                 ephemeral=True,
             )
             return
 
         if member.id == interaction.user.id:
             await interaction.response.send_message(
-                "❌ Tu ne peux pas te warn toi-meme.",
+                "❌ You cannot warn yourself.",
                 ephemeral=True,
             )
             return
 
         embed = discord.Embed(
-            title="⚠️ Avertissement",
+            title="⚠️ Warning",
             description=WARN_MESSAGE,
             color=0xE74C3C,
             timestamp=datetime.now(UTC),
         )
-        embed.add_field(name="Raison", value=reason, inline=False)
+        embed.add_field(name="Reason", value=reason, inline=False)
         if interaction.guild is not None:
-            embed.set_footer(text=f"Serveur : {interaction.guild.name}")
+            embed.set_footer(text=f"Server: {interaction.guild.name}")
 
         dm_failed = False
         try:
@@ -110,18 +110,18 @@ class ModerationCog(commands.Cog):
         except discord.Forbidden:
             dm_failed = True
             logger.info(
-                "[warn] DM fermes pour %s (id=%s) - warn par %s",
+                "[warn] DMs closed for %s (id=%s) - warn by %s",
                 member.display_name,
                 member.id,
                 interaction.user.display_name,
             )
         except discord.HTTPException:
-            # Erreur transitoire (rate-limit, 5xx) : on log et on persiste
-            # quand meme - perdre le warn pour un blip reseau serait pire
-            # que ne pas avoir prevenu l'utilisateur. dm_failed=True =>
-            # message final indique l'echec DM.
+            # Transient error (rate-limit, 5xx): we log and still
+            # persist - losing the warn for a network blip would be
+            # worse than not having notified the user. dm_failed=True =>
+            # final message indicates the DM failure.
             dm_failed = True
-            logger.exception("[warn] echec envoi DM a %s (HTTP)", member.id)
+            logger.exception("[warn] failed to send DM to %s (HTTP)", member.id)
 
         try:
             repository.add_warn(
@@ -134,27 +134,27 @@ class ModerationCog(commands.Cog):
                 reason=reason,
             )
         except Exception:
-            logger.exception("[warn] echec persistance MongoDB pour %s", member.id)
+            logger.exception("[warn] MongoDB persistence failed for %s", member.id)
             await interaction.response.send_message(
-                "❌ Erreur lors de l'enregistrement du warn.",
+                "❌ Error while saving the warn.",
                 ephemeral=True,
             )
             return
 
         if dm_failed:
             await interaction.response.send_message(
-                f"⚠️ Warn enregistre pour {member.mention} mais DM impossible "
-                f"(DM fermes).\n**Raison :** {reason}",
+                f"⚠️ Warn saved for {member.mention} but DM impossible "
+                f"(DMs closed).\n**Reason:** {reason}",
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                f"✅ {member.mention} a recu un warn.\n**Raison :** {reason}",
+                f"✅ {member.mention} received a warn.\n**Reason:** {reason}",
                 ephemeral=True,
             )
 
         logger.info(
-            "[warn] %s a warn %s - raison: %s",
+            "[warn] %s warned %s - reason: %s",
             interaction.user.display_name,
             member.display_name,
             reason,
@@ -163,10 +163,10 @@ class ModerationCog(commands.Cog):
     # ── /warn-list ──────────────────────────────────────────────
     @app_commands.command(
         name="warn-list",
-        description="Affiche la liste des warns envoyes sur ce serveur.",
+        description="Display the list of warns issued on this server.",
     )
     @app_commands.describe(
-        member="Filtrer par membre (optionnel)",
+        member="Filter by member (optional)",
     )
     async def warn_list(
         self,
@@ -175,14 +175,14 @@ class ModerationCog(commands.Cog):
     ) -> None:
         if not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message(
-                "❌ Commande utilisable uniquement dans un serveur.",
+                "❌ Command usable only inside a server.",
                 ephemeral=True,
             )
             return
 
         if not _has_warn_access(interaction.user):
             await interaction.response.send_message(
-                "❌ Tu n'as pas la permission d'utiliser cette commande.",
+                "❌ You do not have permission to use this command.",
                 ephemeral=True,
             )
             return
@@ -195,14 +195,14 @@ class ModerationCog(commands.Cog):
         )
 
         title = (
-            f"📋 Warns de {member.display_name}" if member is not None else "📋 Warns du serveur"
+            f"📋 Warns for {member.display_name}" if member is not None else "📋 Server warns"
         )
 
         if not warns:
             empty_msg = (
-                f"Aucun warn enregistre pour {member.mention}."
+                f"No warn recorded for {member.mention}."
                 if member is not None
-                else "Aucun warn enregistre sur ce serveur."
+                else "No warn recorded on this server."
             )
             embed = discord.Embed(
                 title=title,
@@ -218,7 +218,7 @@ class ModerationCog(commands.Cog):
             timestamp=datetime.now(UTC),
         )
         embed.set_footer(
-            text=f"{len(warns)} warn(s) affiche(s) (max {WARN_LIST_PAGE_SIZE})",
+            text=f"{len(warns)} warn(s) shown (max {WARN_LIST_PAGE_SIZE})",
         )
 
         for warn in warns:
@@ -229,7 +229,7 @@ class ModerationCog(commands.Cog):
             reason = _truncate(str(warn.get("reason", "")), 200)
             embed.add_field(
                 name=f"{ts_str} - {target}",
-                value=f"**Par :** {moderator}\n**Raison :** {reason}",
+                value=f"**By:** {moderator}\n**Reason:** {reason}",
                 inline=False,
             )
 

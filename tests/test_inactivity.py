@@ -1,6 +1,6 @@
-"""Tests : classement des joueurs par inactivite (commande /inactivity).
+"""Tests: player inactivity ranking (the /inactivity command).
 
-Logique pure, sans dependance Discord ni MongoDB.
+Pure logic, no Discord or MongoDB dependency.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -72,7 +72,7 @@ def test_empty_input():
 
 
 def test_naive_last_played_treated_as_utc():
-    # Naive datetime 1 day old vs aware 1h old -> naive plus inactif -> en tete.
+    # Naive datetime 1 day old vs aware 1h old -> naive is more inactive -> first.
     naive = _doc("Naive", datetime(2026, 5, 24, 12, 0, 0))
     aware = _doc("Aware", NOW - timedelta(hours=1))
     ranked = rank_by_inactivity([aware, naive])
@@ -83,7 +83,7 @@ def test_naive_last_played_treated_as_utc():
 
 
 def test_format_never_played():
-    assert format_inactivity(None, NOW) == "jamais joué"
+    assert format_inactivity(None, NOW) == "never played"
 
 
 def test_format_days_hours_minutes():
@@ -101,11 +101,11 @@ def test_format_negative_clamped():
 
 
 def test_format_naive_last_played():
-    last = datetime(2026, 5, 24, 12, 0, 0)  # naive, 1 jour avant NOW
+    last = datetime(2026, 5, 24, 12, 0, 0)  # naive, 1 day before NOW
     assert format_inactivity(last, NOW) == "1d 0h 0m"
 
 
-# ── integration : docs reels via get_elo_col (mongomock) ─────
+# -- integration: real docs via get_elo_col (mongomock) --
 
 
 def _insert(col, uid, *, last_played, queue_type="pro"):
@@ -127,13 +127,13 @@ def test_ranking_over_real_elo_docs_and_queue_isolation():
     db = mongomock.MongoClient(tz_aware=True).db
     col = get_elo_col(db)
     _insert(col, 1, last_played=NOW - timedelta(days=2))  # recent
-    _insert(col, 2, last_played=None)  # jamais joue -> en tete
-    _insert(col, 3, last_played=NOW - timedelta(days=30))  # le plus ancien (joue)
-    _insert(col, 99, last_played=None, queue_type="open")  # autre queue, exclu
+    _insert(col, 2, last_played=None)  # never played -> first
+    _insert(col, 3, last_played=NOW - timedelta(days=30))  # the oldest (played)
+    _insert(col, 99, last_played=None, queue_type="open")  # other queue, excluded
 
     docs = list(col.find({"queue_type": "pro"}))
     ranked = rank_by_inactivity(docs)
 
     assert [d["user_id"] for d in ranked] == ["2", "3", "1"]
-    # le mention se reconstruit aussi depuis le _id compound
+    # mention also rebuilds from the compound _id
     assert str(ranked[1]["_id"]).rsplit(":", 1)[0] == "3"

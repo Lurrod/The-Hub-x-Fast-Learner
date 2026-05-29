@@ -1,4 +1,4 @@
-"""Tests du cog riot_link : /link-riot, /unlink-riot, /refresh-elo."""
+"""Tests for the riot_link cog: /link-riot, /unlink-riot, /refresh-elo."""
 
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock
@@ -66,7 +66,7 @@ async def test_link_riot_invalid_format():
 
     inter.response.send_message.assert_awaited_once()
     args, kwargs = inter.response.send_message.call_args
-    assert "Format invalide" in args[0]
+    assert "Invalid format" in args[0]
     assert kwargs.get("ephemeral") is True
 
 
@@ -84,7 +84,7 @@ async def test_link_riot_player_not_found():
     inter.response.defer.assert_awaited_once()
     inter.followup.send.assert_awaited_once()
     args, kwargs = inter.followup.send.call_args
-    assert "introuvable" in args[0]
+    assert "not found" in args[0]
 
 
 async def test_link_riot_rate_limited():
@@ -123,19 +123,19 @@ async def test_link_riot_persists_metadata_without_seeding_elo():
     assert doc["puuid"] == "abc"
     assert doc["source"] == "link_base"
 
-    # Aucun seed ELO : la collection partagée `elo` reste vide tant que le
-    # joueur n'a pas joue dans une queue.
+    # No ELO seed: the shared `elo` collection stays empty until the
+    # player has played in a queue.
     assert repository.get_elo_col(bot_module.db).count_documents({}) == 0
 
     embed = inter.followup.send.call_args.kwargs["embed"]
     fields = {f.name: f.value for f in embed.fields}
     assert fields["Riot ID"] == "**Player#EUW**"
-    # Pas de champ "ELO serveur" : on n'expose plus de chiffre apres link.
-    assert "ELO serveur" not in fields
+    # No "Server ELO" field: we no longer expose a number after linking.
+    assert "Server ELO" not in fields
 
 
 async def test_link_riot_accepts_any_rank():
-    """Aucun gate-keeping rang : link sans condition de rang Riot."""
+    """No rank gate-keeping: link without any Riot rank condition."""
     import bot as bot_module
 
     client = _fake_riot_client(
@@ -150,17 +150,17 @@ async def test_link_riot_accepts_any_rank():
     from services import repository
 
     assert repository.get_riot_account(bot_module.db, 1) is not None
-    # Aucun seed ELO meme pour un Iron : on persiste seulement la metadata.
+    # No ELO seed even for an Iron: we only persist metadata.
     assert repository.get_elo_col(bot_module.db).count_documents({}) == 0
 
 
 async def test_link_riot_does_not_touch_existing_elo():
-    """Si un doc ELO existe deja (autre queue, ancien match), /link ne le
-    modifie pas. Le link n'a aucune incidence sur les ELO accumulees."""
+    """If an ELO doc already exists (other queue, previous match), /link
+    does not modify it. The link does not affect accumulated ELOs."""
     import bot as bot_module
     from services import repository
 
-    # ELO existante dans la queue Open (compound _id <user>:open)
+    # Existing ELO in the Open queue (compound _id <user>:open)
     repository.get_elo_col(bot_module.db).insert_one(
         {
             "_id": "1:open",
@@ -184,7 +184,7 @@ async def test_link_riot_does_not_touch_existing_elo():
 
     await cog.link_riot.callback(cog, inter, riot_id="Player#EUW")
 
-    # Le doc ELO existant n'a pas bouge.
+    # The existing ELO doc did not move.
     elo_doc = repository.get_elo_col(bot_module.db).find_one({"_id": "1:open"})
     assert elo_doc["elo"] == 2200
     assert elo_doc["wins"] == 5
@@ -192,7 +192,7 @@ async def test_link_riot_does_not_touch_existing_elo():
 
 
 async def test_link_unlink_relink_does_not_change_elo():
-    """/link, /unlink, /link n'a aucune incidence sur l'ELO accumulee."""
+    """/link, /unlink, /link has no impact on the accumulated ELO."""
     import bot as bot_module
     from services import repository
 
@@ -244,7 +244,7 @@ async def test_unlink_riot_when_linked():
     await cog.unlink_riot.callback(cog, inter)
 
     args, _ = inter.response.send_message.call_args
-    assert "delie" in args[0]
+    assert "unlinked" in args[0].lower()
     assert repository.get_riot_account(bot_module.db, 1) is None
 
 
@@ -256,4 +256,4 @@ async def test_unlink_riot_when_not_linked():
     await cog.unlink_riot.callback(cog, inter)
 
     args, _ = inter.response.send_message.call_args
-    assert "Aucun" in args[0]
+    assert "No Riot account" in args[0]

@@ -1,4 +1,4 @@
-"""Tests du systeme de vote (Phase 5)."""
+"""Tests for the voting system (Phase 5)."""
 
 from datetime import datetime, timedelta, UTC
 from unittest.mock import AsyncMock, MagicMock
@@ -27,7 +27,7 @@ def _fake_guild(guild_id: int = 42, roles=None, channel=None):
     g.name = "TestGuild"
     g.roles = roles or []
     g.get_channel = lambda cid: channel
-    g.get_member = lambda uid: None  # par defaut : leader/players non resolus
+    g.get_member = lambda uid: None  # default: leader/players not resolved
     if channel is not None:
         channel.name = "elo-adding"
         g.text_channels = [channel]
@@ -66,7 +66,7 @@ def _seed_match(
     )
 
 
-# ── Vote : refus ──────────────────────────────────────────────────
+# -- Vote: refusals --
 async def test_vote_when_no_match_for_message():
     import bot as bot_module
 
@@ -76,7 +76,7 @@ async def test_vote_when_no_match_for_message():
     await view.vote_a.callback(inter)
 
     args, kwargs = inter.response.send_message.call_args
-    assert "introuvable" in args[0]
+    assert "not found" in args[0]
     assert kwargs.get("ephemeral") is True
 
 
@@ -85,13 +85,13 @@ async def test_vote_when_user_did_not_play_match_refused():
 
     _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
-    # User 99 n'a pas joue
+    # User 99 did not play
     inter = _fake_interaction(_fake_member(99), _fake_guild())
 
     await view.vote_a.callback(inter)
 
     args, _ = inter.response.send_message.call_args
-    assert "n'as pas joue" in args[0]
+    assert "did not play" in args[0]
     inter.response.edit_message.assert_not_awaited()
 
 
@@ -106,10 +106,10 @@ async def test_vote_on_validated_match_refused():
     await view.vote_a.callback(inter)
 
     args, _ = inter.response.send_message.call_args
-    assert "deja valide" in args[0]
+    assert "already validated" in args[0]
 
 
-# ── Vote : enregistrement ─────────────────────────────────────────
+# -- Vote: recording --
 async def test_vote_recorded_in_db():
     import bot as bot_module
 
@@ -131,10 +131,10 @@ async def test_vote_can_be_changed():
     match_id = _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
-    # User 3 vote A
+    # User 3 votes A
     inter1 = _fake_interaction(_fake_member(3), _fake_guild())
     await view.vote_a.callback(inter1)
-    # Puis change pour B
+    # Then switches to B
     inter2 = _fake_interaction(_fake_member(3), _fake_guild())
     await view.vote_b.callback(inter2)
 
@@ -142,14 +142,14 @@ async def test_vote_can_be_changed():
     assert match["votes"] == {"3": "b"}
 
 
-# ── Majorite ──────────────────────────────────────────────────────
+# -- Majority --
 async def test_six_votes_for_a_keeps_pending():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
     view = VoteView(bot_module.db)
 
-    for uid in range(6):  # joueurs 0..5 votent A (6 votes)
+    for uid in range(6):  # players 0..5 vote A (6 votes)
         inter = _fake_interaction(_fake_member(uid), _fake_guild())
         await view.vote_a.callback(inter)
 
@@ -171,7 +171,7 @@ async def test_seven_votes_for_a_validates_match():
 
     view = VoteView(bot_module.db, on_validated=on_validated)
 
-    for uid in range(MAJORITY_THRESHOLD):  # 7 joueurs votent A
+    for uid in range(MAJORITY_THRESHOLD):  # 7 players vote A
         inter = _fake_interaction(_fake_member(uid), _fake_guild())
         await view.vote_a.callback(inter)
 
@@ -179,7 +179,7 @@ async def test_seven_votes_for_a_validates_match():
     assert match["status"] == "validated_a"
     assert match["validated_at"] is not None
 
-    # on_validated a ete appele 1 seule fois (au 7e vote)
+    # on_validated was called only once (on the 7th vote)
     assert len(triggered) == 1
     assert triggered[0]["status"] == "validated_a"
 
@@ -199,7 +199,7 @@ async def test_seven_votes_for_b_validates_b():
 
 
 async def test_validated_view_removed_from_message():
-    """Apres validation : view=None passe a edit_message (boutons enleves)."""
+    """After validation: view=None is passed to edit_message (buttons removed)."""
     import bot as bot_module
 
     _seed_match(bot_module.db)
@@ -215,7 +215,7 @@ async def test_validated_view_removed_from_message():
     assert last_call.kwargs["view"] is None
 
 
-# ── Embed : reflete les votes ─────────────────────────────────────
+# -- Embed: reflects the votes --
 async def test_embed_shows_current_vote_counts():
     import bot as bot_module
 
@@ -244,7 +244,7 @@ def test_build_embed_from_doc_pending():
         "votes": {"0": "a", "1": "a"},
     }
     embed = build_match_embed_from_doc(doc, "G")
-    assert "reportez le vainqueur" in embed.title.lower()
+    assert "report the winner" in embed.title.lower()
     votes_field = next(f for f in embed.fields if "Votes" in f.name)
     assert "**2**" in votes_field.value
 
@@ -260,7 +260,7 @@ def test_build_embed_from_doc_validated_a():
         "votes": {str(i): "a" for i in range(7)},
     }
     embed = build_match_embed_from_doc(doc, "G")
-    assert "Team A a gagne" in embed.title
+    assert "Team A won" in embed.title
 
 
 def test_build_embed_from_doc_contested():
@@ -277,11 +277,11 @@ def test_build_embed_from_doc_contested():
     assert "admin" in embed.title.lower()
 
 
-# ── Timeout ───────────────────────────────────────────────────────
+# -- Timeout --
 async def test_timeout_marks_pending_match_contested():
     import bot as bot_module
 
-    # Crée un match expiré (au-delà du timeout)
+    # Create an expired match (past the timeout)
     match_id = _seed_match(bot_module.db)
     bot_module.db["matches"].update_one(
         {"_id": match_id},
@@ -291,7 +291,7 @@ async def test_timeout_marks_pending_match_contested():
     channel = MagicMock()
     channel.send = AsyncMock()
     admin_role = MagicMock()
-    admin_role.name = "Admin"
+    admin_role.name = "ADMINISTRATORS"
     admin_role.mention = "@AdminRole"
     guild = _fake_guild(roles=[admin_role], channel=channel)
 
@@ -307,9 +307,9 @@ async def test_timeout_marks_pending_match_contested():
 
 
 async def test_timeout_self_heals_pending_with_majority_a():
-    """Si un match `pending` expire mais a deja 7+ votes A (transition
-    perdue suite a crash / erreur), check_vote_timeouts doit le passer
-    en `validated_a` au lieu de `contested`."""
+    """If a `pending` match expires but already has 7+ A votes (transition
+    lost due to crash / error), check_vote_timeouts must move it to
+    `validated_a` instead of `contested`."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -341,7 +341,7 @@ async def test_timeout_self_heals_pending_with_majority_a():
 
 
 async def test_timeout_self_heals_pending_with_majority_b():
-    """Symetrique : 7+ votes B -> validated_b."""
+    """Symmetric: 7+ B votes -> validated_b."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -372,7 +372,7 @@ async def test_timeout_self_heals_pending_with_majority_b():
 
 
 async def test_timeout_still_marks_contested_when_no_majority():
-    """Garde-fou : si total >= 7 mais reparti (ex 4-3), on contested."""
+    """Safety net: if total >= 7 but split (e.g. 4-3), we contest."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -390,7 +390,7 @@ async def test_timeout_still_marks_contested_when_no_majority():
     channel = MagicMock()
     channel.send = AsyncMock()
     admin_role = MagicMock()
-    admin_role.name = "Admin"
+    admin_role.name = "ADMINISTRATORS"
     admin_role.mention = "@AdminRole"
     guild = _fake_guild(roles=[admin_role], channel=channel)
 
@@ -407,7 +407,7 @@ async def test_timeout_still_marks_contested_when_no_majority():
     channel.send.assert_awaited_once()
     args, _ = channel.send.call_args
     assert "@AdminRole" in args[0]
-    assert "timeout" in args[0].lower()
+    assert "timed out" in args[0].lower()
 
 
 async def test_timeout_does_not_affect_validated():
@@ -455,7 +455,7 @@ async def test_timeout_does_not_affect_recent_match():
 
 
 async def test_timeout_with_injectable_now():
-    """Permet de simuler le passage du temps dans les tests."""
+    """Allow simulating time progression in tests."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -474,7 +474,7 @@ async def test_timeout_with_injectable_now():
 
 
 async def test_timeout_falls_back_when_no_admin_role():
-    """Si aucun role 'Admin' n'existe : on ping `@admin` en plain text."""
+    """If no 'Admin' role exists: we ping `@admin` in plain text."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -496,7 +496,7 @@ async def test_timeout_falls_back_when_no_admin_role():
     assert "@admin" in args[0]
 
 
-# ── Threshold const ──────────────────────────────────────────────
+# -- Threshold const --
 def test_majority_threshold_is_7():
     assert MAJORITY_THRESHOLD == 7
 
@@ -506,19 +506,18 @@ def test_timeout_minutes_is_90():
 
 
 async def test_vote_timeout_survives_cog_recreation():
-    """Le vote est entierement DB-state-driven : aucun etat in-memory du
-    cog ne doit etre necessaire pour qu'un vote stale soit timeout
-    correctement apres redemarrage du bot. On simule ca en creant un
-    match avec votes partiels, puis en instanciant un cog FRAIS (sans
-    historique) pour le traiter."""
+    """Voting is entirely DB-state-driven: no in-memory cog state must be
+    required for a stale vote to be correctly timed out after a bot
+    restart. We simulate this by creating a match with partial votes,
+    then instantiating a FRESH cog (without history) to process it."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    # Vote ouvert depuis longtemps avec 3 votes A + 2 votes B (sous le
-    # seuil de majorite). Si le bot ne se basait que sur l'etat en
-    # memoire (timer in-process, set in-memory de matches actifs), un
-    # redemarrage ferait "oublier" ce vote et le match resterait
-    # pending indefiniment. Le test verrouille la propriete inverse.
+    # Vote open for a long time with 3 A votes + 2 B votes (below the
+    # majority threshold). If the bot relied only on in-memory state
+    # (in-process timer, in-memory set of active matches), a restart
+    # would "forget" this vote and the match would stay pending
+    # indefinitely. The test locks the opposite property.
     partial_votes = {
         **{str(i): "a" for i in range(3)},
         **{str(i): "b" for i in range(3, 5)},
@@ -536,11 +535,11 @@ async def test_vote_timeout_survives_cog_recreation():
     channel = MagicMock()
     channel.send = AsyncMock()
     admin_role = MagicMock()
-    admin_role.name = "Admin"
+    admin_role.name = "ADMINISTRATORS"
     admin_role.mention = "@AdminRole"
     guild = _fake_guild(roles=[admin_role], channel=channel)
 
-    # Cog "frais" cree apres l'expiration du vote, comme apres reboot.
+    # "Fresh" cog created after the vote expires, like after a reboot.
     fresh_cog = MatchCog(bot_module.bot, bot_module.db)
     fresh_cog.bot = MagicMock()
     fresh_cog.bot.guilds = [guild]
@@ -550,11 +549,11 @@ async def test_vote_timeout_survives_cog_recreation():
 
     match = repository.get_match(bot_module.db, match_id)
     assert match["status"] == "contested"
-    # Les votes partiels d'avant le "reboot" sont preserves.
+    # Partial votes from before the "reboot" are preserved.
     assert match["votes"] == partial_votes
 
 
-# ── Phase 6 : MAJ ELO apres validation ────────────────────────────
+# -- Phase 6: ELO update after validation --
 def _seed_match_with_avg_2400(db, guild_id: int = 42, message_id: int = 555):
     return repository.create_match(
         db,
@@ -571,9 +570,9 @@ def _seed_match_with_avg_2400(db, guild_id: int = 42, message_id: int = 555):
 
 
 def _seed_db_elos(db, guild_id: int = 42, baseline: int = 2000) -> None:
-    """Seed elo_col pour 10 joueurs : reflete la situation production ou
-    chaque joueur a au moins LINK_BASE_ELO=2000 via /link-riot, evitant
-    le plancher zero-sum qui neutraliserait les gains gagnants."""
+    """Seed elo_col for 10 players: reflects the production situation
+    where each player has at least LINK_BASE_ELO=2000 via /link-riot,
+    avoiding the zero-sum floor that would neutralize winner gains."""
     col = repository.get_elo_col(db)
     for i in range(10):
         col.insert_one(
@@ -588,8 +587,8 @@ def _seed_db_elos(db, guild_id: int = 42, baseline: int = 2000) -> None:
 
 
 async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: int = 42):
-    """Helper : 7 votes pour `choice` puis applique ELO via _verify_match
-    (henrik_client=None -> fallback ELO plat, comme apres 10 min sans Henrik)."""
+    """Helper: 7 votes for `choice` then apply ELO via _verify_match
+    (henrik_client=None -> flat ELO fallback, like after 10 min without Henrik)."""
     view = cog.vote_view
     for uid in range(7):
         inter = _fake_interaction(_fake_member(uid), guild)
@@ -598,12 +597,12 @@ async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: i
         else:
             await view.vote_b.callback(inter)
     match_doc = repository.get_match(db, match_id)
-    # force_apply=True simule le passage du timeout Henrik (ELO plat)
+    # force_apply=True simulates passing the Henrik timeout (flat ELO)
     await cog._verify_match(guild, match_doc, force_apply=True)
 
 
 async def test_validation_triggers_elo_update_in_db():
-    """Apres _verify_match (sans Henrik) : 5 gagnants +15, 5 perdants -15."""
+    """After _verify_match (without Henrik): 5 winners +16, 5 losers -16."""
     import bot as bot_module
     from cogs.match import MatchCog
 
@@ -647,12 +646,12 @@ async def test_validation_sends_recap_embed():
     sent_embeds = [
         c.kwargs.get("embed") for c in channel.send.call_args_list if c.kwargs.get("embed")
     ]
-    assert any("Team A l'emporte" in (e.title or "") for e in sent_embeds)
-    recap = next(e for e in sent_embeds if "Team A l'emporte" in (e.title or ""))
+    assert any("Team A wins" in (e.title or "") for e in sent_embeds)
+    recap = next(e for e in sent_embeds if "Team A wins" in (e.title or ""))
     fields = {f.name: f.value for f in recap.fields}
-    assert any("Gagnants" in n for n in fields)
-    assert any("Perdants" in n for n in fields)
-    assert "+16" in fields["🟢 Gagnants"]  # flat fallback sans Henrik
+    assert any("Winners" in n for n in fields)
+    assert any("Losers" in n for n in fields)
+    assert "+16" in fields["🟢 Winners"]  # flat fallback without Henrik
 
 
 async def test_validation_with_high_elo_match_bigger_gain():
@@ -681,12 +680,12 @@ async def test_validation_with_high_elo_match_bigger_gain():
     await _vote_and_verify(cog, guild, match_id, choice="a", db=bot_module.db)
 
     elo_col = repository.get_elo_col(bot_module.db)
-    # Sans Henrik -> flat fallback +16 (independant de l'avg ELO du match).
+    # Without Henrik -> flat fallback +16 (independent of the match avg ELO).
     assert elo_col.find_one({"_id": "0:open"})["elo"] == 2016
 
 
 async def test_validated_b_distributes_correctly():
-    """7 votes B -> team_b gagne, team_a perd (apres _verify_match)."""
+    """7 votes B -> team_b wins, team_a loses (after _verify_match)."""
     import bot as bot_module
     from cogs.match import MatchCog
 
@@ -700,18 +699,18 @@ async def test_validated_b_distributes_correctly():
     await _vote_and_verify(cog, guild, match_id, choice="b", db=bot_module.db)
 
     elo_col = repository.get_elo_col(bot_module.db)
-    # team_b (5..9) gagnent +16 (flat sans Henrik) -> 2016
+    # team_b (5..9) wins +16 (flat without Henrik) -> 2016
     for i in range(5, 10):
         assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 2016
         assert elo_col.find_one({"_id": f"{i}:open"})["wins"] == 1
-    # team_a (0..4) perdent -16 -> 1984
+    # team_a (0..4) loses -16 -> 1984
     for i in range(5):
         assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 1984
         assert elo_col.find_one({"_id": f"{i}:open"})["losses"] == 1
 
 
 async def test_vote_validation_does_not_touch_elo():
-    """Garde-fou : le vote seul ne touche plus a l'ELO ; il faut _verify_match."""
+    """Safety net: the vote alone no longer touches the ELO; _verify_match is required."""
     import bot as bot_module
     from cogs.match import MatchCog
 
@@ -727,12 +726,12 @@ async def test_vote_validation_does_not_touch_elo():
         await cog.vote_view.vote_a.callback(inter)
 
     elo_col = repository.get_elo_col(bot_module.db)
-    # Aucun doc ELO cree : l'ELO sera applique uniquement par _verify_match.
+    # No ELO doc created: the ELO will be applied only by _verify_match.
     for i in range(10):
         assert elo_col.find_one({"_id": str(i)}) is None
 
 
-# ── Atomicite : transition_match_status (fix audit #2) ────────────
+# -- Atomicity: transition_match_status (audit fix #2) --
 def test_transition_match_status_succeeds_from_pending():
     import bot as bot_module
 
@@ -749,8 +748,8 @@ def test_transition_match_status_succeeds_from_pending():
 
 
 def test_transition_match_status_fails_when_already_validated():
-    """Garantie d'atomicite : si un autre vote concurrent a deja valide,
-    une seconde transition ne reussit pas (renvoie None)."""
+    """Atomicity guarantee: if another concurrent vote has already
+    validated, a second transition does not succeed (returns None)."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -766,8 +765,8 @@ def test_transition_match_status_fails_when_already_validated():
 
 
 async def test_concurrent_votes_only_fire_on_validated_once():
-    """Deux votes votant simultanement pour des camps opposes au seuil
-    ne doivent declencher `on_validated` qu'une seule fois."""
+    """Two votes voting concurrently for opposite sides at the threshold
+    must trigger `on_validated` only once."""
     import bot as bot_module
 
     _seed_match(bot_module.db)
@@ -780,21 +779,21 @@ async def test_concurrent_votes_only_fire_on_validated_once():
     view = VoteView(bot_module.db, on_validated=on_validated)
     guild = _fake_guild()
 
-    # 6 votes 'a', 6 votes 'b' (10 joueurs, vote modifiable pas necessaire ici).
-    # On atteint la majorite via 7 votes 'a' d'abord ; un 8e vote arrive ensuite
-    # pour 'b' alors que le match est deja valide -> ne doit pas re-tirer.
+    # 6 votes 'a', 6 votes 'b' (10 players, vote-change not needed here).
+    # We reach majority via 7 'a' votes first; an 8th vote then arrives
+    # for 'b' while the match is already validated -> must not re-fire.
     for uid in range(7):
         inter = _fake_interaction(_fake_member(uid), guild)
         await view.vote_a.callback(inter)
 
-    # Vote tardif pour 'b' (le match est deja validated_a)
+    # Late vote for 'b' (the match is already validated_a)
     inter = _fake_interaction(_fake_member(7), guild)
     await view.vote_b.callback(inter)
 
     assert fired == ["validated_a"]
 
 
-# ── Idempotence ELO : claim_match_for_elo (fix audit #3) ──────────
+# -- ELO idempotence: claim_match_for_elo (audit fix #3) --
 def test_claim_match_for_elo_succeeds_first_time():
     import bot as bot_module
 
@@ -807,7 +806,7 @@ def test_claim_match_for_elo_succeeds_first_time():
 
 
 def test_claim_match_for_elo_returns_none_when_already_claimed():
-    """Empeche la double-application d'ELO : seul le premier claim passe."""
+    """Prevent double ELO application: only the first claim passes."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -823,13 +822,12 @@ def test_claim_match_for_elo_rejects_non_validated_match():
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
-    # Status reste 'pending', pas de claim possible
+    # Status stays 'pending', no claim possible
     claim = repository.claim_match_for_elo(bot_module.db, match_id)
     assert claim is None
 
-
 def test_release_elo_claim_allows_retry():
-    """Si l'application ELO leve, on relache le claim pour re-essayer."""
+    """If ELO application raises, we release the claim to retry."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -842,8 +840,8 @@ def test_release_elo_claim_allows_retry():
 
 
 def test_find_validated_unverified_excludes_elo_applied():
-    """Un match dont l'ELO est deja applique ne doit pas re-apparaitre dans
-    la queue de verification (eviter le double credit)."""
+    """A match whose ELO has already been applied must not reappear in
+    the verification queue (avoid double credit)."""
     import bot as bot_module
 
     match_id = _seed_match(bot_module.db)
@@ -855,7 +853,7 @@ def test_find_validated_unverified_excludes_elo_applied():
     assert all(m["_id"] != match_id for m in matches)
 
 
-# ── Suppression catégorie après vote ─────────────────────────────
+# -- Category deletion after vote --
 async def test_vote_validated_deletes_match_category(monkeypatch):
     """When a vote is validated, the dynamic category is deleted."""
     import bot as bot_module
@@ -913,7 +911,7 @@ async def test_vote_disputed_does_not_delete_category(monkeypatch):
     channel = MagicMock()
     channel.send = AsyncMock()
     admin_role = MagicMock()
-    admin_role.name = "Admin"
+    admin_role.name = "ADMINISTRATORS"
     admin_role.mention = "@AdminRole"
     guild = _fake_guild(roles=[admin_role], channel=channel)
 

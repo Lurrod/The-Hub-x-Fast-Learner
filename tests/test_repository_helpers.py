@@ -12,11 +12,12 @@ from services.repository import (
 
 
 def test_queue_types_constant():
-    assert QUEUE_TYPES == ("pro", "open", "gc")
+    assert QUEUE_TYPES == ("pro", "semipro", "open", "gc")
 
 
 def test_is_valid_queue_type():
     assert is_valid_queue_type("pro")
+    assert is_valid_queue_type("semipro")
     assert is_valid_queue_type("open")
     assert is_valid_queue_type("gc")
     assert not is_valid_queue_type("PRO")
@@ -26,18 +27,21 @@ def test_is_valid_queue_type():
 
 def test_player_doc_id():
     assert player_doc_id(123, "pro") == "123:pro"
+    assert player_doc_id(123, "semipro") == "123:semipro"
     assert player_doc_id("456", "open") == "456:open"
     assert player_doc_id(789, "gc") == "789:gc"
 
 
 def test_active_queue_id():
     assert active_queue_id("pro") == "active:pro"
+    assert active_queue_id("semipro") == "active:semipro"
     assert active_queue_id("open") == "active:open"
     assert active_queue_id("gc") == "active:gc"
 
 
 def test_leaderboard_state_id():
     assert leaderboard_state_id("pro") == "current:pro"
+    assert leaderboard_state_id("semipro") == "current:semipro"
     assert leaderboard_state_id("open") == "current:open"
     assert leaderboard_state_id("gc") == "current:gc"
 
@@ -198,9 +202,9 @@ def test_create_match_persists_queue_type():
 
 
 def test_add_match_vote_coerces_user_id_to_numeric_field():
-    """La clef de `votes` est normalisee numeriquement : un id int et son
-    equivalent str produisent la meme clef, et un id non-numerique est
-    rejete avant d'atteindre Mongo (anti injection de chemin de champ)."""
+    """The `votes` key is normalized numerically: an int id and its str
+    equivalent produce the same key, and a non-numeric id is rejected
+    before reaching Mongo (anti field-path injection)."""
     from services.repository import add_match_vote
 
     db = mongomock.MongoClient(tz_aware=True).db
@@ -217,13 +221,13 @@ def test_add_match_vote_coerces_user_id_to_numeric_field():
         channel_id=100,
     )
 
-    # int et str numerique -> meme clef "3" (idempotent sur re-vote).
+    # int and numeric str -> same key "3" (idempotent on re-vote).
     add_match_vote(db, match_id, 3, "a")
     assert get_match(db, match_id=match_id)["votes"] == {"3": "a"}
     add_match_vote(db, match_id, "3", "b")
     assert get_match(db, match_id=match_id)["votes"] == {"3": "b"}
 
-    # Un id non-numerique (ex. tentative d'injection de chemin) est rejete.
+    # A non-numeric id (e.g. attempted path injection) is rejected.
     with pytest.raises(TypeError, match="user_id"):
         add_match_vote(db, match_id, "evil.$gt", "a")
 
@@ -299,7 +303,7 @@ def test_find_category_ids_with_cleanup_started_filters_by_guild(mongo_db):
         {"origin_guild_id": 1, "status": "pending", "category_id": 200}
     ).inserted_id
     matches.insert_one({"origin_guild_id": 2, "status": "validated_a", "category_id": 300})
-    # Match d'un autre guild marque cleanup -> ne doit PAS apparaitre.
+    # Match from another guild marked cleanup -> must NOT appear.
     c = matches.insert_one(
         {"origin_guild_id": 2, "status": "pending", "category_id": 400}
     ).inserted_id
@@ -321,16 +325,16 @@ def test_find_category_ids_with_cleanup_started_excludes_unmarked(mongo_db):
     get_matches_col(mongo_db).insert_one(
         {"origin_guild_id": 5, "status": "pending", "category_id": 777}
     )
-    # Pas de delete_started_at => non retourne meme si actif.
+    # No delete_started_at => not returned even if active.
     assert find_category_ids_with_cleanup_started(mongo_db, origin_guild_id=5) == set()
 
 
-# ── expire_stale_contested ─────────────────────────────────────────
-# Filet de securite : un match en "contested" reste dans le gate
-# find_active_match_for_player tant qu'un admin ne resout pas. Si admin
-# applique l'ELO via /win + /lose sans toucher au doc match, les 10
-# joueurs sont bloques indefiniment. expire_stale_contested transitionne
-# automatiquement les contested vieux de plus de cutoff_dt en cleaned_up.
+# -- expire_stale_contested --
+# Safety net: a "contested" match stays in the find_active_match_for_player
+# gate as long as no admin resolves it. If an admin applies the ELO via
+# /win + /lose without touching the match doc, the 10 players are
+# blocked indefinitely. expire_stale_contested automatically transitions
+# contested matches older than cutoff_dt to cleaned_up.
 
 
 def test_expire_stale_contested_marks_old_matches_cleaned_up(mongo_db):
@@ -389,7 +393,7 @@ def test_expire_stale_contested_skips_non_contested_statuses(mongo_db):
     n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
 
     assert n == 0
-    # Aucun doc ne doit avoir change de statut.
+    # No doc must have changed status.
     statuses = {d["status"] for d in matches.find({})}
     assert statuses == {"pending", "validated_a", "validated_b", "cancelled"}
 
@@ -413,7 +417,7 @@ def test_expire_stale_contested_scopes_by_guild(mongo_db):
 
     assert n == 1
     assert matches.find_one({"_id": g1})["status"] == "cleaned_up"
-    # Guild 2 NON touche.
+    # Guild 2 NOT touched.
     assert matches.find_one({"_id": g2})["status"] == "contested"
 
 
@@ -428,7 +432,7 @@ def test_expire_stale_contested_returns_count_for_multiple_docs(mongo_db):
     matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
     matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
     matches.insert_one({"origin_guild_id": 1, "status": "contested", "created_at": old})
-    # Un recent, doit etre skip.
+    # One recent, must be skipped.
     matches.insert_one(
         {"origin_guild_id": 1, "status": "contested", "created_at": now - timedelta(hours=2)}
     )

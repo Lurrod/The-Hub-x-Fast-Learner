@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-vrc-bot
+  group: deploy-fl-bot
   cancel-in-progress: false
 
 jobs:
@@ -87,7 +87,7 @@ jobs:
 
           mkdir -p logs
 
-          if pm2 describe vrc-bot >/dev/null 2>&1; then
+          if pm2 describe fl-bot >/dev/null 2>&1; then
             pm2 reload ecosystem.config.js --update-env
           else
             pm2 start ecosystem.config.js

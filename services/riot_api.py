@@ -1,15 +1,15 @@
 """
-Client HenrikDev API (Valorant unofficial).
+HenrikDev API client (unofficial Valorant).
 
-Endpoints utilises :
+Endpoints used:
   - GET /valorant/v1/account/{name}/{tag}
   - GET /valorant/v2/mmr/{region}/{name}/{tag}
   - GET /valorant/v1/mmr-history/{region}/{name}/{tag}
 
 Doc: https://docs.henrikdev.xyz/valorant.html
 
-Sans cle API : ~30 req/min. Avec cle (env HENRIK_API_KEY) : plus eleve.
-On cache les reponses 1h pour limiter les appels.
+Without an API key: ~30 req/min. With a key (env HENRIK_API_KEY): higher.
+We cache responses for 1h to limit calls.
 """
 
 from __future__ import annotations
@@ -28,23 +28,23 @@ import requests
 BASE_URL: Final[str] = "https://api.henrikdev.xyz/valorant"
 DEFAULT_TIMEOUT: Final[int] = 10
 CACHE_TTL_SECONDS: Final[int] = 3600  # 1h
-RETRY_ATTEMPTS: Final[int] = 3  # 1 essai initial + 2 retries
-RETRY_BACKOFF_BASE: Final[float] = 1.0  # delais : 1s, 2s, 4s
+RETRY_ATTEMPTS: Final[int] = 3  # 1 initial attempt + 2 retries
+RETRY_BACKOFF_BASE: Final[float] = 1.0  # delays: 1s, 2s, 4s
 
 
 VALID_REGIONS: Final[frozenset[str]] = frozenset({"eu", "na", "ap", "kr", "latam", "br"})
 
 
 class RiotApiError(Exception):
-    """Erreur generique du client."""
+    """Generic client error."""
 
 
 class PlayerNotFoundError(RiotApiError):
-    """Pseudo#tag inexistant cote Riot."""
+    """Name#tag does not exist on the Riot side."""
 
 
 class RateLimitedError(RiotApiError):
-    """API a renvoye 429."""
+    """API returned 429."""
 
 
 @dataclass(frozen=True)
@@ -77,8 +77,8 @@ class MatchPlayerStats:
     puuid: str
     name: str
     tag: str
-    team: str  # "Red" ou "Blue"
-    score: int  # combat score total
+    team: str  # "Red" or "Blue"
+    score: int  # total combat score
     kills: int
     deaths: int
     assists: int
@@ -96,10 +96,10 @@ class MatchSummary:
     rounds_blue: int
 
 
-# ── Cache TTL simple ──────────────────────────────────────────────
+# -- Simple TTL cache ----------------------------------------------
 class _TTLCache:
-    """Cache TTL thread-safe : protege _store d'acces concurrents
-    depuis plusieurs `asyncio.to_thread`."""
+    """Thread-safe TTL cache: protects _store from concurrent access
+    from multiple `asyncio.to_thread`."""
 
     def __init__(self, ttl: int) -> None:
         self._ttl = ttl
@@ -113,8 +113,8 @@ class _TTLCache:
                 return None
             ts, value = entry
             if time.time() - ts > self._ttl:
-                # Pop avec defaut : evite KeyError si un autre thread
-                # a deja supprime la cle entre temps.
+                # Pop with default: avoids KeyError if another thread
+                # has already deleted the key in the meantime.
                 self._store.pop(key, None)
                 return None
             return value
@@ -128,7 +128,7 @@ class _TTLCache:
             self._store.clear()
 
 
-# ── Client ────────────────────────────────────────────────────────
+# -- Client --------------------------------------------------------
 class HenrikDevClient:
     def __init__(
         self,
@@ -139,11 +139,11 @@ class HenrikDevClient:
         self.api_key = api_key or os.environ.get("HENRIK_API_KEY")
         self.session = session or requests.Session()
         self._cache = _TTLCache(cache_ttl)
-        # `requests.Session` n'est pas safe pour des appels concurrents
-        # multi-thread (le pool de connexions urllib3 peut se corrompre).
-        # Le bot exporte plusieurs appels Henrik via `asyncio.to_thread`,
-        # donc on serialise les requetes via ce lock. Impact perf
-        # negligeable (volume Henrik < 1 req/sec sur ce bot).
+        # `requests.Session` is not safe for concurrent multi-thread
+        # calls (the urllib3 connection pool can get corrupted).
+        # The bot dispatches several Henrik calls via `asyncio.to_thread`,
+        # so we serialize the requests via this lock. Perf impact is
+        # negligible (Henrik volume < 1 req/sec on this bot).
         self._session_lock = threading.Lock()
 
     def _headers(self) -> dict[str, str]:
@@ -153,11 +153,11 @@ class HenrikDevClient:
         return h
 
     def _get(self, path: str, *, cache: bool = True) -> dict[str, Any]:
-        """GET HenrikDev. Si `cache=False`, ne lit ni n'ecrit dans le cache TTL.
+        """GET HenrikDev. If `cache=False`, neither reads nor writes the TTL cache.
 
-        Utile pour les endpoints qui doivent rester frais (polling de match
-        history pour detecter un custom recent : avec cache 1h, le 1er retry
-        renvoie pour toujours la reponse stale 'pas encore indexe')."""
+        Useful for endpoints that must stay fresh (polling the match
+        history to detect a recent custom: with a 1h cache, the 1st retry
+        returns the stale 'not indexed yet' response forever)."""
         if cache:
             cached = self._cache.get(path)
             if cached is not None:
@@ -165,8 +165,8 @@ class HenrikDevClient:
 
         url = f"{BASE_URL}{path}"
         last_err: Exception | None = None
-        # Retry uniquement sur erreurs reseau et 5xx (transitoires).
-        # 404, 429, 4xx autres : pas de retry (echec deterministe).
+        # Retry only on network errors and 5xx (transient).
+        # 404, 429, other 4xx: no retry (deterministic failure).
         for attempt in range(RETRY_ATTEMPTS):
             try:
                 with self._session_lock:
@@ -176,28 +176,28 @@ class HenrikDevClient:
                 if attempt < RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
-                raise RiotApiError(f"Erreur reseau apres {RETRY_ATTEMPTS} tentatives : {e}") from e
+                raise RiotApiError(f"Network error after {RETRY_ATTEMPTS} attempts: {e}") from e
 
             if resp.status_code == 404:
-                raise PlayerNotFoundError(f"Joueur introuvable : {path}")
+                raise PlayerNotFoundError(f"Player not found: {path}")
             if resp.status_code == 429:
-                raise RateLimitedError("HenrikDev a renvoye 429 (rate limited)")
+                raise RateLimitedError("HenrikDev returned 429 (rate limited)")
             if 500 <= resp.status_code < 600:
-                last_err = RiotApiError(f"HTTP {resp.status_code} : {resp.text[:200]}")
+                last_err = RiotApiError(f"HTTP {resp.status_code}: {resp.text[:200]}")
                 if attempt < RETRY_ATTEMPTS - 1:
                     time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
                     continue
                 raise last_err
             if resp.status_code >= 400:
-                raise RiotApiError(f"HTTP {resp.status_code} : {resp.text[:200]}")
+                raise RiotApiError(f"HTTP {resp.status_code}: {resp.text[:200]}")
 
             try:
                 data = resp.json()
             except ValueError as e:
-                raise RiotApiError(f"Reponse non-JSON : {e}") from e
+                raise RiotApiError(f"Non-JSON response: {e}") from e
 
             if data.get("status") and data["status"] >= 400:
-                # Si HenrikDev renvoie un status applicatif 5xx, on retry aussi.
+                # If HenrikDev returns an application-level 5xx status, we retry too.
                 if 500 <= int(data["status"]) < 600 and attempt < RETRY_ATTEMPTS - 1:
                     last_err = RiotApiError(f"API status {data['status']}")
                     time.sleep(RETRY_BACKOFF_BASE * (2**attempt))
@@ -208,12 +208,12 @@ class HenrikDevClient:
                 self._cache.set(path, data)
             return data
 
-        # Non-atteignable normalement, mais garde-fou.
+        # Normally unreachable, but a safety net.
         raise RiotApiError(
-            f"_get : echec apres {RETRY_ATTEMPTS} tentatives. last_err={last_err}",
+            f"_get: failure after {RETRY_ATTEMPTS} attempts. last_err={last_err}",
         )
 
-    # ── Endpoints publics ─────────────────────────────────────────
+    # -- Public endpoints ------------------------------------------
     def get_account(self, name: str, tag: str) -> Account:
         data = self._get(f"/v1/account/{quote(name, safe='')}/{quote(tag, safe='')}")
         d = data.get("data", {})
@@ -226,7 +226,7 @@ class HenrikDevClient:
 
     def get_current_mmr(self, region: str, name: str, tag: str) -> CurrentMMR:
         if region not in VALID_REGIONS:
-            raise ValueError(f"Region invalide : {region}")
+            raise ValueError(f"Invalid region: {region}")
         data = self._get(f"/v2/mmr/{region}/{quote(name, safe='')}/{quote(tag, safe='')}")
         c = data.get("data", {}).get("current_data", {})
         return CurrentMMR(
@@ -244,7 +244,7 @@ class HenrikDevClient:
         tag: str,
     ) -> list[HistoricalMatch]:
         if region not in VALID_REGIONS:
-            raise ValueError(f"Region invalide : {region}")
+            raise ValueError(f"Invalid region: {region}")
         data = self._get(f"/v1/mmr-history/{region}/{quote(name, safe='')}/{quote(tag, safe='')}")
         out: list[HistoricalMatch] = []
         for entry in data.get("data", []):
@@ -270,33 +270,33 @@ class HenrikDevClient:
         size: int = 5,
         mode: str | None = None,
     ) -> list[MatchSummary]:
-        """Recupere les matchs recents d'un joueur. `mode` filtre cote API ('custom', etc.).
+        """Fetch the recent matches of a player. `mode` filters on the API side ('custom', etc.).
 
-        IMPORTANT : le paramètre query est `mode=`, pas `filter=`. HenrikDev accepte
-        encore `filter=` dans l'URL pour rétrocompatibilité, mais l'IGNORE silencieusement
-        (renvoie l'historique non-filtré). Verifié contre l'API en mai 2026 :
-        `?filter=custom` -> 10 matches Competitive ; `?mode=custom` -> 10 Custom Game.
-        Sans ce param correct, `find_henrik_custom_match` ne trouve jamais le custom
-        si le leader a joue >= 10 autres modes depuis."""
+        IMPORTANT: the query parameter is `mode=`, not `filter=`. HenrikDev still
+        accepts `filter=` in the URL for backward compatibility, but silently IGNORES it
+        (returns the unfiltered history). Verified against the API in May 2026:
+        `?filter=custom` -> 10 Competitive matches; `?mode=custom` -> 10 Custom Games.
+        Without this correct param, `find_henrik_custom_match` never finds the custom
+        if the leader has played >= 10 other modes since."""
         if region not in VALID_REGIONS:
-            raise ValueError(f"Region invalide : {region}")
+            raise ValueError(f"Invalid region: {region}")
         safe_name = quote(name, safe="")
         safe_tag = quote(tag, safe="")
         path = f"/v3/matches/{region}/{safe_name}/{safe_tag}?size={int(size)}"
         if mode:
             path += f"&mode={quote(str(mode), safe='')}"
-        # Pas de cache : cet endpoint est appele en boucle pour detecter
-        # l'apparition d'un custom recent. Avec le TTL de 1h, le 1er retry
-        # renverrait pour toujours le stale "pas encore indexe".
+        # No cache: this endpoint is called in a loop to detect the
+        # appearance of a recent custom. With the 1h TTL, the 1st retry
+        # would forever return the stale "not indexed yet" response.
         data = self._get(path, cache=False)
         return [_parse_match(entry) for entry in data.get("data", [])]
 
     def get_match_details(self, matchid: str) -> MatchSummary:
-        """Detail complet d'un match a partir de son id."""
+        """Full detail of a match from its id."""
         data = self._get(f"/v2/match/{quote(matchid, safe='')}")
         d = data.get("data", {})
         if not d:
-            raise RiotApiError(f"Match {matchid} : payload vide")
+            raise RiotApiError(f"Match {matchid}: empty payload")
         return _parse_match(d)
 
     def clear_cache(self) -> None:

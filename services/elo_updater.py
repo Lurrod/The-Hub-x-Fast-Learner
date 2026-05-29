@@ -1,9 +1,9 @@
 """
-Met a jour l'ELO des joueurs (collection partagée `elo`) apres validation
-d'un match V2.
+Updates player ELO (shared collection `elo`) after the validation of a V2
+match.
 
-Le gain/loss est proportionnel a la moyenne d'effective_elo (Riot) des
-10 joueurs du match : avg=1500 -> +20/-10, avg=3000 -> +40/-20.
+The gain/loss is proportional to the average effective_elo (Riot) of the
+10 players of the match: avg=1500 -> +20/-10, avg=3000 -> +40/-20.
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ from services import elo_calc, repository
 VALIDATED_A: Final[str] = "validated_a"
 VALIDATED_B: Final[str] = "validated_b"
 
-# Fallback fixe quand HenrikDev ne fournit pas de multiplicateurs ACS
-# (custom introuvable apres timeout 30 min, ou extraction impossible :
-# teams mixtes Attack/Defense en lobby Valorant). On applique +20/-20
-# a plat plutot que la valeur proportionnelle a l'avg ELO du match.
-# C'est plus lisible pour les joueurs et evite les variations bizarres
-# (15/17/19) selon le tier moyen.
+# Fixed fallback when HenrikDev does not provide ACS multipliers
+# (custom not found after 30 min timeout, or extraction impossible:
+# mixed Attack/Defense teams in a Valorant lobby). We apply a flat
+# +20/-20 rather than the value proportional to the match avg ELO.
+# More readable for players and avoids weird variations (15/17/19)
+# depending on the average tier.
 FLAT_FALLBACK_ELO_CHANGE: Final[int] = 16
 
 
@@ -46,7 +46,7 @@ class MatchEloOutcome:
     gain: int
     loss: int
     changes: tuple[PlayerEloChange, ...]
-    weighted: bool = False  # True si appel avec multipliers Henrik
+    weighted: bool = False  # True if called with Henrik multipliers
 
 
 def apply_match_validation(
@@ -55,22 +55,22 @@ def apply_match_validation(
     multipliers: dict[str, float] | None = None,
 ) -> MatchEloOutcome:
     """
-    Distribue les ELO en une seule passe, **zero-sum strict**.
+    Distribute ELO in a single pass, **strict zero-sum**.
 
-    Plancher a 0 : si un perdant a moins d'ELO que la perte calculee, son
-    delta est clamp a -old_elo (ne descend pas sous 0).
+    Floor at 0: if a loser has less ELO than the computed loss, their
+    delta is clamped to -old_elo (does not go below 0).
 
     Args:
-        db:          Database mongomock/pymongo (collection ELO partagee)
-        match_doc:   doc match avec `team_a`, `team_b`, `status`, `queue_type`
-        multipliers: dict user_id (str) -> multiplicateur ACS (~0.7..1.3)
+        db:          mongomock/pymongo Database (shared ELO collection)
+        match_doc:   match doc with `team_a`, `team_b`, `status`, `queue_type`
+        multipliers: dict user_id (str) -> ACS multiplier (~0.7..1.3)
 
     Raises:
-        ValueError si status != validated_a/b
+        ValueError if status != validated_a/b
     """
     status = match_doc.get("status")
     if status not in (VALIDATED_A, VALIDATED_B):
-        raise ValueError(f"Match non valide : status={status}")
+        raise ValueError(f"Match not valid: status={status}")
 
     queue_type = match_doc.get("queue_type", "open")
 
@@ -98,7 +98,7 @@ def apply_match_validation(
     winner_deltas = [round(+base_gain * m) for m in winner_mults]
     loser_deltas = [round(-base_loss * (2.0 - m)) for m in loser_mults]
 
-    # Clamp a 0 ELO pour les perdants (compound _id pour le lookup).
+    # Clamp to 0 ELO for losers (compound _id for the lookup).
     loser_old_elos: list[int] = []
     for p in losers:
         doc = elo_col.find_one({"_id": repository.player_doc_id(p["id"], queue_type)})
@@ -155,10 +155,10 @@ def _apply_player(
     win: bool,
     multiplier: float = 1.0,
 ) -> PlayerEloChange:
-    """Applique le delta ELO de maniere idempotente par match.
+    """Apply the ELO delta idempotently per match.
 
-    Le doc joueur est identifie par compound _id `<user_id>:<queue_type>`.
-    L'idempotence par match est preservee via `processed_matches`."""
+    The player doc is identified by the compound _id `<user_id>:<queue_type>`.
+    Per-match idempotence is preserved via `processed_matches`."""
     uid = str(player["id"])
     name = player.get("name", uid)
     doc_id = repository.player_doc_id(uid, queue_type)
@@ -182,8 +182,8 @@ def _apply_player(
     inc_field = "wins" if win else "losses"
     update: dict[str, Any] = {
         "$inc": {"elo": delta, inc_field: 1},
-        # last_played : horodate la derniere partie jouee. Lu par le
-        # leaderboard Pro permanent pour retirer les inactifs (> 7 jours).
+        # last_played: timestamp of the last game played. Read by the
+        # permanent Pro leaderboard to remove inactives (> 7 days).
         "$set": {"name": name, "last_played": datetime.now(UTC)},
     }
     if match_id_str is not None:

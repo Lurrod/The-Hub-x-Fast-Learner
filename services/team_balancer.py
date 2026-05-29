@@ -1,14 +1,14 @@
 """
-Equilibrage de 2 equipes de 5 a partir de 10 joueurs.
+Balance 2 teams of 5 from 10 players.
 
-Algorithme : brute-force optimal.
-  - C(10,5) = 252 partitions, mais on fixe le joueur 0 dans team A pour eviter
-    les doublons symetriques -> C(9,4) = 126 candidates.
-  - Score primaire   : minimiser |sum(A.elo) - sum(B.elo)|
-  - Tie-breaker      : minimiser |max(A.elo) - max(B.elo)| (pas de stack solo)
-  - Tie-breaker 2    : ordre lexicographique des IDs (deterministe)
+Algorithm: optimal brute-force.
+  - C(10,5) = 252 partitions, but we pin player 0 in team A to avoid
+    symmetric duplicates -> C(9,4) = 126 candidates.
+  - Primary score    : minimize |sum(A.elo) - sum(B.elo)|
+  - Tie-breaker      : minimize |max(A.elo) - max(B.elo)| (no solo stack)
+  - Tie-breaker 2    : lexicographic order of IDs (deterministic)
 
-Complexite : O(126 * 10) ~= 1.3k operations. Largement sous la milliseconde.
+Complexity: O(126 * 10) ~= 1.3k operations. Well under a millisecond.
 """
 
 from __future__ import annotations
@@ -48,22 +48,22 @@ class BalancedTeams:
 
 def balance_teams(players: Iterable[Player]) -> BalancedTeams:
     """
-    Renvoie la repartition la plus equilibree.
+    Returns the most balanced split.
 
     Raises:
-        ValueError si len(players) != 10 ou si IDs en doublon.
+        ValueError if len(players) != 10 or if there are duplicate IDs.
     """
     pool = tuple(players)
     if len(pool) != TOTAL_PLAYERS:
-        raise ValueError(f"Il faut exactement {TOTAL_PLAYERS} joueurs, recu {len(pool)}")
+        raise ValueError(f"Exactly {TOTAL_PLAYERS} players required, received {len(pool)}")
     if len({p.id for p in pool}) != TOTAL_PLAYERS:
-        raise ValueError("Doublons d'ID detectes dans la liste de joueurs")
+        raise ValueError("Duplicate IDs detected in the player list")
 
     best: BalancedTeams | None = None
     best_key: tuple[int, int, tuple[int, ...]] | None = None
 
-    # On fixe pool[0] dans team A pour ne generer que des partitions uniques.
-    # On choisit 4 autres parmi pool[1..9] -> C(9,4) = 126 combinaisons.
+    # We pin pool[0] in team A to only generate unique partitions.
+    # We pick 4 others among pool[1..9] -> C(9,4) = 126 combinations.
     indices_rest = range(1, TOTAL_PLAYERS)
     for combo in itertools.combinations(indices_rest, TEAM_SIZE - 1):
         a_idx = (0, *combo)
@@ -79,7 +79,7 @@ def balance_teams(players: Iterable[Player]) -> BalancedTeams:
         max_b = max(p.elo for p in team_b)
         peak_diff = abs(max_a - max_b)
 
-        # Tie-breaker 2 : ordre des IDs (deterministe pour tests)
+        # Tie-breaker 2: ID order (deterministic for tests)
         id_signature = tuple(sorted(p.id for p in team_a))
         key = (elo_diff, peak_diff, id_signature)
 
@@ -97,7 +97,7 @@ def balance_teams(players: Iterable[Player]) -> BalancedTeams:
 
 
 def format_teams(teams: BalancedTeams) -> str:
-    """Format texte compact pour log/debug."""
+    """Compact text format for log/debug."""
     a_str = ", ".join(f"{p.name}({p.elo})" for p in teams.team_a)
     b_str = ", ".join(f"{p.name}({p.elo})" for p in teams.team_b)
     return (

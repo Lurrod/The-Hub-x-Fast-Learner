@@ -45,10 +45,10 @@ async def create_match_category(
     Overwrites are posted *on the category only*; child channels inherit
     via Discord's sync mechanism.
 
-    - `viewer_role_ids` reçoivent les mêmes overwrites que les joueurs
-      (view/send/connect/speak, sans `manage_channels`).
-    - `spectator_role_ids` voient la catégorie et lisent l'historique,
-      mais ne peuvent pas rejoindre les vocaux ni envoyer de messages.
+    - `viewer_role_ids` receive the same overwrites as players
+      (view/send/connect/speak, without `manage_channels`).
+    - `spectator_role_ids` can see the category and read history, but
+      cannot join the voice channels nor send messages.
     """
     overwrites = _build_overwrites(
         guild=guild,

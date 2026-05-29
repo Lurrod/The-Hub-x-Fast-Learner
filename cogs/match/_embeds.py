@@ -1,7 +1,7 @@
-"""Construction des embeds Discord du flow match.
+"""Discord embed builders for the match flow.
 
-3 builders : embed initial (depuis MatchPlan), embed apres vote (depuis le
-doc match), embed recap ELO post-validation.
+3 builders: initial embed (from MatchPlan), embed after vote (from the
+match doc), recap ELO embed post-validation.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from services.elo_updater import MatchEloOutcome
 from cogs.match._constants import MAJORITY_THRESHOLD
 
 
-# ── Embed : depuis MatchPlan (publication initiale) ───────────────
+# ── Embed: from MatchPlan (initial publication) ───────────────────
 def build_match_embed(
     plan,
     guild_name: str,
@@ -29,8 +29,8 @@ def build_match_embed(
 
     qt_label = QUEUE_LABELS.get(queue_type, queue_type.upper())
     embed = discord.Embed(
-        title=f"🎯 [{qt_label}] Match trouve !",
-        description=f"**Map :** {map_name}\n**Lobby host :** <@{leader.id}> ({leader.name})",
+        title=f"🎯 [{qt_label}] Match found!",
+        description=f"**Map:** {map_name}\n**Lobby host:** <@{leader.id}> ({leader.name})",
         color=0x5865F2,
         timestamp=datetime.now(UTC),
     )
@@ -40,35 +40,35 @@ def build_match_embed(
     embed.add_field(name=f"🔵 Team A ({teams.total_a})", value=a_lines, inline=True)
     embed.add_field(name=f"🔴 Team B ({teams.total_b})", value=b_lines, inline=True)
     embed.add_field(
-        name="Equilibrage",
+        name="Balance",
         value=f"diff `{teams.elo_diff}` · peak diff `{teams.peak_diff}`",
         inline=False,
     )
 
     if category:
         embed.add_field(
-            name="🔊 Vocaux",
+            name="🔊 Voice",
             value=f"**Team A** -> `{category} / Team 1`\n**Team B** -> `{category} / Team 2`",
             inline=False,
         )
     else:
         embed.add_field(
-            name="🔊 Vocaux",
-            value="⚠️ Erreur Discord lors de la creation de la categorie de match.",
+            name="🔊 Voice",
+            value="⚠️ Discord error while creating the match category.",
             inline=False,
         )
 
     embed.add_field(
         name="🗳️ Votes",
-        value=f"Team A : **0** / Team B : **0** *(majorite : {MAJORITY_THRESHOLD}/10)*",
+        value=f"Team A: **0** / Team B: **0** *(majority: {MAJORITY_THRESHOLD}/10)*",
         inline=False,
     )
 
-    embed.set_footer(text=f"{guild_name} · Reportez ci-dessous quelle equipe a remporte la partie")
+    embed.set_footer(text=f"{guild_name} · Report below which team won the game")
     return embed
 
 
-# ── Embed : depuis match_doc (vote update) ────────────────────────
+# ── Embed: from match_doc (vote update) ───────────────────────────
 def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     team_a = doc["team_a"]
     team_b = doc["team_b"]
@@ -89,27 +89,27 @@ def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     qt_prefix = f"[{qt_label}] "
 
     if status == "validated_a":
-        title, color, footer_extra = f"🏆 {qt_prefix}Team A a gagne !", 0x2ECC71, "Match valide"
+        title, color, footer_extra = f"🏆 {qt_prefix}Team A won!", 0x2ECC71, "Match validated"
     elif status == "validated_b":
-        title, color, footer_extra = f"🏆 {qt_prefix}Team B a gagne !", 0xE74C3C, "Match valide"
+        title, color, footer_extra = f"🏆 {qt_prefix}Team B won!", 0xE74C3C, "Match validated"
     elif status == "contested":
         title, color, footer_extra = (
-            f"⚠️ {qt_prefix}Match en attente admin",
+            f"⚠️ {qt_prefix}Match awaiting admin",
             0xE67E22,
-            "Vote en timeout",
+            "Vote in timeout",
         )
     else:
         title, color, footer_extra = (
-            f"🎯 {qt_prefix}Match termine - Reportez le vainqueur",
+            f"🎯 {qt_prefix}Match finished - Report the winner",
             0x5865F2,
-            "Cliquez sur l'equipe qui a remporte la partie",
+            "Click the team that won the game",
         )
 
     embed = discord.Embed(
         title=title,
         color=color,
         timestamp=datetime.now(UTC),
-        description=f"**Map :** {map_name}\n**Lobby host :** <@{leader_id}> ({leader_name})",
+        description=f"**Map:** {map_name}\n**Lobby host:** <@{leader_id}> ({leader_name})",
     )
 
     sum_a = sum(p["elo"] for p in team_a)
@@ -118,18 +118,18 @@ def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     b_lines = "\n".join(f"• <@{p['id']}> ({p['elo']})" for p in team_b)
     embed.add_field(name=f"🔵 Team A ({sum_a})", value=a_lines, inline=True)
     embed.add_field(name=f"🔴 Team B ({sum_b})", value=b_lines, inline=True)
-    embed.add_field(name="Equilibrage", value=f"diff `{abs(sum_a - sum_b)}`", inline=False)
+    embed.add_field(name="Balance", value=f"diff `{abs(sum_a - sum_b)}`", inline=False)
 
     if category:
         embed.add_field(
-            name="🔊 Vocaux",
+            name="🔊 Voice",
             value=f"**Team A** -> `{category} / Team 1`\n**Team B** -> `{category} / Team 2`",
             inline=False,
         )
 
     embed.add_field(
         name="🗳️ Votes",
-        value=f"Team A : **{count_a}** / Team B : **{count_b}** *(majorite : {MAJORITY_THRESHOLD}/10)*",
+        value=f"Team A: **{count_a}** / Team B: **{count_b}** *(majority: {MAJORITY_THRESHOLD}/10)*",
         inline=False,
     )
 
@@ -137,7 +137,7 @@ def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     return embed
 
 
-# ── Embed : recap MAJ ELO post-validation ─────────────────────────
+# ── Embed: ELO update recap post-validation ───────────────────────
 def build_elo_changes_embed(
     outcome: MatchEloOutcome,
     match_doc: dict,
@@ -151,20 +151,20 @@ def build_elo_changes_embed(
 
     weighted = outcome.weighted
     title = (
-        f"🏆 {winner_label} l'emporte ! ELO mis a jour{' (ponderation ACS)' if weighted else ''}"
+        f"🏆 {winner_label} wins! ELO updated{' (ACS weighting)' if weighted else ''}"
     )
     desc_extra = (
-        "\nPonderation ACS appliquee via stats HenrikDev."
+        "\nACS weighting applied via HenrikDev stats."
         if weighted
-        else "\n⚠️ Match Riot non retrouve sur HenrikDev - ELO plat applique."
+        else "\n⚠️ Riot match not found on HenrikDev - flat ELO applied."
     )
 
     embed = discord.Embed(
         title=title,
         description=(
-            f"Avg ELO du match : **{outcome.avg_elo}**\n"
-            f"Base gagnant : **+{outcome.gain}**\n"
-            f"Base perdant : **-{outcome.loss}**"
+            f"Match avg ELO: **{outcome.avg_elo}**\n"
+            f"Winner base: **+{outcome.gain}**\n"
+            f"Loser base: **-{outcome.loss}**"
             f"{desc_extra}"
         ),
         color=color,
@@ -177,11 +177,11 @@ def build_elo_changes_embed(
     def _fmt(c):
         sign = "+" if c.delta >= 0 else ""
         mult = f" ×{c.multiplier:.2f}" if weighted else ""
-        return f"• <@{c.user_id}>{mult}  {sign}{c.delta}  →  **{c.new_elo}** *(etait {c.old_elo})*"
+        return f"• <@{c.user_id}>{mult}  {sign}{c.delta}  →  **{c.new_elo}** *(was {c.old_elo})*"
 
     w_lines = "\n".join(_fmt(c) for c in winners)
     l_lines = "\n".join(_fmt(c) for c in losers)
-    embed.add_field(name="🟢 Gagnants", value=w_lines or "-", inline=False)
-    embed.add_field(name="🔴 Perdants", value=l_lines or "-", inline=False)
+    embed.add_field(name="🟢 Winners", value=w_lines or "-", inline=False)
+    embed.add_field(name="🔴 Losers", value=l_lines or "-", inline=False)
     embed.set_footer(text=guild_name)
     return embed

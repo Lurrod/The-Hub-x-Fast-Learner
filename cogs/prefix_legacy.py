@@ -1,14 +1,15 @@
 """
-Cog des commandes prefix legacy : !leaderboard, !stats, !win, !lose, !map.
-Extrait de bot.py (refactor monolithe).
+Legacy prefix commands cog: !leaderboard, !stats, !win, !lose, !map.
+Extracted from bot.py (monolith refactor).
 
-NOTE : !leaderboard et !stats utilisent encore l'ancien schema V1
-(`_id = str(user_id)`, sans queue_type). Elles renvoient un classement
-mixte (toutes queues confondues) en pratique cassé apres la migration V2.
-Conservees pour compat ascendante avec tests existants. Les commandes
-slash `/leaderboard queue:X` et `/stats queue:X` sont la version correcte.
+NOTE: !leaderboard and !stats still use the old V1 schema
+(`_id = str(user_id)`, without queue_type). They return a mixed
+ranking (all queues combined) which is effectively broken after the
+V2 migration. Kept for backward compatibility with existing tests.
+The slash commands `/leaderboard queue:X` and `/stats queue:X` are
+the correct version.
 
-!win, !lose defaultent a la queue Open (cf. docstrings respectifs).
+!win, !lose default to the Open queue (cf. their respective docstrings).
 """
 
 from __future__ import annotations
@@ -27,13 +28,13 @@ from services.leaderboard_refresh import refresh_leaderboard_channel
 logger = logging.getLogger(__name__)
 
 
-# Pondération ELO par position (cohérent avec /win, /lose slash).
+# ELO weighting per slot (consistent with /win, /lose slash).
 WIN_DELTAS_BY_SLOT: tuple[int, ...] = (20, 18, 17, 16, 15)
 LOSE_DELTAS_BY_SLOT: tuple[int, ...] = (10, 10, 12, 13, 15)
 
 
 def _has_prefix_access(ctx: commands.Context, db) -> bool:
-    """Admin (manage_guild) OU role bypass."""
+    """Admin (manage_guild) OR bypass role."""
     if ctx.author.guild_permissions.manage_guild:
         return True
     role_id = repository.get_bypass_role(db, ctx.guild.id)
@@ -60,7 +61,7 @@ async def _refresh_leaderboard_safe(guild: discord.Guild | None, db, queue_type:
     try:
         await refresh_leaderboard_channel(guild, db, queue_type)
     except Exception:
-        logger.exception("[prefix-legacy] refresh a leve")
+        logger.exception("[prefix-legacy] refresh raised")
 
 
 class PrefixLegacyCog(commands.Cog):
@@ -73,7 +74,7 @@ class PrefixLegacyCog(commands.Cog):
         col = repository.get_elo_col(self.db)
         docs = list(col.find().sort([("elo", -1), ("wins", -1), ("_id", 1)]).limit(10))
         if not docs:
-            await ctx.send("Aucun joueur enregistre.")
+            await ctx.send("No players registered.")
             return
         lines = []
         for i, doc in enumerate(docs):
@@ -81,15 +82,15 @@ class PrefixLegacyCog(commands.Cog):
             member = ctx.guild.get_member(int(uid))
             if member is None:
                 continue
-            medal = ["1er", "2e", "3e"][i] if i < 3 else f"#{i + 1}"
+            medal = ["1st", "2nd", "3rd"][i] if i < 3 else f"#{i + 1}"
             lines.append(
                 f"{medal} **{doc.get('name', uid)}** - {doc['elo']} ELO (W:{doc.get('wins', 0)} / L:{doc.get('losses', 0)})"
             )
         if not lines:
-            await ctx.send("Aucun joueur enregistre.")
+            await ctx.send("No players registered.")
             return
         embed = discord.Embed(
-            title="Classement ELO",
+            title="ELO Leaderboard",
             description="\n".join(lines),
             color=0xF1C40F,
             timestamp=datetime.now(UTC),
@@ -104,7 +105,7 @@ class PrefixLegacyCog(commands.Cog):
         col = repository.get_elo_col(self.db)
         doc = col.find_one({"_id": str(member.id)})
         if not doc:
-            await ctx.send(f"{member.display_name} n'a pas encore joue.")
+            await ctx.send(f"{member.display_name} has not played yet.")
             return
         elo = doc["elo"]
         wins = doc.get("wins", 0)
@@ -124,15 +125,15 @@ class PrefixLegacyCog(commands.Cog):
             + 1
         )
         embed = discord.Embed(
-            title=f"Stats de {member.display_name}", color=0x3498DB, timestamp=datetime.now(UTC)
+            title=f"Stats for {member.display_name}", color=0x3498DB, timestamp=datetime.now(UTC)
         )
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="🏅 ELO", value=f"**{elo}**", inline=True)
-        embed.add_field(name="🏆 Rang", value=f"**#{rank}**", inline=True)
+        embed.add_field(name="🏆 Rank", value=f"**#{rank}**", inline=True)
         embed.add_field(name="📈 Winrate", value=f"**{winrate}%**", inline=True)
-        embed.add_field(name="✅ Victoires", value=f"**{wins}**", inline=True)
-        embed.add_field(name="❌ Défaites", value=f"**{losses}**", inline=True)
-        embed.add_field(name="🎮 Parties", value=f"**{total}**", inline=True)
+        embed.add_field(name="✅ Wins", value=f"**{wins}**", inline=True)
+        embed.add_field(name="❌ Losses", value=f"**{losses}**", inline=True)
+        embed.add_field(name="🎮 Games", value=f"**{total}**", inline=True)
         embed.set_footer(text=ctx.guild.name)
         await ctx.send(embed=embed)
 
@@ -140,23 +141,23 @@ class PrefixLegacyCog(commands.Cog):
     async def win_prefix(
         self,
         ctx: commands.Context,
-        joueur1: discord.Member,
-        joueur2: discord.Member = None,
-        joueur3: discord.Member = None,
-        joueur4: discord.Member = None,
-        joueur5: discord.Member = None,
+        player1: discord.Member,
+        player2: discord.Member = None,
+        player3: discord.Member = None,
+        player4: discord.Member = None,
+        player5: discord.Member = None,
     ):
-        """Prefix legacy : applique sur la queue Open par defaut."""
+        """Legacy prefix: applies to the Open queue by default."""
         if not _has_prefix_access(ctx, self.db):
-            await ctx.send("Pas la permission.")
+            await ctx.send("No permission.")
             return
         queue = "open"
-        players = [p for p in [joueur1, joueur2, joueur3, joueur4, joueur5] if p is not None]
+        players = [p for p in [player1, player2, player3, player4, player5] if p is not None]
         col = repository.get_elo_col(self.db)
         avg_elo = _compute_match_change(self.db, players, queue)
         embed = discord.Embed(
-            title="🏆 Résultats Open - Victoire enregistrée !",
-            description=f"Avg ELO du groupe : **{avg_elo}** -> gains pondérés par position (joueur1→joueur5)",
+            title="🏆 Open Results - Win recorded!",
+            description=f"Group avg ELO: **{avg_elo}** -> gains weighted by slot (player1→player5)",
             color=0x2ECC71,
             timestamp=datetime.now(UTC),
         )
@@ -179,7 +180,7 @@ class PrefixLegacyCog(commands.Cog):
             embed.add_field(
                 name=member.display_name, value=f"+{gain} ELO -> **{new}**", inline=False
             )
-        embed.set_footer(text=f"Enregistre par {ctx.author.display_name}")
+        embed.set_footer(text=f"Recorded by {ctx.author.display_name}")
         await ctx.send(embed=embed)
         await _refresh_leaderboard_safe(ctx.guild, self.db, queue)
 
@@ -187,23 +188,23 @@ class PrefixLegacyCog(commands.Cog):
     async def lose_prefix(
         self,
         ctx: commands.Context,
-        joueur1: discord.Member,
-        joueur2: discord.Member = None,
-        joueur3: discord.Member = None,
-        joueur4: discord.Member = None,
-        joueur5: discord.Member = None,
+        player1: discord.Member,
+        player2: discord.Member = None,
+        player3: discord.Member = None,
+        player4: discord.Member = None,
+        player5: discord.Member = None,
     ):
-        """Prefix legacy : applique sur la queue Open par defaut."""
+        """Legacy prefix: applies to the Open queue by default."""
         if not _has_prefix_access(ctx, self.db):
-            await ctx.send("Pas la permission.")
+            await ctx.send("No permission.")
             return
         queue = "open"
-        players = [p for p in [joueur1, joueur2, joueur3, joueur4, joueur5] if p is not None]
+        players = [p for p in [player1, player2, player3, player4, player5] if p is not None]
         col = repository.get_elo_col(self.db)
         avg_elo = _compute_match_change(self.db, players, queue)
         embed = discord.Embed(
-            title="💀 Résultats - Défaite enregistrée !",
-            description=f"Avg ELO du groupe : **{avg_elo}** -> pertes pondérées par position (joueur1→joueur5)",
+            title="💀 Results - Loss recorded!",
+            description=f"Group avg ELO: **{avg_elo}** -> losses weighted by slot (player1→player5)",
             color=0xE74C3C,
             timestamp=datetime.now(UTC),
         )
@@ -233,23 +234,23 @@ class PrefixLegacyCog(commands.Cog):
             embed.add_field(
                 name=member.display_name, value=f"-{loss} ELO -> **{new}**", inline=False
             )
-        embed.set_footer(text=f"Enregistre par {ctx.author.display_name}")
+        embed.set_footer(text=f"Recorded by {ctx.author.display_name}")
         await ctx.send(embed=embed)
         await _refresh_leaderboard_safe(ctx.guild, self.db, queue)
 
     @commands.command(name="map")
     async def map_prefix(self, ctx: commands.Context):
         if not _has_prefix_access(ctx, self.db):
-            await ctx.send("Pas la permission.")
+            await ctx.send("No permission.")
             return
         chosen = random.choice(elo_calc.MAPS)
         embed = discord.Embed(
-            title="🗺️ Map sélectionnée !",
+            title="🗺️ Map selected!",
             description=f"## {chosen}",
             color=0x9B59B6,
             timestamp=datetime.now(UTC),
         )
-        embed.set_footer(text=f"Tirage par {ctx.author.display_name}")
+        embed.set_footer(text=f"Drawn by {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
 

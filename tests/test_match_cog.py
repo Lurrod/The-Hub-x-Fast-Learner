@@ -1,4 +1,4 @@
-"""Tests d'integration du cog match (formation + persistance + reset queue)."""
+"""Integration tests for the match cog (formation + persistence + reset queue)."""
 
 import contextlib
 import random
@@ -99,10 +99,10 @@ def _seed_full_queue(
     channel_id: int = 100,
     queue_type: str = "open",
 ):
-    """Cree la queue active + 10 comptes Riot lies + leur ELO serveur.
+    """Create the active queue + 10 linked Riot accounts + their server ELO.
 
-    Par defaut on simule une Open Queue (legacy, sans gate). Les tests
-    Pro Queue passeront `queue_type="pro"` explicitement.
+    By default we simulate an Open Queue. Pro Queue tests pass
+    `queue_type="pro"` explicitly.
     """
     repository.setup_active_queue(
         db,
@@ -123,7 +123,7 @@ def _seed_full_queue(
             peak_elo=1500 + i * 50,
             source="peak_recent",
         )
-        # Compound _id `<uid>:<queue_type>` pour le doc joueur.
+        # Compound _id `<uid>:<queue_type>` for the player doc.
         elo_col.insert_one(
             {
                 "_id": repository.player_doc_id(i, queue_type),
@@ -213,7 +213,7 @@ async def test_on_queue_full_posts_message_with_view(monkeypatch):
     assert match_id is not None
     fake_channels.prep_channel.send.assert_awaited_once()
     _, kwargs = fake_channels.prep_channel.send.call_args
-    assert "Match trouve" in kwargs["content"]
+    assert "Match found" in kwargs["content"]
     embed = kwargs["embed"]
     assert "Map" in embed.description
     assert any("Team A" in f.name for f in embed.fields)
@@ -304,7 +304,7 @@ async def test_on_queue_full_balanced_teams_in_persistence(monkeypatch):
     sum_a = sum(p["elo"] for p in match["team_a"])
     sum_b = sum(p["elo"] for p in match["team_b"])
     diff = abs(sum_a - sum_b)
-    assert diff <= 100, f"diff={diff}, attendu <=100 sur cet ensemble"
+    assert diff <= 100, f"diff={diff}, expected <=100 on this set"
 
 
 @pytest.mark.asyncio
@@ -337,21 +337,21 @@ async def test_on_queue_full_aborts_if_player_unlinked(monkeypatch):
     channel.send.assert_awaited()
     send_args = channel.send.await_args
     sent_content = send_args.args[0] if send_args.args else send_args.kwargs.get("content", "")
-    assert "annule" in sent_content.lower()
+    assert "cancelled" in sent_content.lower()
 
 
-# ── VoteView stub (Phase 4 - Phase 5 implementera) ────────────────
+# -- VoteView stub (Phase 4 - implemented in Phase 5) --
 async def test_vote_view_buttons_have_stable_custom_ids():
     import bot as bot_module
 
     view = VoteView(bot_module.db)
-    # Cherche les custom_ids dans les children
+    # Look for the custom_ids on the children
     custom_ids = {c.custom_id for c in view.children}
     assert VOTE_A_BTN_ID in custom_ids
     assert VOTE_B_BTN_ID in custom_ids
 
 
-# ── Ordre overwrites -> message (audit user) ─────────────────────
+# -- Order overwrites -> message (audit user) --
 @pytest.mark.asyncio
 async def test_overwrites_set_before_match_message_sent(monkeypatch):
     """create_match_category (which sets channel overwrites) must be awaited
@@ -633,7 +633,7 @@ async def test_start_match_creates_dynamic_category(monkeypatch):
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(42))
     match_id = await cog.on_queue_full(inter, queue_doc, "open")
 
-    assert match_id is not None, "on_queue_full doit retourner un match_id"
+    assert match_id is not None, "on_queue_full must return a match_id"
     mock_create.assert_awaited_once()
 
     match = repository.get_match(bot_module.db, match_id)
@@ -643,7 +643,7 @@ async def test_start_match_creates_dynamic_category(monkeypatch):
     assert match["match_number"] == 43
 
 
-# ── build_match_embed ─────────────────────────────────────────────
+# -- build_match_embed --
 def test_build_match_embed_shows_all_players_and_map():
     from services.match_service import MatchPlan
     from services.team_balancer import balance_teams
@@ -663,7 +663,7 @@ def test_build_match_embed_shows_all_players_and_map():
     assert "Match #1" in fields_str
 
 
-# ── match_cancel : suppression catégorie ─────────────────────────
+# -- match_cancel: category deletion --
 @pytest.mark.asyncio
 async def test_admin_cancel_deletes_match_category(monkeypatch):
     """When admin runs /match-cancel, the dynamic category is deleted."""

@@ -1,16 +1,16 @@
-"""One-shot migration : élève elo_<guild>/riot_accounts_<guild>/matches_<guild>
-en collections partagées elo/riot/matches.
+"""One-shot migration: promotes elo_<guild>/riot_accounts_<guild>/matches_<guild>
+into shared elo/riot/matches collections.
 
 Usage:
     MONGO_URL=mongodb://... MIGRATE_SOURCE_GUILD_ID=<guild_A_id> \
         python scripts/migrate_shared_collections.py
 
-Idempotent (replace_one upsert). Les anciennes collections sont renommées en
-archive_<timestamp>_<source_name> (pas supprimées) pour permettre un rollback.
+Idempotent (replace_one upsert). The old collections are renamed to
+archive_<timestamp>_<source_name> (not deleted) to allow a rollback.
 
 Notes:
-- riot était historiquement nommée `riot_accounts_<guild>`, pas `riot_<guild>`.
-- elo et matches suivent le pattern `<name>_<guild>`.
+- riot was historically named `riot_accounts_<guild>`, not `riot_<guild>`.
+- elo and matches follow the `<name>_<guild>` pattern.
 """
 
 from __future__ import annotations

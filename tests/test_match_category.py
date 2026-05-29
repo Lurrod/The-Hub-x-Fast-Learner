@@ -101,6 +101,7 @@ async def test_create_match_category_overwrites_deny_everyone_and_allow_players(
 
 @pytest.mark.asyncio
 async def test_create_match_category_rolls_back_on_partial_failure():
+    """Partial creation failure must trigger a full rollback."""
     from services.match_category import create_match_category
 
     category = MagicMock()
@@ -437,22 +438,22 @@ async def test_cleanup_orphan_logs_on_delete_error_and_continues():
 
 @pytest.mark.asyncio
 async def test_create_match_category_rollback_survives_cascade_delete_failures():
-    """Si la creation echoue ET que les delete de rollback echouent aussi,
-    on doit : (1) tenter chaque delete (pas de short-circuit), (2) re-lever
-    l'exception ORIGINALE de creation, pas celle du rollback, (3) ne pas
-    boucler indefiniment."""
+    """If creation fails AND the rollback deletes also fail, we must:
+    (1) attempt every delete (no short-circuit), (2) re-raise the
+    ORIGINAL creation exception, not the rollback one, (3) not loop
+    forever."""
     from services.match_category import create_match_category
 
     category = MagicMock()
-    # La suppression de la categorie elle-meme echoue aussi.
+    # The category delete itself also fails.
     category.delete = AsyncMock(side_effect=RuntimeError("category delete failed"))
 
     text_channel = MagicMock()
-    # Le premier delete enfant echoue : ne doit pas court-circuiter les suivants.
+    # The first child delete fails: must not short-circuit the rest.
     text_channel.delete = AsyncMock(side_effect=RuntimeError("child delete failed"))
 
     vc1 = MagicMock()
-    vc1.delete = AsyncMock()  # second delete reussit -> on verifie qu'il est tente
+    vc1.delete = AsyncMock()  # second delete succeeds -> we verify it is attempted
 
     category.create_text_channel = AsyncMock(return_value=text_channel)
     category.create_voice_channel = AsyncMock(side_effect=[vc1, RuntimeError("api fail original")])
@@ -465,8 +466,8 @@ async def test_create_match_category_rollback_survives_cascade_delete_failures()
     guild.get_member = MagicMock(return_value=None)
     guild.get_role = MagicMock(return_value=None)
 
-    # L'exception originale de creation doit etre celle propagee, pas celle
-    # du rollback (qui doit etre loggee mais swallowed).
+    # The original creation exception must be the one propagated, not the
+    # rollback one (which must be logged but swallowed).
     with pytest.raises(RuntimeError, match="api fail original"):
         await create_match_category(
             guild=guild,
@@ -475,7 +476,7 @@ async def test_create_match_category_rollback_survives_cascade_delete_failures()
             admin_role_ids=[],
         )
 
-    # Tous les delete ont ete tentes malgre les echecs en cascade.
+    # All deletes were attempted despite the cascading failures.
     text_channel.delete.assert_awaited_once()
     vc1.delete.assert_awaited_once()
     category.delete.assert_awaited_once()
@@ -483,8 +484,8 @@ async def test_create_match_category_rollback_survives_cascade_delete_failures()
 
 @pytest.mark.asyncio
 async def test_create_match_category_grants_player_level_access_to_viewer_roles():
-    """`viewer_role_ids` recoivent view/send/connect/speak (niveau joueur),
-    sans `manage_channels` (distinct des admin_role_ids).
+    """`viewer_role_ids` receive view/send/connect/speak (player level),
+    without `manage_channels` (distinct from admin_role_ids).
     """
     from services.match_category import create_match_category
 
@@ -531,14 +532,14 @@ async def test_create_match_category_grants_player_level_access_to_viewer_roles(
         assert overwrites[vrole].send_messages is True
         assert overwrites[vrole].connect is True
         assert overwrites[vrole].speak is True
-        # Niveau joueur : pas de manage_channels
+        # Player level: no manage_channels
         assert overwrites[vrole].manage_channels is None
 
 
 @pytest.mark.asyncio
 async def test_create_match_category_spectator_roles_can_view_but_not_join():
-    """`spectator_role_ids` voient la categorie et lisent l'historique,
-    mais ne peuvent ni envoyer de messages ni se connecter en vocal.
+    """`spectator_role_ids` see the category and read history, but
+    cannot send messages or join voice.
     """
     from services.match_category import create_match_category
 
@@ -569,7 +570,7 @@ async def test_create_match_category_spectator_roles_can_view_but_not_join():
         match_number=21,
         player_ids=[],
         admin_role_ids=[],
-        spectator_role_ids=[200, 888],  # 888 introuvable, doit etre skip
+        spectator_role_ids=[200, 888],  # 888 not found, must be skipped
     )
 
     overwrites = captured["overwrites"]

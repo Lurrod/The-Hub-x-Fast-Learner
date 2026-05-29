@@ -20,36 +20,36 @@ BLOCKING_STATUSES: tuple[str, ...] = (
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Fix MANUEL : libere des joueurs bloques dans le queue gate.",
+        description="MANUAL fix: releases players blocked in the queue gate.",
     )
     p.add_argument(
         "--guild",
         type=int,
         default=None,
-        help="Filtre sur origin_guild_id (recommande)",
+        help="Filter on origin_guild_id (recommended)",
     )
     p.add_argument(
         "--status",
         choices=BLOCKING_STATUSES,
         default="contested",
-        help='Status a cibler (defaut: "contested")',
+        help='Status to target (default: "contested")',
     )
     p.add_argument(
         "--older-than-hours",
         type=float,
         default=24.0,
-        help="Seulement les matches plus vieux que N heures (defaut: 24)",
+        help="Only matches older than N hours (default: 24)",
     )
     p.add_argument(
         "--match-ids",
         type=str,
         default=None,
-        help="Liste de match_number separes par virgule (override des autres filtres temps/status)",
+        help="Comma-separated list of match_number (overrides other time/status filters)",
     )
     p.add_argument(
         "--apply",
         action="store_true",
-        help="Sans ce flag, dry-run (aucune ecriture)",
+        help="Without this flag, dry-run (no writes)",
     )
     return p.parse_args()
 
@@ -73,7 +73,7 @@ def main() -> int:
     args = parse_args()
     mongo_url = os.environ.get("MONGO_URL")
     if not mongo_url:
-        print("[ERREUR] MONGO_URL non defini", file=sys.stderr)
+        print("[ERROR] MONGO_URL not set", file=sys.stderr)
         return 2
 
     client: MongoClient = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
@@ -81,7 +81,7 @@ def main() -> int:
 
     query = build_query(args)
     docs = list(matches.find(query, {"_id": 1, "match_number": 1, "status": 1, "created_at": 1}))
-    print(f"[INFO] {len(docs)} match(s) cible(s) par le fix")
+    print(f"[INFO] {len(docs)} match(es) targeted by the fix")
     for d in docs:
         print(
             f"  match #{d.get('match_number', '?'):>5} "
@@ -91,14 +91,14 @@ def main() -> int:
         )
 
     if not docs:
-        print("[OK] Rien a faire.")
+        print("[OK] Nothing to do.")
         return 0
 
     if not args.apply:
-        print("\n[DRY-RUN] Aucune ecriture. Relancer avec --apply pour appliquer.")
+        print("\n[DRY-RUN] No writes. Re-run with --apply to apply.")
         return 0
 
-    confirm = input(f"\nConfirmer le passage en 'cleaned_up' de {len(docs)} match(s) ? [yes/N] ")
+    confirm = input(f"\nConfirm switching {len(docs)} match(es) to 'cleaned_up'? [yes/N] ")
     if confirm.strip().lower() != "yes":
         print("[ABORT]")
         return 1
@@ -113,7 +113,7 @@ def main() -> int:
             }
         },
     )
-    print(f"[OK] {res.modified_count} doc(s) modifie(s).")
+    print(f"[OK] {res.modified_count} doc(s) modified.")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Tests du cog reglement (rules) + repository acceptation du reglement."""
+"""Tests for the rules cog + the rules-acceptance repository."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -47,8 +47,8 @@ def _fake_rules_interaction(user_id: int = 1, display_name: str = "User"):
 def test_build_rules_embed_contains_all_rules():
     embed = build_rules_embed()
     text = (embed.description or "") + " ".join(f.value for f in embed.fields)
-    assert "type in game" in text
-    assert "insulte" in text
+    assert "typing in game" in text
+    assert "insults" in text
     assert "Tbag" in text
     assert "troll" in text
     assert "tickets-reports" in text

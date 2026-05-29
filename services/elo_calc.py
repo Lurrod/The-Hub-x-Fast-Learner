@@ -1,11 +1,11 @@
-"""Logique pure de calcul ELO. Aucune dependance Discord ni MongoDB."""
+"""Pure ELO calculation logic. No Discord nor MongoDB dependency."""
 
 from __future__ import annotations
 
 from typing import Final
 
 
-# ── Constantes ────────────────────────────────────────────────────
+# -- Constants -----------------------------------------------------
 ELO_START: Final[int] = 2000
 MAPS: Final[tuple[str, ...]] = (
     "Breeze",
@@ -18,19 +18,19 @@ MAPS: Final[tuple[str, ...]] = (
 )
 
 
-# ── V2 : ELO change proportionnel a la moyenne du match ──────────
-# Serveur reserve aux joueurs Immortal+ : la baseline est l'Immortal 1.
+# -- V2: ELO change proportional to match average ------------------
+# Server reserved to Immortal+ players: baseline is Immortal 1.
 IMMORTAL_FLOOR_ELO: Final[int] = 2400  # Immortal 1 (HenrikDev tier 24 * 100)
 ELO_REFERENCE: Final[int] = IMMORTAL_FLOOR_ELO
-# Zero-sum strict : gain == loss. ELO injectee par match = 0.
-ELO_BASE_CHANGE: Final[int] = 16  # gain et loss attendus a avg = ELO_REFERENCE
-# Alias retro-compatibles (utilises par tests/code legacy)
+# Strict zero-sum: gain == loss. ELO injected per match = 0.
+ELO_BASE_CHANGE: Final[int] = 16  # expected gain and loss at avg = ELO_REFERENCE
+# Backward-compatible aliases (used by tests/legacy code)
 ELO_BASE_GAIN: Final[int] = ELO_BASE_CHANGE
 ELO_BASE_LOSS: Final[int] = ELO_BASE_CHANGE
 
 
 def compute_team_avg_elo(players: list[dict]) -> int:
-    """Moyenne arrondie de l'effective_elo d'une liste de joueurs."""
+    """Rounded average of the effective_elo of a player list."""
     if not players:
         return 0
     return round(sum(p.get("elo", 0) for p in players) / len(players))
@@ -38,12 +38,12 @@ def compute_team_avg_elo(players: list[dict]) -> int:
 
 def compute_match_elo_change(avg_match_elo: int) -> tuple[int, int]:
     """
-    Renvoie (gain, loss) zero-sum strict : gain == loss = ELO_BASE_CHANGE.
+    Returns (gain, loss) with strict zero-sum: gain == loss = ELO_BASE_CHANGE.
 
-    La base est constante (16) quelle que soit la moyenne d'ELO du match.
-    Le scaling par performance individuelle est applique en aval via les
-    multiplicateurs ACS (cf. elo_updater.distribute / apply_match_validation).
+    The base is constant (16) regardless of the match average ELO.
+    Per-player performance scaling is applied downstream via the ACS
+    multipliers (see elo_updater.distribute / apply_match_validation).
     """
     if avg_match_elo < 0:
-        raise ValueError(f"avg_match_elo doit etre >= 0, recu {avg_match_elo}")
+        raise ValueError(f"avg_match_elo must be >= 0, received {avg_match_elo}")
     return ELO_BASE_CHANGE, ELO_BASE_CHANGE
