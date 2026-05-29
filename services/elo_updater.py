@@ -57,10 +57,6 @@ def apply_match_validation(
     """
     Distribue les ELO en une seule passe, **zero-sum strict**.
 
-    Pro Queue (queue_type == "pro") : court-circuit. Multipliers ignores,
-    +16 a plat pour les gagnants, -16 a plat pour les perdants. Le flow
-    Henrik n'est pas appele en amont pour ces matchs (cf. cogs/match.py).
-
     Plancher a 0 : si un perdant a moins d'ELO que la perte calculee, son
     delta est clamp a -old_elo (ne descend pas sous 0).
 
@@ -85,14 +81,9 @@ def apply_match_validation(
 
     avg_elo = elo_calc.compute_team_avg_elo(winners + losers)
 
-    if queue_type == "pro":
-        # Pro Queue : flat 16, multipliers ignores.
+    if multipliers is None:
         base_gain = base_loss = FLAT_FALLBACK_ELO_CHANGE
         mults: dict[str, float] = {}
-        weighted = False
-    elif multipliers is None:
-        base_gain = base_loss = FLAT_FALLBACK_ELO_CHANGE
-        mults = {}
         weighted = False
     else:
         base_gain, base_loss = elo_calc.compute_match_elo_change(avg_elo)
@@ -100,9 +91,6 @@ def apply_match_validation(
         weighted = True
 
     elo_col = repository.get_elo_col(db)
-    # Pro Queue : miroir des memes deltas dans elo_weekly. La collection
-    # est videe chaque Lundi 00:00 Europe/Paris par cogs/leaderboard_weekly.
-    weekly_col = repository.get_elo_weekly_col(db) if queue_type == "pro" else None
 
     winner_mults = [float(mults.get(str(p["id"]), 1.0)) for p in winners]
     loser_mults = [float(mults.get(str(p["id"]), 1.0)) for p in losers]
@@ -135,16 +123,6 @@ def apply_match_validation(
                 multiplier=mult,
             )
         )
-        if weekly_col is not None:
-            _apply_player(
-                weekly_col,
-                p,
-                queue_type=queue_type,
-                match_id=match_id,
-                delta=delta,
-                win=True,
-                multiplier=mult,
-            )
     for p, delta, mult in zip(losers, clamped_loser_deltas, loser_mults, strict=True):
         changes.append(
             _apply_player(
@@ -157,17 +135,6 @@ def apply_match_validation(
                 multiplier=mult,
             )
         )
-        if weekly_col is not None:
-            # Clamp identique a la collection principale (delta deja clampe).
-            _apply_player(
-                weekly_col,
-                p,
-                queue_type=queue_type,
-                match_id=match_id,
-                delta=delta,
-                win=False,
-                multiplier=mult,
-            )
 
     return MatchEloOutcome(
         avg_elo=avg_elo,

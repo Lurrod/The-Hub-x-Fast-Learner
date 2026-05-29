@@ -48,14 +48,13 @@ Cycle complet d'une partie :
 
 | Queue  | Salon dédié   | Rôle requis              | Vocal d'attente        |
 |--------|---------------|--------------------------|------------------------|
-| Pro    | `#pro-queue`  | `Rank S \| Pro Queue` ou `Rank Q \| Qualification Pro` | `Waiting Room Pro`     |
+| Pro    | `#pro-queue`  | `Rank S \| Pro Queue`    | `Waiting Room Pro`     |
 | Open   | `#open-queue` | aucun                    | `Waiting Room Open`    |
 | GC     | `#gc-queue`   | `GC`                     | `Waiting Room GC`      |
 
 - Un joueur ne peut être que dans **une seule queue à la fois**.
 - Les boutons Rejoindre / Quitter sont **persistants** (survivent au restart du bot).
 - Refusé si pas de compte Riot lié, déjà en queue, déjà dans un match en cours (catégorie `Match #N` encore active), ou rôle gate manquant.
-- **Pro Queue** : au plus **1 joueur `Rank Q | Qualification Pro`** simultanément dans la queue ; les 9 autres slots doivent être remplis par des `Rank S | Pro Queue`.
 - Le joueur qui quitte le serveur est automatiquement retiré des queues (`on_member_remove`).
 
 ### Équilibrage des équipes
@@ -103,10 +102,6 @@ Cycle complet d'une partie :
 - Image PNG générée via Pillow (`leaderboard_img.py`), 15 joueurs par page.
 - Pagination par boutons `<` / `>` **persistante après restart**.
 - Auto-refresh après chaque modification ELO (debounced per-guild).
-- **Leaderboard hebdo Pro Queue** : un 4ᵉ message persistant dans `#leaderboard`,
-  miroir des matchs Pro de la semaine. **Reset chaque Lundi 00:00 Europe/Paris**
-  (collection `elo_weekly` vidée, message regénéré). Le leaderboard permanent
-  n'est jamais touché par le reset.
 
 ### Système de candidatures (héritage)
 
@@ -224,7 +219,7 @@ de queue, et pré-poste les 3 leaderboards. **Idempotent**, ré-exécutable sans
 - `En Queue` (donné aux joueurs en queue)
 - `Match #N` *(supprimé V3.13 - visibilité via overwrites par utilisateur)*
 - `Match Host` (donné au lobby leader, retiré après 10 min)
-- `Rank S | Pro Queue` ou `Rank Q | Qualification Pro` (gate de la queue Pro)
+- `Rank S | Pro Queue` (gate de la queue Pro)
 - `GC` (gate de la queue GC)
 - `Admin` / `Match Staff` / `Administrateur` (ping si vote en timeout)
 - `Members`, `Coach/Analyst/Manager` (système de candidatures, optionnel)

@@ -134,7 +134,7 @@ class ELOAdminCog(commands.Cog):
     # ── /win ───────────────────────────────────────────────────
     @app_commands.command(
         name="win",
-        description="Enregistre une victoire dans une queue (Pro=flat 16, autres=pondere)",
+        description="Enregistre une victoire dans une queue (gains ponderes par position)",
     )
     @app_commands.describe(
         queue="Type de queue",
@@ -161,18 +161,14 @@ class ELOAdminCog(commands.Cog):
         players = [p for p in [joueur1, joueur2, joueur3, joueur4, joueur5] if p is not None]
         col = repository.get_elo_col(self.db)
 
-        if queue == "pro":
-            deltas = [16] * len(players)
-            desc = "Pro Queue : +16 a plat pour chaque gagnant."
-        else:
-            deltas = list(WIN_DELTAS_BY_SLOT)[: len(players)]
-            avg_elo, _, _ = _compute_match_change_for_members(
-                self.db,
-                interaction.guild_id,
-                players,
-                queue,
-            )
-            desc = f"Avg ELO du groupe : **{avg_elo}** -> gains ponderes par position."
+        deltas = list(WIN_DELTAS_BY_SLOT)[: len(players)]
+        avg_elo, _, _ = _compute_match_change_for_members(
+            self.db,
+            interaction.guild_id,
+            players,
+            queue,
+        )
+        desc = f"Avg ELO du groupe : **{avg_elo}** -> gains ponderes par position."
 
         embed = discord.Embed(
             title=f"Resultats {queue.upper()} - Victoire enregistree !",
@@ -202,7 +198,7 @@ class ELOAdminCog(commands.Cog):
     # ── /lose ──────────────────────────────────────────────────
     @app_commands.command(
         name="lose",
-        description="Enregistre une defaite dans une queue (Pro=flat 16, autres=pondere)",
+        description="Enregistre une defaite dans une queue (pertes ponderees par position)",
     )
     @app_commands.describe(
         queue="Type de queue",
@@ -229,18 +225,14 @@ class ELOAdminCog(commands.Cog):
         players = [p for p in [joueur1, joueur2, joueur3, joueur4, joueur5] if p is not None]
         col = repository.get_elo_col(self.db)
 
-        if queue == "pro":
-            deltas = [16] * len(players)
-            desc = "Pro Queue : -16 a plat pour chaque perdant."
-        else:
-            deltas = list(LOSE_DELTAS_BY_SLOT)[: len(players)]
-            avg_elo, _, _ = _compute_match_change_for_members(
-                self.db,
-                interaction.guild_id,
-                players,
-                queue,
-            )
-            desc = f"Avg ELO du groupe : **{avg_elo}** -> pertes ponderees par position."
+        deltas = list(LOSE_DELTAS_BY_SLOT)[: len(players)]
+        avg_elo, _, _ = _compute_match_change_for_members(
+            self.db,
+            interaction.guild_id,
+            players,
+            queue,
+        )
+        desc = f"Avg ELO du groupe : **{avg_elo}** -> pertes ponderees par position."
 
         embed = discord.Embed(
             title=f"Resultats {queue.upper()} - Defaite enregistree !",

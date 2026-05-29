@@ -33,7 +33,7 @@ critere.
 
   Categories de match :
     Creees dynamiquement par le bot sous la forme "Match #N" (compteur monotone, persisté en MongoDB).
-    Supprimees automatiquement en fin de match (vote valide, cancel admin, ou echec draft).
+    Supprimees automatiquement en fin de match (vote valide ou cancel admin).
     Chaque categorie contient :
       - Team 1            (vocal)
       - Team 2            (vocal)
@@ -78,7 +78,7 @@ critere.
       - Pas de compte Riot lie (-> /link-riot d'abord)
       - Deja dans un match en cours (presence dans une categorie Match #N active)
       - Deja dans une autre queue (single-queue lock)
-      - Role gate non satisfait (Pro Queue / GC)
+      - Role gate non satisfait
       - Queue pleine (10/10)
       - Queue fermee (match en cours de formation)
 
@@ -297,13 +297,11 @@ automatique. TOUTES ces commandes prennent un parametre `queue` (Pro/Open/GC).
 
   /win queue: @j1..@j5
     Enregistre une victoire pour 1 a 5 joueurs dans la queue choisie.
-    Pour la queue Pro : gain = 16 flat (pas de ponderation ACS manuelle).
-    Pour Open / GC : gain pondere par avg_elo.
+    Gain pondere par avg_elo.
 
   /lose queue: @j1..@j5
     Enregistre une defaite pour 1 a 5 joueurs dans la queue choisie.
-    Loss = 16 flat (Pro) ou pondere (Open / GC).
-    Plancher a 0.
+    Loss ponderee par avg_elo. Plancher a 0.
 
   /elomodify queue: @joueur action:[add/remove] montant:N
     Ajoute ou retire N points ELO a un joueur dans la queue choisie.

@@ -31,11 +31,6 @@ from cogs.queue_v2 import (
     QUEUE_ROLE_NAME,
 )
 from services import elo_calc, repository
-from services.captain_draft import (
-    CaptainDraftSession,
-    DraftCancelledError,
-    pick_captains,
-)
 from services.elo_updater import (
     apply_match_validation,
 )
@@ -46,7 +41,6 @@ from services.match_category import (
     cleanup_orphan_match_categories,
 )
 from services.match_service import (
-    build_plan_from_draft,
     build_players,
     plan_match,
     serialize_team,
@@ -197,71 +191,7 @@ class MatchCog(commands.Cog):
         prep_channel = channels.prep_channel
         free_cat_name = category.name
 
-        # Branche Pro Queue : draft capitaine au lieu d'auto-balance.
-        # Les autres queues continuent avec plan_match comme avant.
-        if queue_type == "pro":
-            player_ids_for_move = [str(p.id) for p in players]
-            await self._move_players_to_waiting_match(
-                guild,
-                category,
-                player_ids_for_move,
-            )
-            cap_a, cap_b = pick_captains(players, rng=self.rng)
-            pool = tuple(p for p in players if p.id not in (cap_a.id, cap_b.id))
-            session = CaptainDraftSession(
-                prep_channel=prep_channel,
-                cap_a=cap_a,
-                cap_b=cap_b,
-                pool=pool,
-                admin_role_names=ADMIN_ROLE_NAMES,
-            )
-            try:
-                result = await session.run()
-            except DraftCancelledError as exc:
-                logger.info(
-                    "[match] Pro draft annule (reason=%s actor=%s) - "
-                    "queue conservee, aucune action destructive",
-                    exc.reason,
-                    getattr(exc.actor, "id", None),
-                )
-                with contextlib.suppress(discord.HTTPException):
-                    await interaction.followup.send(
-                        "❌ Draft annule. La queue reste active. "
-                        "`/leave` puis `/join` pour reset si besoin.",
-                        ephemeral=False,
-                    )
-                try:
-                    await delete_match_category(
-                        guild=guild,
-                        category_id=category.id,
-                        reason=f"Match #{match_number} draft annule",
-                    )
-                except Exception:
-                    logger.exception("[match] failed to delete category on draft cancel")
-                return None
-            except Exception:
-                logger.exception(
-                    "[match] captain draft failed for #%d, rolling back category",
-                    match_number,
-                )
-                await delete_match_category(
-                    guild=guild,
-                    category_id=category.id,
-                    reason=f"Match #{match_number} draft aborted",
-                )
-                with contextlib.suppress(discord.HTTPException):
-                    await interaction.followup.send(
-                        f"❌ Le draft pour le Match #{match_number} a echoue, match annule.",
-                        ephemeral=True,
-                    )
-                return None
-            plan = build_plan_from_draft(
-                result,
-                free_category=free_cat_name,
-                rng=self.rng,
-            )
-        else:
-            plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
+        plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
 
         # Ordre de mise en place : on persiste le match (BDD) AVANT
         # d'annoncer sur Discord. Si la persistance echoue (Mongo down,
@@ -479,57 +409,6 @@ class MatchCog(commands.Cog):
             if isinstance(name, str) and name in wanted and isinstance(role_id, int):
                 ids.append(role_id)
         return ids
-
-    async def _move_players_to_waiting_match(
-        self,
-        guild,
-        category,
-        player_ids: list[str],
-    ) -> None:
-        """Deplace tous les `player_ids` vers la VC 'Waiting Match' de `category`.
-
-        Utilise sur la branche Pro Queue AVANT le draft, pour regrouper
-        les 10 joueurs dans un meme vocal pendant que les capitaines
-        choisissent leurs equipes.
-
-        Guards :
-          - skip si guild.get_member retourne None (utilisateur parti)
-          - skip si member n'est pas en voice
-          - skip si deja a destination
-        """
-        waiting_match = discord.utils.get(category.voice_channels, name="Waiting Match")
-        if waiting_match is None:
-            logger.warning(
-                "[match] _move_players_to_waiting_match: 'Waiting Match' "
-                "introuvable dans %s, no-op",
-                category.name,
-            )
-            return
-
-        async def _move_one(uid_str: str) -> None:
-            try:
-                uid = int(uid_str)
-            except (TypeError, ValueError):
-                return
-            member = guild.get_member(uid)
-            if member is None:
-                return
-            voice = getattr(member, "voice", None)
-            if voice is None or voice.channel is None:
-                return
-            if voice.channel.id == waiting_match.id:
-                return
-            async with self._guild_member_edit_sem:
-                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-                    await member.move_to(
-                        waiting_match,
-                        reason="Pro Queue : regroupement avant draft capitaine",
-                    )
-
-        await asyncio.gather(
-            *[_move_one(uid) for uid in player_ids],
-            return_exceptions=True,
-        )
 
     async def _move_players_to_match_vc(
         self,
@@ -898,8 +777,7 @@ class MatchCog(commands.Cog):
         """
         Tente la verif HenrikDev. Applique l'ELO si :
           - Henrik a trouve les multiplicateurs ACS (ELO pondere), OU
-          - `force_apply` est True (timeout atteint -> ELO plat), OU
-          - le match est en Pro Queue (Henrik skippe, ELO plat).
+          - `force_apply` est True (timeout atteint -> ELO plat).
         Sinon : ne fait rien, le match sera retente au prochain tick.
 
         Idempotence : on **claim** le match (`elo_applied=True`) AVANT
@@ -908,16 +786,12 @@ class MatchCog(commands.Cog):
         un retry au prochain tick.
         """
         queue_type = match_doc.get("queue_type", "open")
-        is_pro = queue_type == "pro"
 
         multipliers: dict[str, float] | None = None
-        if not is_pro and self.henrik_client is not None:
+        if self.henrik_client is not None:
             multipliers = await self._fetch_henrik_multipliers(guild, match_doc)
 
-        # Pro Queue : pas de ponderation Henrik, on applique l'ELO plat
-        # immediatement (apply_match_validation gere le court-circuit
-        # quand queue_type=="pro").
-        if multipliers is None and not force_apply and not is_pro:
+        if multipliers is None and not force_apply:
             # Pas trouve, pas en timeout -> on retentera dans 1 min.
             return
 
@@ -969,12 +843,6 @@ class MatchCog(commands.Cog):
             await refresh_leaderboard_channel(guild, self.db, queue_type)
         except Exception:
             logger.exception("[match] refresh leaderboard a leve")
-
-        if queue_type == "pro":
-            try:
-                await refresh_leaderboard_channel(guild, self.db, queue_type, weekly=True)
-            except Exception:
-                logger.exception("[match] refresh leaderboard weekly a leve")
 
     async def _fetch_henrik_multipliers(
         self,

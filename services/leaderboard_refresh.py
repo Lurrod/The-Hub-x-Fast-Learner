@@ -16,7 +16,7 @@ import logging
 import asyncio
 import re
 from collections import OrderedDict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from io import BytesIO
 
 import discord
@@ -30,31 +30,6 @@ logger = logging.getLogger(__name__)
 LEADERBOARD_CHANNEL_NAME = "leaderboard"
 LEADERBOARD_FILENAME = "leaderboard.png"
 PAGE_SIZE = 15
-
-# Regles d'apparition sur le leaderboard Pro Queue PERMANENT uniquement
-# (open / gc / hebdo ne sont pas concernes) :
-#   - un joueur doit avoir joue au moins 5 games (wins + losses) ;
-#   - un joueur inactif depuis strictement plus de 7 jours (ou sans date
-#     `last_played` enregistree) est retire jusqu'a ce qu'il rejoue.
-PRO_LEADERBOARD_MIN_GAMES = 5
-PRO_LEADERBOARD_INACTIVITY = timedelta(days=7)
-
-
-def _is_pro_leaderboard_eligible(doc: dict, now: datetime) -> bool:
-    """Le joueur Pro `doc` doit-il apparaitre sur le leaderboard permanent ?
-
-    `now` doit etre tz-aware (UTC). Renvoie False si moins de 5 games, si
-    aucune date `last_played` n'est enregistree, ou si la derniere partie
-    remonte a plus de 7 jours.
-    """
-    if doc.get("wins", 0) + doc.get("losses", 0) < PRO_LEADERBOARD_MIN_GAMES:
-        return False
-    last = doc.get("last_played")
-    if not isinstance(last, datetime):
-        return False
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=UTC)
-    return last >= now - PRO_LEADERBOARD_INACTIVITY
 
 
 # Debounce per-guild : evite de regenerer + reposter le leaderboard
@@ -77,16 +52,14 @@ _LAST_REFRESH_AT: OrderedDict[tuple[int, str], datetime] = OrderedDict()
 # Toute mutation d'ELO passe par cette fonction -> coherence garantie
 # tant que ce contrat est respecte.
 #
-# Cle  : (guild_id, queue_type, weekly_flag, page_zero_indexed)
+# Cle  : (guild_id, queue_type, page_zero_indexed)
 # Val  : (png_bytes, total_pages_at_render_time)
-_PAGE_CACHE_MAXSIZE: int = 80  # ~3 queues * 20 pages + weekly pro
-_PAGE_CACHE: OrderedDict[tuple[int, str, bool, int], tuple[bytes, int]] = OrderedDict()
+_PAGE_CACHE_MAXSIZE: int = 60  # ~3 queues * 20 pages
+_PAGE_CACHE: OrderedDict[tuple[int, str, int], tuple[bytes, int]] = OrderedDict()
 
 
-def _cache_get(
-    guild_id: int, queue_type: str, page: int, *, weekly: bool = False
-) -> tuple[bytes, int] | None:
-    key = (guild_id, queue_type, weekly, page)
+def _cache_get(guild_id: int, queue_type: str, page: int) -> tuple[bytes, int] | None:
+    key = (guild_id, queue_type, page)
     val = _PAGE_CACHE.get(key)
     if val is not None:
         _PAGE_CACHE.move_to_end(key)
@@ -99,25 +72,21 @@ def _cache_set(
     page: int,
     png_bytes: bytes,
     total_pages: int,
-    *,
-    weekly: bool = False,
 ) -> None:
-    key = (guild_id, queue_type, weekly, page)
+    key = (guild_id, queue_type, page)
     _PAGE_CACHE[key] = (png_bytes, total_pages)
     _PAGE_CACHE.move_to_end(key)
     while len(_PAGE_CACHE) > _PAGE_CACHE_MAXSIZE:
         _PAGE_CACHE.popitem(last=False)
 
 
-def _cache_invalidate(guild_id: int, queue_type: str, *, weekly: bool = False) -> int:
-    """Supprime toutes les entrees du cache pour ce (guild, queue_type, weekly).
+def _cache_invalidate(guild_id: int, queue_type: str) -> int:
+    """Supprime toutes les entrees du cache pour ce (guild, queue_type).
 
     Appele depuis `refresh_leaderboard_channel` quand on vient d'apprendre
     qu'un ELO a change. Retourne le nombre d'entrees supprimees (utile
     pour le debug et les tests)."""
-    to_remove = [
-        k for k in _PAGE_CACHE if k[0] == guild_id and k[1] == queue_type and k[2] == weekly
-    ]
+    to_remove = [k for k in _PAGE_CACHE if k[0] == guild_id and k[1] == queue_type]
     for k in to_remove:
         del _PAGE_CACHE[k]
     return len(to_remove)
@@ -156,20 +125,11 @@ class LeaderboardView(discord.ui.View):
         page: int = 0,
         total_pages: int = 1,
         queue_type: str | None = None,
-        weekly: bool = False,
     ):
         super().__init__(timeout=None)
         self.page = page
         self.total_pages = total_pages
         self.queue_type = queue_type
-        self.weekly = weekly
-        if weekly:
-            # Distingue les boutons des deux vues persistantes (permanent vs
-            # weekly) au niveau du dispatch Discord. Sans ca, les clicks sur
-            # le LB weekly seraient routes vers la view permanente.
-            self.prev_btn.custom_id = "lb_weekly:prev"
-            self.page_btn.custom_id = "lb_weekly:page"
-            self.next_btn.custom_id = "lb_weekly:next"
         self._sync_buttons()
 
     def _sync_buttons(self) -> None:
@@ -227,21 +187,14 @@ class LeaderboardView(discord.ui.View):
                 msg = getattr(inter, "message", None)
                 if msg is None:
                     return
-                # Vue weekly : qt est toujours "pro", on parse uniquement la page.
-                if self.weekly:
-                    queue_type = "pro"
-                    _, _, rec_total = self._recover_state(msg)
-                    total = rec_total
-                    recovered_from_message = True
-                else:
-                    qt, _, rec_total = self._recover_state(msg)
-                    if qt is None:
-                        if not inter.response.is_done():
-                            await inter.response.defer()
-                        return
-                    queue_type = qt
-                    total = rec_total
-                    recovered_from_message = True
+                qt, _, rec_total = self._recover_state(msg)
+                if qt is None:
+                    if not inter.response.is_done():
+                        await inter.response.defer()
+                    return
+                queue_type = qt
+                total = rec_total
+                recovered_from_message = True
 
             if new_page < 0 or new_page >= total:
                 if not inter.response.is_done():
@@ -260,7 +213,6 @@ class LeaderboardView(discord.ui.View):
                 _db,
                 queue_type,
                 page=new_page,
-                weekly=self.weekly,
             )
             if file is None:
                 return
@@ -333,29 +285,23 @@ async def build_leaderboard_payload(
     view_timeout: float
     | None = None,  # conserve pour back-compat, ignore (vue toujours persistante)
     page: int = 0,
-    weekly: bool = False,
 ) -> tuple[discord.File | None, discord.ui.View | None]:
     """Genere file/view pour le leaderboard du queue_type donne, page `page`.
 
     Utilise un cache lazy (cf. `_PAGE_CACHE`) pour eviter de re-rendre
     une page deja generee. Le cache est invalide depuis
     `refresh_leaderboard_channel` quand un changement d'ELO survient.
-
-    weekly=True : lit la collection `elo_weekly` (videe chaque Lundi 00:00
-    Europe/Paris), ne supporte que queue_type="pro".
     """
     del view_timeout  # parametre conserve pour API stable, vue toujours timeout=None
     repository._check_queue_type(queue_type)
-    if weekly and queue_type != "pro":
-        raise ValueError("weekly leaderboard est reserve a la Pro Queue")
 
-    filename = "leaderboard_weekly.png" if weekly else f"leaderboard_{queue_type}.png"
+    filename = f"leaderboard_{queue_type}.png"
 
     # Cache lookup AVANT Mongo : si la page demandee est en cache, on
     # economise la query DB + le PIL render. La page renvoyee est l'image
     # exacte rendue lors du dernier render (coherente avec le message
     # actuellement poste dans #leaderboard).
-    cached = _cache_get(guild.id, queue_type, page, weekly=weekly)
+    cached = _cache_get(guild.id, queue_type, page)
     if cached is not None:
         png_bytes, total_pages_cached = cached
         file = discord.File(
@@ -368,24 +314,16 @@ async def build_leaderboard_payload(
             page=page,
             total_pages=total_pages_cached,
             queue_type=queue_type,
-            weekly=weekly,
         )
 
-    col = repository.get_elo_weekly_col(db) if weekly else repository.get_elo_col(db)
+    col = repository.get_elo_col(db)
     docs = list(col.find({"queue_type": queue_type}).sort([("elo", -1), ("wins", -1), ("_id", 1)]))
     if not docs:
         return None, None
 
-    # Le leaderboard Pro PERMANENT applique les regles 5 games / 7 jours.
-    # Open, GC et la version hebdo (weekly) ne sont pas filtres.
-    apply_pro_rules = queue_type == "pro" and not weekly
-    now = datetime.now(UTC)
-
     all_players = []
     rank = 1
     for doc in docs:
-        if apply_pro_rules and not _is_pro_leaderboard_eligible(doc, now):
-            continue
         uid = doc.get("user_id") or doc["_id"].split(":")[0]
         try:
             member = guild.get_member(int(uid))
@@ -419,11 +357,8 @@ async def build_leaderboard_payload(
     start = page * PAGE_SIZE
     chunk = all_players[start : start + PAGE_SIZE]
     # Le titre du leaderboard inclut le queue_type pour distinguer les
-    # 3 leaderboards qui cohabitent dans #leaderboard. La version weekly
-    # ajoute un suffixe "(Hebdo)" pour bien differencier des permanents.
+    # 3 leaderboards qui cohabitent dans #leaderboard.
     title = f"Leaderboard {queue_type.upper()} Queue"
-    if weekly:
-        title += " (Hebdo)"
     buf = await loop.run_in_executor(
         None,
         lambda: generate_leaderboard(chunk, server_name=f"{guild.name} - {title}"),
@@ -432,7 +367,7 @@ async def build_leaderboard_payload(
     # Stocker les bytes raw dans le cache (pas le discord.File qui est
     # single-use). A chaque cache hit, on wrappera dans un BytesIO frais.
     png_bytes = buf.getvalue()
-    _cache_set(guild.id, queue_type, page, png_bytes, total_pages, weekly=weekly)
+    _cache_set(guild.id, queue_type, page, png_bytes, total_pages)
 
     file = discord.File(
         BytesIO(png_bytes),
@@ -445,24 +380,11 @@ async def build_leaderboard_payload(
         page=page,
         total_pages=total_pages,
         queue_type=queue_type,
-        weekly=weekly,
     )
 
 
-def _find_leaderboard_channel(
-    guild: discord.Guild, *, weekly: bool = False
-) -> discord.TextChannel | None:
-    """Trouve le canal cible.
-
-    Permanent et weekly cohabitent dans le meme canal `#leaderboard`.
-    Les 4 messages (Pro permanent, Pro hebdo, Open, GC) sont distingues
-    par leur message_id persiste, leur filename d'attachement et le
-    custom_id de leur LeaderboardView.
-
-    Le parametre `weekly` est conserve pour API stable mais n'influence
-    plus la selection du canal.
-    """
-    del weekly  # meme canal pour permanent et weekly
+def _find_leaderboard_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """Trouve le canal `#leaderboard`."""
     needle = LEADERBOARD_CHANNEL_NAME.lower()
     for c in guild.text_channels:
         cname = (c.name or "").lower()
@@ -475,20 +397,13 @@ async def refresh_leaderboard_channel(
     guild: discord.Guild,
     db,
     queue_type: str,
-    *,
-    weekly: bool = False,
 ) -> None:
-    """Refresh le leaderboard du queue_type donne.
+    """Refresh le leaderboard du queue_type donne dans `#leaderboard`.
 
-    Permanent : canal "#leaderboard". weekly=True : canal "#leaderboard-weekly"
-    (queue_type doit etre "pro"). Per-queue debounce : une rafale Pro ne
-    bloque pas un refresh Open."""
+    Per-queue debounce : une rafale Pro ne bloque pas un refresh Open."""
     repository._check_queue_type(queue_type)
-    if weekly and queue_type != "pro":
-        raise ValueError("refresh weekly est reserve a la Pro Queue")
     now = datetime.now(UTC)
-    debounce_qt = "pro_weekly" if weekly else queue_type
-    key = (guild.id, debounce_qt)
+    key = (guild.id, queue_type)
     last = _LAST_REFRESH_AT.get(key)
     if last is not None and (now - last).total_seconds() < _REFRESH_DEBOUNCE_SECONDS:
         _LAST_REFRESH_AT.move_to_end(key)
@@ -498,31 +413,25 @@ async def refresh_leaderboard_channel(
     while len(_LAST_REFRESH_AT) > _MAX_GUILDS_TRACKED:
         _LAST_REFRESH_AT.popitem(last=False)
 
-    # ELO a change pour ce (guild, queue_type, weekly) ET on va effectivement
+    # ELO a change pour ce (guild, queue_type) ET on va effectivement
     # rendre une nouvelle page (debounce passe) -> invalide les pages
     # caches pour eviter de servir des donnees perimees. La page 1
     # fraichement rendue ci-dessous repeuplera le cache via _cache_set.
     # Note : si le debounce avait renvoye plus haut, on n'invalide PAS
     # - le message poste reste l'ancien, donc le cache reste coherent.
-    _cache_invalidate(guild.id, queue_type, weekly=weekly)
+    _cache_invalidate(guild.id, queue_type)
 
-    chan = _find_leaderboard_channel(guild, weekly=weekly)
+    chan = _find_leaderboard_channel(guild)
     if chan is None:
         return
 
-    if weekly:
-        stored_id = repository.get_weekly_leaderboard_message_id(db, guild.id)
-    else:
-        stored_id = repository.get_leaderboard_message_id(db, guild.id, queue_type)
+    stored_id = repository.get_leaderboard_message_id(db, guild.id, queue_type)
     if stored_id is not None:
         try:
             old_msg = await chan.fetch_message(stored_id)
             await old_msg.delete()
         except discord.NotFound:
-            if weekly:
-                repository.clear_weekly_leaderboard_message_id(db, guild.id)
-            else:
-                repository.clear_leaderboard_message_id(db, guild.id, queue_type)
+            repository.clear_leaderboard_message_id(db, guild.id, queue_type)
         except Exception:
             logger.exception("leaderboard_refresh exception")
 
@@ -536,7 +445,6 @@ async def refresh_leaderboard_channel(
             db,
             queue_type,
             view_timeout=None,
-            weekly=weekly,
         )
     except Exception:
         logger.exception("leaderboard_refresh exception")
@@ -554,9 +462,6 @@ async def refresh_leaderboard_channel(
         return
 
     try:
-        if weekly:
-            repository.set_weekly_leaderboard_message_id(db, guild.id, new_msg.id)
-        else:
-            repository.set_leaderboard_message_id(db, guild.id, queue_type, new_msg.id)
+        repository.set_leaderboard_message_id(db, guild.id, queue_type, new_msg.id)
     except Exception:
         logger.exception("leaderboard_refresh exception")

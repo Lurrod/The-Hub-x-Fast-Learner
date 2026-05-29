@@ -2,11 +2,7 @@
 Cog V2 : queues 10mans avec boutons persistants (Rejoindre / Quitter).
 
 3 queues simultanees par guild :
-  - Pro Queue : reserve aux joueurs avec le role "Rank S | Pro Queue"
-    ou "Rank Q | Qualification Pro". Au plus
-    PRO_QUALIFICATION_PRO_MAX joueur(s) "Rank Q | Qualification Pro"
-    peut/peuvent etre simultanement dans la queue (les autres slots
-    doivent etre remplis par des "Rank S | Pro Queue").
+  - Pro Queue : reserve aux joueurs avec le role "Rank S | Pro Queue".
   - Open Queue : sans gate de role.
   - GC Queue : reserve aux joueurs avec le role "GC".
 
@@ -57,15 +53,10 @@ WAITING_ROOM_NAMES: dict[str, str] = {
     "gc": "Waiting Room GC",
 }
 
-# Role "Qualification Pro" : autorise a rejoindre la Pro Queue, mais
-# limite a PRO_QUALIFICATION_PRO_MAX joueur(s) par queue.
-PRO_QUALIFICATION_ROLE: str = "Rank Q | Qualification Pro"
-PRO_QUALIFICATION_PRO_MAX: int = 1
-
 # Roles autorises pour rejoindre une queue gated (n'importe lequel suffit).
 # None = pas de gate.
 QUEUE_ROLE_GATES: dict[str, tuple[str, ...] | None] = {
-    "pro": ("Rank S | Pro Queue", PRO_QUALIFICATION_ROLE),
+    "pro": ("Rank S | Pro Queue",),
     "open": None,
     "gc": ("GC",),
 }
@@ -314,19 +305,19 @@ class QueueView(discord.ui.View):
         if not ok:
             return (
                 f"❌ Cette queue est reservee aux joueurs avec le role "
-                f"**{required}** (Pro Queue / GC)."
+                f"**{required}**."
             )
         return None
 
     async def _acquire_slot_under_lock(self, inter: discord.Interaction) -> _JoinResult:
         """Toute la phase BDD sous le lock par-guild.
 
-        Couvre : lecture compte Riot + queue courante, cap Qualification
-        Pro, insert atomique, fermeture queue pleine. Renvoie un
-        `_JoinSuccess(queue_doc, full)` ou un `_JoinFailure(message)` que
-        l'appelant pousse en ephemeral. Le lock est relache a la sortie
-        de cette methode : les side-effects Discord (VC move, role
-        grant, edit message) tournent ensuite sans serialisation.
+        Couvre : lecture compte Riot + queue courante, insert atomique,
+        fermeture queue pleine. Renvoie un `_JoinSuccess(queue_doc, full)`
+        ou un `_JoinFailure(message)` que l'appelant pousse en ephemeral.
+        Le lock est relache a la sortie de cette methode : les
+        side-effects Discord (VC move, role grant, edit message) tournent
+        ensuite sans serialisation.
         """
         async with self._lock(inter.guild_id):
             riot, current = await asyncio.gather(
@@ -371,14 +362,6 @@ class QueueView(discord.ui.View):
                         "Termine le vote ou demande l'annulation a un admin."
                     )
 
-            rules_err = await self._check_rules_accepted(inter)
-            if rules_err is not None:
-                return rules_err
-
-            cap_err = await self._check_qualification_pro_cap(inter, current)
-            if cap_err is not None:
-                return cap_err
-
             res = await asyncio.to_thread(
                 repository.add_player_to_queue,
                 self.db,
@@ -402,63 +385,6 @@ class QueueView(discord.ui.View):
                 if closed is not None:
                     queue_doc = closed
             return _JoinSuccess(queue_doc=queue_doc, full=full)
-
-    async def _check_qualification_pro_cap(
-        self, inter: discord.Interaction, current: str | None
-    ) -> _JoinFailure | None:
-        """Cap PRO_QUALIFICATION_PRO_MAX joueurs "Rank Q | Qualification Pro"
-        simultanement dans la Pro Queue. Skip pour les non-pro queues, et
-        pour les re-clics du joueur deja dans la queue (idempotent).
-        """
-        if (
-            self.queue_type != "pro"
-            or current == self.queue_type
-            or not any(r.name == PRO_QUALIFICATION_ROLE for r in inter.user.roles)
-        ):
-            return None
-        active = await asyncio.to_thread(
-            repository.get_active_queue,
-            self.db,
-            inter.guild_id,
-            self.queue_type,
-        )
-        if not active or inter.guild is None:
-            return None
-        rank_q_count = 0
-        for uid in active.get("players", []):
-            try:
-                m = inter.guild.get_member(int(uid))
-            except (TypeError, ValueError):
-                continue
-            if m is None:
-                continue
-            if any(r.name == PRO_QUALIFICATION_ROLE for r in m.roles):
-                rank_q_count += 1
-        if rank_q_count >= PRO_QUALIFICATION_PRO_MAX:
-            return _JoinFailure(
-                f"❌ La Pro Queue contient deja "
-                f"{PRO_QUALIFICATION_PRO_MAX} joueur(s) avec le role "
-                f"**{PRO_QUALIFICATION_ROLE}**. Attends qu'un slot se libere."
-            )
-        return None
-
-    async def _check_rules_accepted(self, inter: discord.Interaction) -> _JoinFailure | None:
-        """Gate Pro Queue : refuse si le joueur n'a pas accepte le reglement.
-        Skip pour les queues non-pro (Open/GC ne sont pas gatees)."""
-        if self.queue_type != "pro":
-            return None
-        accepted = await asyncio.to_thread(
-            repository.has_accepted_rules,
-            self.db,
-            inter.user.id,
-        )
-        if accepted:
-            return None
-        return _JoinFailure(
-            "❌ Tu dois d'abord accepter le reglement pour rejoindre la Pro "
-            "Queue. Demande a un admin de poster /rules, puis clique sur "
-            "« J'accepte »."
-        )
 
     async def _broadcast_join_side_effects(
         self,

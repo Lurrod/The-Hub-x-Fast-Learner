@@ -224,12 +224,12 @@ def unlink_riot_account(db: Database, user_id: int | str) -> bool:
     return res.deleted_count > 0
 
 
-# ── Reglement (acceptation obligatoire Pro Queue) ─────────────────
+# ── Reglement (acceptation du reglement) ──────────────────────────
 def get_rules_col(db: Database) -> Collection:
     """Collection globale d'acceptation du reglement (clé = user_id).
 
     Acceptation par joueur (pas par guild ni par queue), valable une fois
-    pour toutes. Sert au gate Pro Queue dans cogs/queue_v2.py."""
+    pour toutes."""
     col = db["rules"]
     _ensure_indexes(col, "rules")
     return col
@@ -783,80 +783,6 @@ def clear_leaderboard_message_id(
 # Europe/Paris. Memes champs que la collection `elo` mais usage limite
 # au Pro Queue (queue_type toujours "pro").
 WEEKLY_PRO_QUEUE_TYPE: str = "pro"
-
-
-def get_elo_weekly_col(db: Database) -> Collection:
-    """Collection ELO miroir Pro Queue Weekly, partagee entre guilds.
-
-    Vide chaque Lundi 00:00 Europe/Paris via cogs/leaderboard_weekly.py.
-    Memes champs que la collection `elo`."""
-    col = db["elo_weekly"]
-    _ensure_indexes(col, "elo")
-    return col
-
-
-def get_weekly_leaderboard_message_id(
-    db: Database,
-    guild_id: int | str,
-) -> int | None:
-    doc = get_leaderboard_state_col(db, guild_id).find_one({"_id": "weekly:pro"})
-    if not doc:
-        return None
-    mid = doc.get("message_id")
-    return int(mid) if mid is not None else None
-
-
-def set_weekly_leaderboard_message_id(
-    db: Database,
-    guild_id: int | str,
-    message_id: int,
-) -> None:
-    get_leaderboard_state_col(db, guild_id).update_one(
-        {"_id": "weekly:pro"},
-        {"$set": {"message_id": _to_int_id(message_id, field="message_id")}},
-        upsert=True,
-    )
-
-
-def clear_weekly_leaderboard_message_id(
-    db: Database,
-    guild_id: int | str,
-) -> None:
-    get_leaderboard_state_col(db, guild_id).delete_one({"_id": "weekly:pro"})
-
-
-def get_weekly_reset_meta_col(db: Database) -> Collection:
-    """Collection meta (partagee) pour memoriser le dernier reset hebdo."""
-    return db["weekly_meta"]
-
-
-def get_last_weekly_reset(db: Database) -> datetime | None:
-    """Datetime UTC du dernier reset hebdo, ou None si jamais run."""
-    doc = get_weekly_reset_meta_col(db).find_one({"_id": "last_weekly_reset"})
-    if not doc:
-        return None
-    ts = doc.get("at")
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
-    return None
-
-
-def set_last_weekly_reset(db: Database, at: datetime) -> None:
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=UTC)
-    get_weekly_reset_meta_col(db).update_one(
-        {"_id": "last_weekly_reset"},
-        {"$set": {"at": at}},
-        upsert=True,
-    )
-
-
-def reset_weekly_elo(db: Database) -> int:
-    """Vide la collection elo_weekly. Retourne le nombre de docs supprimes."""
-    res = get_elo_weekly_col(db).delete_many({})
-    return int(getattr(res, "deleted_count", 0))
 
 
 def get_applications_col(db: Database, guild_id: int | str) -> Collection:
