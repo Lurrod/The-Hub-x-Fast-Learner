@@ -26,7 +26,7 @@ result voting, HenrikDev verification with ACS weighting, and an image-generated
 
 ## Overview
 
-Full lifecycle of a match:
+Full lifecycle of a match :
 
 1. 10 players click **Join** on the persistent message of their queue (Pro / Semi Pro / Open / GC).
 2. At 10/10, the bot closes the queue, **balances the teams** (brute-force optimal across the
