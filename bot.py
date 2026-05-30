@@ -187,11 +187,8 @@ async def on_ready():
     # setup_hook (cf. cogs/applications.py and cogs/queue_v2.py).
     # LeaderboardView: pagination for the persistent leaderboard
     # messages posted in #leaderboard. Without this registration, the
-    # prev/next buttons stop working after a bot restart. Two
-    # variants: permanent (4 queues) and weekly (Pro Queue,
-    # #leaderboard-weekly channel, different custom_ids).
+    # prev/next buttons stop working after a bot restart.
     bot.add_view(LeaderboardView())
-    bot.add_view(LeaderboardView(weekly=True))
 
     # Fast sync on a specific guild if DEV_GUILD_ID is defined.
     # Otherwise, global sync (can take up to 1h to propagate).

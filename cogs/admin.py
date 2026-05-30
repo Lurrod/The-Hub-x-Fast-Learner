@@ -120,12 +120,6 @@ class AdminCog(commands.Cog):
             except Exception:
                 logger.exception("[setup] pre-post leaderboard %s raised", qt)
 
-        # 4b) Pre-post the weekly Pro leaderboard (#leaderboard-weekly channel)
-        try:
-            await refresh_leaderboard_channel(guild, self.db, "pro", weekly=True)
-        except Exception:
-            logger.exception("[setup] pre-post weekly leaderboard raised")
-
         # 5) Recap
         lines: list[str] = []
         if created:
