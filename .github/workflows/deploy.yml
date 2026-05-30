@@ -94,10 +94,8 @@ jobs:
 
           mkdir -p logs
 
-          if pm2 describe fl-bot >/dev/null 2>&1; then
-            pm2 reload ecosystem.config.js --update-env
-          else
-            pm2 start ecosystem.config.js
-          fi
+          # startOrRestart re-reads ecosystem.config.js (script, interpreter, cwd, env)
+          # — unlike reload which keeps the cached config from the original `start`.
+          pm2 startOrRestart ecosystem.config.js --update-env
           pm2 save
           REMOTE
