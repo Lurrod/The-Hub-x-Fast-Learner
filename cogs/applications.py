@@ -843,7 +843,7 @@ class ApplicationsCog(commands.Cog):
             return
         embed = discord.Embed(
             title="Welcome to The Hub Matchmaking",
-            description="Welcome to a **10mans** server with 4 queues:\n\n• **Pro Queue** - TOP VRC\n• **Semi Pro Queue** - High Immortal / Radiant\n• **Open Queue** - Immortal peak\n• **GC Queue** - Ascendant peak\n\nTo gain access to the server, please click the **Apply** button just below.\n\n**Have fun! 🍀**",
+            description="Welcome to a **10mans** server with 4 queues:\n\n• **FL Pro** - VCL / VCT\n• **FL Semi-Pro** - TOP VRC\n• **FL Open** - Open to everyone\n• **FL GC** - Open to GC only\n\nTo gain access to the server, please click the **Apply** button just below.\n\n**Have fun! 🍀**",
             color=0x5865F2,
             timestamp=datetime.now(UTC),
         )
