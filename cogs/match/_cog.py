@@ -774,10 +774,8 @@ class MatchCog(commands.Cog):
         force_apply: bool = False,
     ) -> None:
         """
-        Attempt the HenrikDev verification. Apply the ELO if:
-          - Henrik found the ACS multipliers (weighted ELO), OR
-          - `force_apply` is True (timeout reached -> flat ELO).
-        Otherwise: do nothing, the match will be retried on the next tick.
+        Apply the flat ±20 ELO for a validated match. ACS/Henrik
+        weighting has been removed.
 
         Idempotency: we **claim** the match (`elo_applied=True`) BEFORE
         applying the ELO. If the claim fails (already applied elsewhere),
@@ -785,14 +783,6 @@ class MatchCog(commands.Cog):
         allow a retry on the next tick.
         """
         queue_type = match_doc.get("queue_type", "open")
-
-        multipliers: dict[str, float] | None = None
-        if self.henrik_client is not None:
-            multipliers = await self._fetch_henrik_multipliers(guild, match_doc)
-
-        if multipliers is None and not force_apply:
-            # Not found, not timed out -> we will retry in 1 min.
-            return
 
         # Atomic claim: only the first call goes through. Prevents double
         # application in case of a crash between apply_match_validation
@@ -810,7 +800,6 @@ class MatchCog(commands.Cog):
                 apply_match_validation,
                 self.db,
                 match_doc,
-                multipliers=multipliers,
             )
         except Exception:
             logger.exception("[match] apply_match_validation raised")
@@ -826,8 +815,8 @@ class MatchCog(commands.Cog):
             repository.set_match_henrik_verified,
             self.db,
             match_doc["_id"],
-            found=multipliers is not None,
-            multipliers=multipliers,
+            found=False,
+            multipliers=None,
         )
 
         embed = build_elo_changes_embed(outcome, match_doc, guild.name)

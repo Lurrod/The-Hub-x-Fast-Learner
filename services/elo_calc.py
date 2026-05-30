@@ -23,7 +23,7 @@ MAPS: Final[tuple[str, ...]] = (
 IMMORTAL_FLOOR_ELO: Final[int] = 2400  # Immortal 1 (HenrikDev tier 24 * 100)
 ELO_REFERENCE: Final[int] = IMMORTAL_FLOOR_ELO
 # Strict zero-sum: gain == loss. ELO injected per match = 0.
-ELO_BASE_CHANGE: Final[int] = 16  # expected gain and loss at avg = ELO_REFERENCE
+ELO_BASE_CHANGE: Final[int] = 20  # flat gain/loss per match across all queues
 # Backward-compatible aliases (used by tests/legacy code)
 ELO_BASE_GAIN: Final[int] = ELO_BASE_CHANGE
 ELO_BASE_LOSS: Final[int] = ELO_BASE_CHANGE
@@ -40,9 +40,8 @@ def compute_match_elo_change(avg_match_elo: int) -> tuple[int, int]:
     """
     Returns (gain, loss) with strict zero-sum: gain == loss = ELO_BASE_CHANGE.
 
-    The base is constant (16) regardless of the match average ELO.
-    Per-player performance scaling is applied downstream via the ACS
-    multipliers (see elo_updater.distribute / apply_match_validation).
+    Flat ±20 across all queues regardless of average ELO. ACS-based
+    per-player scaling has been removed.
     """
     if avg_match_elo < 0:
         raise ValueError(f"avg_match_elo must be >= 0, received {avg_match_elo}")

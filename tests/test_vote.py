@@ -602,7 +602,7 @@ async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: i
 
 
 async def test_validation_triggers_elo_update_in_db():
-    """After _verify_match (without Henrik): 5 winners +16, 5 losers -16."""
+    """After _verify_match: 5 winners +20, 5 losers -20 (flat across queues)."""
     import bot as bot_module
     from cogs.match import MatchCog
 
@@ -619,12 +619,12 @@ async def test_validation_triggers_elo_update_in_db():
     elo_col = repository.get_elo_col(bot_module.db)
     for i in range(5):
         doc = elo_col.find_one({"_id": f"{i}:open"})
-        # _verify_match force_apply=True sans Henrik -> flat fallback +16
-        assert doc["elo"] == 2016, f"Winner {i}: ELO {doc['elo']}"
+        # _verify_match applies flat +20 across all queues
+        assert doc["elo"] == 2020, f"Winner {i}: ELO {doc['elo']}"
         assert doc["wins"] == 1
     for i in range(5, 10):
         doc = elo_col.find_one({"_id": f"{i}:open"})
-        assert doc["elo"] == 1984  # 2000 - 16
+        assert doc["elo"] == 1980  # 2000 - 20
         assert doc["losses"] == 1
 
 
@@ -651,7 +651,7 @@ async def test_validation_sends_recap_embed():
     fields = {f.name: f.value for f in recap.fields}
     assert any("Winners" in n for n in fields)
     assert any("Losers" in n for n in fields)
-    assert "+16" in fields["🟢 Winners"]  # flat fallback without Henrik
+    assert "+20" in fields["🟢 Winners"]  # flat +20 across queues
 
 
 async def test_validation_with_high_elo_match_bigger_gain():
@@ -680,8 +680,8 @@ async def test_validation_with_high_elo_match_bigger_gain():
     await _vote_and_verify(cog, guild, match_id, choice="a", db=bot_module.db)
 
     elo_col = repository.get_elo_col(bot_module.db)
-    # Without Henrik -> flat fallback +16 (independent of the match avg ELO).
-    assert elo_col.find_one({"_id": "0:open"})["elo"] == 2016
+    # Flat +20 across all queues (independent of the match avg ELO).
+    assert elo_col.find_one({"_id": "0:open"})["elo"] == 2020
 
 
 async def test_validated_b_distributes_correctly():
@@ -699,13 +699,13 @@ async def test_validated_b_distributes_correctly():
     await _vote_and_verify(cog, guild, match_id, choice="b", db=bot_module.db)
 
     elo_col = repository.get_elo_col(bot_module.db)
-    # team_b (5..9) wins +16 (flat without Henrik) -> 2016
+    # team_b (5..9) wins +20 (flat across queues) -> 2020
     for i in range(5, 10):
-        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 2016
+        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 2020
         assert elo_col.find_one({"_id": f"{i}:open"})["wins"] == 1
-    # team_a (0..4) loses -16 -> 1984
+    # team_a (0..4) loses -20 -> 1980
     for i in range(5):
-        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 1984
+        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 1980
         assert elo_col.find_one({"_id": f"{i}:open"})["losses"] == 1
 
 

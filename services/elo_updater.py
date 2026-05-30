@@ -2,8 +2,9 @@
 Updates player ELO (shared collection `elo`) after the validation of a V2
 match.
 
-The gain/loss is proportional to the average effective_elo (Riot) of the
-10 players of the match: avg=1500 -> +20/-10, avg=3000 -> +40/-20.
+Flat +20 / -20 per match across all queues. The previous ACS-based
+per-player scaling has been removed: every winner gets +20, every loser
+loses 20 (clamped at 0).
 """
 
 from __future__ import annotations
@@ -20,13 +21,10 @@ from services import elo_calc, repository
 VALIDATED_A: Final[str] = "validated_a"
 VALIDATED_B: Final[str] = "validated_b"
 
-# Fixed fallback when HenrikDev does not provide ACS multipliers
-# (custom not found after 30 min timeout, or extraction impossible:
-# mixed Attack/Defense teams in a Valorant lobby). We apply a flat
-# +20/-20 rather than the value proportional to the match avg ELO.
-# More readable for players and avoids weird variations (15/17/19)
-# depending on the average tier.
-FLAT_FALLBACK_ELO_CHANGE: Final[int] = 16
+# Flat ELO change applied to every validated match, all queues.
+FLAT_ELO_CHANGE: Final[int] = 20
+# Backward-compatible alias for legacy imports/tests.
+FLAT_FALLBACK_ELO_CHANGE: Final[int] = FLAT_ELO_CHANGE
 
 
 @dataclass(frozen=True)
@@ -55,15 +53,15 @@ def apply_match_validation(
     multipliers: dict[str, float] | None = None,
 ) -> MatchEloOutcome:
     """
-    Distribute ELO in a single pass, **strict zero-sum**.
+    Distribute ELO in a single pass, flat ±20 for every player.
 
-    Floor at 0: if a loser has less ELO than the computed loss, their
-    delta is clamped to -old_elo (does not go below 0).
+    Floor at 0: if a loser has less ELO than the loss, their delta is
+    clamped to -old_elo (does not go below 0).
 
     Args:
         db:          mongomock/pymongo Database (shared ELO collection)
         match_doc:   match doc with `team_a`, `team_b`, `status`, `queue_type`
-        multipliers: dict user_id (str) -> ACS multiplier (~0.7..1.3)
+        multipliers: kept for backward compatibility; ignored.
 
     Raises:
         ValueError if status != validated_a/b
@@ -81,22 +79,16 @@ def apply_match_validation(
 
     avg_elo = elo_calc.compute_team_avg_elo(winners + losers)
 
-    if multipliers is None:
-        base_gain = base_loss = FLAT_FALLBACK_ELO_CHANGE
-        mults: dict[str, float] = {}
-        weighted = False
-    else:
-        base_gain, base_loss = elo_calc.compute_match_elo_change(avg_elo)
-        mults = multipliers
-        weighted = True
+    base_gain = base_loss = FLAT_ELO_CHANGE
+    weighted = False
 
     elo_col = repository.get_elo_col(db)
 
-    winner_mults = [float(mults.get(str(p["id"]), 1.0)) for p in winners]
-    loser_mults = [float(mults.get(str(p["id"]), 1.0)) for p in losers]
+    winner_mults = [1.0 for _ in winners]
+    loser_mults = [1.0 for _ in losers]
 
-    winner_deltas = [round(+base_gain * m) for m in winner_mults]
-    loser_deltas = [round(-base_loss * (2.0 - m)) for m in loser_mults]
+    winner_deltas = [+base_gain for _ in winners]
+    loser_deltas = [-base_loss for _ in losers]
 
     # Clamp to 0 ELO for losers (compound _id for the lookup).
     loser_old_elos: list[int] = []
