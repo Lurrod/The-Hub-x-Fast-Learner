@@ -40,7 +40,7 @@ APPLICATION_VIEW_TIMEOUT_SECONDS: int = 60
 
 
 # ── Constants ───────────────────────────────────────────────────
-CANDIDATURE_CHANNEL = "candidatures"
+CANDIDATURE_CHANNEL = "applications"
 WELCOME_CHANNEL = "verify"
 PLAYERS_ROLE = "Members"
 STAFF_ROLE = "Coach/Analyst/Manager"
