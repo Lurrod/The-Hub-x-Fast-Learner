@@ -1050,3 +1050,81 @@ async def test_welcome_application_modal_rejects_unknown_tier():
     review_view = ApplicationReviewView(db=db)
     with pytest.raises(ValueError):
         ApplicationModal(db=db, review_view=review_view, queue_tier="open")
+
+
+# ── WelcomeView Open Queue instant-grant button ──────────────────
+def _welcome_interaction_with_guild(
+    *, fl_hub_in_guild: bool, member_has_fl_hub: bool = False
+) -> MagicMock:
+    """Builds an interaction whose user is a Member and whose guild
+    has (or doesn't have) the FL HUB role."""
+    member = _fake_member(7, "Candidate", manage_guild=False)
+    fl_hub = _make_named_role("FL HUB") if fl_hub_in_guild else None
+    if fl_hub is not None and member_has_fl_hub:
+        member.roles = [fl_hub]
+    guild = _fake_guild(99, members=[member])
+    guild.roles = [fl_hub] if fl_hub is not None else []
+    inter = MagicMock()
+    inter.user = member
+    inter.guild = guild
+    inter.guild_id = guild.id
+    inter.response = MagicMock()
+    inter.response.send_message = AsyncMock()
+    inter.response.send_modal = AsyncMock()
+    return inter
+
+
+async def test_welcome_apply_open_grants_fl_hub_role():
+    """Click on Open Queue button: FL HUB role added, ephemeral
+    confirmation, no modal."""
+    from cogs.applications import WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction_with_guild(fl_hub_in_guild=True)
+
+    await view.apply_open.callback(inter)
+
+    inter.response.send_modal.assert_not_awaited()
+    added = [r for call in inter.user.add_roles.await_args_list for r in call.args]
+    added_names = {r.name for r in added}
+    assert "FL HUB" in added_names
+    inter.response.send_message.assert_awaited_once()
+
+
+async def test_welcome_apply_open_idempotent_when_member_already_has_role():
+    """User already has FL HUB: no re-grant, friendly message."""
+    from cogs.applications import WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction_with_guild(
+        fl_hub_in_guild=True, member_has_fl_hub=True
+    )
+
+    await view.apply_open.callback(inter)
+
+    inter.user.add_roles.assert_not_awaited()
+    inter.response.send_message.assert_awaited_once()
+    msg = inter.response.send_message.call_args.args[0]
+    assert "already" in msg.lower()
+
+
+async def test_welcome_apply_open_warns_when_role_missing_from_guild():
+    """Server admin forgot to create FL HUB role: don't crash, tell the user."""
+    from cogs.applications import WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction_with_guild(fl_hub_in_guild=False)
+
+    await view.apply_open.callback(inter)
+
+    inter.user.add_roles.assert_not_awaited()
+    inter.response.send_message.assert_awaited_once()
+    msg = inter.response.send_message.call_args.args[0]
+    # Error message tells user something went wrong on the server side
+    assert "❌" in msg or "error" in msg.lower() or "contact" in msg.lower()

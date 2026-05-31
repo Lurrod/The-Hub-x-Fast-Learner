@@ -811,6 +811,53 @@ class WelcomeView(discord.ui.View):
         await self._send_application_modal(interaction, "gc")
 
     @discord.ui.button(
+        label="Apply Open Queue",
+        style=discord.ButtonStyle.success,
+        custom_id="welcome_apply_open",
+        row=0,
+    )
+    async def apply_open(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open queue has no staff review: clicking the button grants
+        the FL HUB role immediately so the user can join the Open queue.
+        Idempotent — clicking again when the user already has FL HUB
+        just acknowledges."""
+        member = interaction.user
+        if any(getattr(r, "name", None) == OPEN_QUEUE_ROLE for r in member.roles):
+            await interaction.response.send_message(
+                f"✅ You already have access to the **Open queue** "
+                f"(`{OPEN_QUEUE_ROLE}` role).",
+                ephemeral=True,
+            )
+            return
+        fl_hub = discord.utils.get(interaction.guild.roles, name=OPEN_QUEUE_ROLE)
+        if fl_hub is None:
+            logger.warning(
+                "[welcome] Open queue role %r missing from guild %s; cannot grant",
+                OPEN_QUEUE_ROLE,
+                interaction.guild_id,
+            )
+            await interaction.response.send_message(
+                f"❌ Open queue role `{OPEN_QUEUE_ROLE}` is missing from this "
+                f"server. Contact an admin.",
+                ephemeral=True,
+            )
+            return
+        try:
+            await member.add_roles(fl_hub)
+        except Exception:
+            logger.exception("[welcome] FL HUB grant failed")
+            await interaction.response.send_message(
+                "❌ Something went wrong while granting the role. Try again later.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            "✅ You can now play the **Open queue**! Head to "
+            "`#open-queue` to queue up.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
         label="Coach / Analyst / Manager",
         style=discord.ButtonStyle.secondary,
         custom_id="welcome_apply_staff",
@@ -940,7 +987,8 @@ class ApplicationsCog(commands.Cog):
                 "• **FL Open** - Open to everyone\n"
                 "• **FL GC** - Open to GC only\n\n"
                 "Click the button matching the queue you want to apply for. "
-                "The Open queue is free for every member — no application needed.\n\n"
+                "**Open queue** is granted instantly; **Pro / Semi Pro / GC** "
+                "go through a quick staff review.\n\n"
                 "**Have fun! 🍀**"
             ),
             color=0x5865F2,
