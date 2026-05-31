@@ -57,10 +57,10 @@ from services.match_service import (
 )
 from services.repository import reserve_match_number
 from services.match_verifier import (
-    compute_acs_multipliers,
     find_henrik_custom_match,
 )
 from services.riot_api import HenrikDevClient
+from services.scoreboard_img import generate_scoreboard
 
 from cogs.match._constants import (
     ADMIN_ROLE_NAMES,
@@ -74,13 +74,25 @@ from cogs.match._constants import (
     MAJORITY_THRESHOLD,
     MATCH_HOST_ROLE_NAME,
     MAX_REPLACE_ELO_DIFF,
+    RESULTS_CHANNELS,
     VOTE_TIMEOUT_MINUTES,
 )
+
 from cogs.match._embeds import (
     build_elo_changes_embed,
     build_match_embed,
 )
 from cogs.match._vote import VoteView
+
+
+# Inlined to avoid cross-cog import (cogs.queue_v2 -> match), would
+# introduce a cycle. Kept in sync manually with cogs.queue_v2.QUEUE_LABELS.
+_QUEUE_LABEL_BY_TYPE: dict[str, str] = {
+    "pro": "Pro Queue",
+    "semipro": "Semi Pro Queue",
+    "open": "Open Queue",
+    "gc": "GC Queue",
+}
 
 
 logger = logging.getLogger(__name__)
@@ -1003,13 +1015,41 @@ class MatchCog(commands.Cog):
         except Exception:
             logger.exception("[match] leaderboard refresh raised")
 
-    async def _fetch_henrik_multipliers(
+        # Best-effort scoreboard: look up the custom on Henrik and post
+        # the image in the queue's results channel. Independent from the
+        # flat ELO above — a Henrik failure or missing channel is silent.
+        try:
+            fetched = await self._fetch_henrik_match_summary(guild, match_doc)
+        except Exception:
+            logger.exception("[match] _fetch_henrik_match_summary raised")
+            fetched = None
+        if fetched is not None:
+            summary, team_a_uid_by_puuid, team_b_uid_by_puuid = fetched
+            try:
+                await self._post_match_scoreboard(
+                    guild,
+                    summary,
+                    team_a_uid_by_puuid,
+                    team_b_uid_by_puuid,
+                    match_doc,
+                    outcome,
+                )
+            except Exception:
+                logger.exception("[match] _post_match_scoreboard raised")
+
+    async def _fetch_henrik_match_summary(
         self,
         guild,
         match_doc: dict,
-    ) -> dict[str, float] | None:
-        """Attempt to find the HenrikDev custom and compute ACS
-        multipliers. Returns None if not usable."""
+    ) -> tuple[Any, dict[str, str], dict[str, str]] | None:
+        """Attempt to find the HenrikDev custom for `match_doc`. Returns
+        (summary, team_a_uid_by_puuid, team_b_uid_by_puuid) or None if not
+        usable. The team maps let the caller decide which Henrik side
+        (Red/Blue) corresponds to Team A vs Team B.
+
+        Best-effort: a None return means "no scoreboard for this match"
+        (Henrik down, custom not found, riot accounts missing, circuit
+        open). The flat ELO has already been applied upstream."""
 
         # 10 Riot lookups (the leader is one of the 10 randomly chosen
         # players, we grab them in passing). Grouped in a single thread
@@ -1057,8 +1097,6 @@ class MatchCog(commands.Cog):
         # skip for 5 min. Without this guard, each tick (1 min)
         # would re-run N stale matches × 12s of retries each, freezing
         # the ThreadPoolExecutor and overlapping ticks.
-        # Serialized read: without the lock, several guilds running in
-        # parallel could observe an intermediate state (see #17).
         now = datetime.now(UTC)
         async with self._henrik_lock:
             circuit_open = (
@@ -1116,28 +1154,104 @@ class MatchCog(commands.Cog):
                 self._henrik_circuit_open_until = None
         if summary is None:
             return None
+        return summary, team_a_uid_by_puuid, team_b_uid_by_puuid
 
-        verified = compute_acs_multipliers(
-            summary,
-            team_a_uid_by_puuid=team_a_uid_by_puuid,
-            team_b_uid_by_puuid=team_b_uid_by_puuid,
-        )
-        multipliers = {p.user_id: p.multiplier for p in verified.performances}
-        # If compute_acs_multipliers could not extract anything (the 2
-        # teams on Riot's side are mixed: players switched Attack/Defense
-        # in the lobby), we return None rather than an empty dict.
-        # Otherwise apply_match_validation would have `weighted=True` but
-        # would still apply flat ELO (mults.get -> 1.0 by default),
-        # displaying "ACS weighting applied" while nothing actually is.
-        if not multipliers:
+    async def _post_match_scoreboard(
+        self,
+        guild,
+        summary,
+        team_a_uid_by_puuid: dict[str, str],
+        team_b_uid_by_puuid: dict[str, str],
+        match_doc: dict,
+        outcome,
+    ) -> None:
+        """Best-effort: build the per-match scoreboard image and post it
+        in the queue's results channel (pro-results / semi-pro-results /
+        gc-results / open-results). Silently no-op if the channel is
+        missing or the image generation fails — the flat ELO was already
+        applied upstream and shouldn't be blocked by a cosmetic post."""
+        queue_type = match_doc.get("queue_type", "open")
+        channel_name = RESULTS_CHANNELS.get(queue_type)
+        if not channel_name:
+            return
+        channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if channel is None:
             logger.warning(
-                "[match] Henrik found the custom %s but compute_acs_multipliers "
-                "could not extract any multiplier (mixed Attack/Defense teams "
-                "in the Valorant lobby?). Flat ELO applied.",
-                summary.matchid,
+                "[match] results channel %r not found on guild %s; skipping scoreboard",
+                channel_name,
+                guild.id,
             )
-            return None
-        return multipliers
+            return
+
+        rounds = max(int(getattr(summary, "rounds_played", 0)) or 1, 1)
+        elo_by_uid = {c.user_id: c.new_elo for c in outcome.changes}
+
+        # Resolve which Henrik side (Red/Blue) corresponds to each bot team.
+        # Use majority vote — in the edge case of "mixed teams in the Valorant
+        # lobby" both teams may share a side, but majority gives a reasonable
+        # rendering anyway.
+        def _side(uid_by_puuid: dict[str, str]) -> str:
+            counts = {"Red": 0, "Blue": 0}
+            for p in summary.players:
+                if p.puuid in uid_by_puuid:
+                    counts[p.team] = counts.get(p.team, 0) + 1
+            return "Red" if counts["Red"] >= counts["Blue"] else "Blue"
+
+        a_side = _side(team_a_uid_by_puuid)
+        b_side = "Blue" if a_side == "Red" else "Red"
+        rounds_a = summary.rounds_red if a_side == "Red" else summary.rounds_blue
+        rounds_b = summary.rounds_red if b_side == "Red" else summary.rounds_blue
+
+        def _rows(uid_by_puuid: dict[str, str]) -> list[dict]:
+            rows = []
+            for stats in summary.players:
+                uid = uid_by_puuid.get(stats.puuid)
+                if uid is None:
+                    continue
+                full_name = f"{stats.name}#{stats.tag}" if stats.tag else stats.name
+                member = guild.get_member(int(uid)) if uid.isdigit() else None
+                avatar_url = (
+                    str(member.display_avatar.url) if member is not None else None
+                )
+                rows.append(
+                    {
+                        "name": full_name,
+                        "kills": stats.kills,
+                        "deaths": stats.deaths,
+                        "assists": stats.assists,
+                        "acs": round(stats.score / rounds),
+                        "elo": elo_by_uid.get(uid, 0),
+                        "avatar_url": avatar_url,
+                    }
+                )
+            return rows
+
+        team_a_rows = _rows(team_a_uid_by_puuid)
+        team_b_rows = _rows(team_b_uid_by_puuid)
+        queue_label = _QUEUE_LABEL_BY_TYPE.get(queue_type, queue_type)
+
+        try:
+            buf = await asyncio.to_thread(
+                generate_scoreboard,
+                map_name=summary.map_name,
+                rounds_a=rounds_a,
+                rounds_b=rounds_b,
+                team_a_label="Team A",
+                team_b_label="Team B",
+                team_a_players=team_a_rows,
+                team_b_players=team_b_rows,
+                queue_label=queue_label,
+            )
+        except Exception:
+            logger.exception("[match] scoreboard image generation raised")
+            return
+
+        try:
+            await channel.send(
+                file=discord.File(buf, filename=f"scoreboard_{queue_type}.png")
+            )
+        except Exception:
+            logger.exception("[match] scoreboard send raised")
 
     # ── Periodic loop (1 min) ────────────────────────────────────
     @tasks.loop(minutes=1)

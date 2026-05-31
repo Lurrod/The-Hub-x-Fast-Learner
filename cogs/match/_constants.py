@@ -62,3 +62,13 @@ MATCH_VIEWER_ROLE_NAMES: Final[tuple[str, ...]] = (
 # "Spectator" roles: see the category + read history, but cannot
 # join voice channels or send messages.
 MATCH_SPECTATOR_ROLE_NAMES: Final[tuple[str, ...]] = ("Members",)
+
+# Per-queue channels where the bot posts the scoreboard image once a
+# match has been verified by Henrik. Missing channels are skipped
+# (warning logged) — admins create them manually.
+RESULTS_CHANNELS: Final[dict[str, str]] = {
+    "pro": "pro-results",
+    "semipro": "semi-pro-results",
+    "gc": "gc-results",
+    "open": "open-results",
+}
