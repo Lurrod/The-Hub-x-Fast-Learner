@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Any, Literal
 from collections.abc import Sequence
 
 from services.team_balancer import Player
@@ -91,3 +91,31 @@ class MapBanState:
             turn_index=new_turn,
             status=new_status,
         )
+
+
+@dataclass(frozen=True)
+class MapBanResult:
+    selected_map: str
+    ban_history: tuple[tuple[Literal["A", "B"], str], ...]
+
+    @classmethod
+    def from_state(cls, state: MapBanState) -> MapBanResult:
+        if state.status != "complete":
+            raise ValueError(f"Ban state not complete (status={state.status}).")
+        if len(state.remaining) != 1:
+            raise ValueError(
+                f"Expected exactly 1 map remaining, got {len(state.remaining)}."
+            )
+        return cls(
+            selected_map=state.remaining[0],
+            ban_history=state.banned,
+        )
+
+
+class MapBanCancelledError(Exception):
+    """Raised when an admin cancels the map ban phase via the button."""
+
+    def __init__(self, reason: str, actor: Any | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.actor = actor

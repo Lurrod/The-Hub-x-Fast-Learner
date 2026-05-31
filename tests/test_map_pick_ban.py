@@ -109,3 +109,46 @@ def test_current_captain_raises_when_complete():
         state = state.apply_ban(m)
     with pytest.raises(RuntimeError, match="no current captain"):
         _ = state.current_captain
+
+
+def test_map_ban_result_from_complete_state():
+    from services.map_pick_ban import MapBanResult
+    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
+    for m in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven"):
+        state = state.apply_ban(m)
+    result = MapBanResult.from_state(state)
+    assert result.selected_map == "Pearl"
+    assert result.ban_history == (
+        ("A", "Breeze"),
+        ("B", "Ascent"),
+        ("A", "Lotus"),
+        ("B", "Fracture"),
+        ("A", "Split"),
+        ("B", "Haven"),
+    )
+
+
+def test_map_ban_result_raises_if_state_not_complete():
+    from services.map_pick_ban import MapBanResult
+    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
+    with pytest.raises(ValueError, match="not complete"):
+        MapBanResult.from_state(state)
+
+
+def test_map_ban_cancelled_error_stores_reason_and_actor():
+    from services.map_pick_ban import MapBanCancelledError
+
+    class _FakeActor:
+        id = 42
+
+    actor = _FakeActor()
+    err = MapBanCancelledError("admin", actor=actor)
+    assert err.reason == "admin"
+    assert err.actor is actor
+
+
+def test_map_ban_cancelled_error_actor_defaults_to_none():
+    from services.map_pick_ban import MapBanCancelledError
+    err = MapBanCancelledError("system")
+    assert err.reason == "system"
+    assert err.actor is None
