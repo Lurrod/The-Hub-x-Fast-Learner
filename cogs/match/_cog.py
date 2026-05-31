@@ -200,7 +200,118 @@ class MatchCog(commands.Cog):
         prep_channel = channels.prep_channel
         free_cat_name = category.name
 
-        plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
+        # Pro / Semi-Pro: captain draft + map ban. Open / GC: auto-balance + random map.
+        if queue_type in ("pro", "semipro"):
+            player_ids_for_move = [str(p.id) for p in players]
+            await self._move_players_to_waiting_match(
+                guild,
+                category,
+                player_ids_for_move,
+            )
+            cap_a, cap_b = pick_captains(players, rng=self.rng)
+            pool = tuple(p for p in players if p.id not in (cap_a.id, cap_b.id))
+            draft_session = CaptainDraftSession(
+                prep_channel=prep_channel,
+                cap_a=cap_a,
+                cap_b=cap_b,
+                pool=pool,
+                admin_role_names=ADMIN_ROLE_NAMES,
+            )
+            try:
+                draft_result = await draft_session.run()
+            except DraftCancelledError as exc:
+                logger.info(
+                    "[match] draft cancelled (reason=%s actor=%s) - queue preserved",
+                    exc.reason,
+                    getattr(exc.actor, "id", None),
+                )
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.followup.send(
+                        "❌ Draft cancelled. The queue stays active. "
+                        "`/leave` then `/join` to reset if needed.",
+                        ephemeral=False,
+                    )
+                try:
+                    await delete_match_category(
+                        guild=guild,
+                        category_id=category.id,
+                        reason=f"Match #{match_number} draft cancelled",
+                    )
+                except Exception:
+                    logger.exception("[match] failed to delete category on draft cancel")
+                return None
+            except Exception:
+                logger.exception(
+                    "[match] captain draft failed for #%d, rolling back category",
+                    match_number,
+                )
+                await delete_match_category(
+                    guild=guild,
+                    category_id=category.id,
+                    reason=f"Match #{match_number} draft aborted",
+                )
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.followup.send(
+                        f"❌ The draft for Match #{match_number} failed, match cancelled.",
+                        ephemeral=True,
+                    )
+                return None
+
+            ban_session = MapBanSession(
+                prep_channel=prep_channel,
+                cap_a=cap_a,
+                cap_b=cap_b,
+                maps=elo_calc.MAPS,
+                admin_role_names=ADMIN_ROLE_NAMES,
+            )
+            try:
+                ban_result = await ban_session.run()
+            except MapBanCancelledError as exc:
+                logger.info(
+                    "[match] map ban cancelled (reason=%s actor=%s) - queue preserved",
+                    exc.reason,
+                    getattr(exc.actor, "id", None),
+                )
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.followup.send(
+                        "❌ Map ban cancelled. The queue stays active. "
+                        "`/leave` then `/join` to reset if needed.",
+                        ephemeral=False,
+                    )
+                try:
+                    await delete_match_category(
+                        guild=guild,
+                        category_id=category.id,
+                        reason=f"Match #{match_number} map ban cancelled",
+                    )
+                except Exception:
+                    logger.exception("[match] failed to delete category on map ban cancel")
+                return None
+            except Exception:
+                logger.exception(
+                    "[match] map ban failed for #%d, rolling back category",
+                    match_number,
+                )
+                await delete_match_category(
+                    guild=guild,
+                    category_id=category.id,
+                    reason=f"Match #{match_number} map ban aborted",
+                )
+                with contextlib.suppress(discord.HTTPException):
+                    await interaction.followup.send(
+                        f"❌ The map ban for Match #{match_number} failed, match cancelled.",
+                        ephemeral=True,
+                    )
+                return None
+
+            plan = build_plan_from_draft(
+                draft_result,
+                free_category=free_cat_name,
+                rng=self.rng,
+                map_name=ban_result.selected_map,
+            )
+        else:
+            plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
 
         # Setup ordering: we persist the match (DB) BEFORE announcing on
         # Discord. If persistence fails (Mongo down, timeout), we do NOT
