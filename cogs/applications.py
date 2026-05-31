@@ -3,8 +3,8 @@ Applications + welcome + report cog. Extracted from bot.py (monolith refactor).
 
 Contains:
   - Application system (ApplicationModal, StaffModal, RefuseReasonModal,
-    RoleChoiceView, WelcomeView, ApplicationReviewView).
-  - /welcome: posts the Apply button in #verify.
+    WelcomeView, ApplicationReviewView).
+  - /welcome: posts one Apply button per queue tier (+ Coach button) in #verify.
   - /report: posts the ticket opening panel (TicketPanelView) with 2
     options in the current channel:
       * Reports -> ReportModal (anonymous report).
@@ -13,8 +13,7 @@ Contains:
   - CloseTicketView: closes a ticket.
 
 All persistent views (stable custom_id) are registered via
-`bot.add_view(...)` in `setup()`. Modals and RoleChoiceView (timeout =
-APPLICATION_VIEW_TIMEOUT_SECONDS) are instantiated on the fly.
+`bot.add_view(...)` in `setup()`. Modals are instantiated on the fly.
 """
 
 from __future__ import annotations
@@ -33,11 +32,6 @@ from services import repository
 
 logger = logging.getLogger(__name__)
 
-# Timeout for an ephemeral RoleChoiceView (Player vs Staff). Intentionally
-# decoupled from VOTE_TIMEOUT_MINUTES: this is a quick UX, not the match
-# flow.
-APPLICATION_VIEW_TIMEOUT_SECONDS: int = 60
-
 
 # ── Constants ───────────────────────────────────────────────────
 CANDIDATURE_CHANNEL = "applications"
@@ -46,6 +40,18 @@ PLAYERS_ROLE = "Members"
 STAFF_ROLE = "Coach/Analyst/Manager"
 TICKETS_CATEGORY_NAME = "Tickets"
 CANDIDATURE_COOLDOWN_SECONDS = 3600
+
+# Player application tiers: each Apply button on /welcome targets one
+# tier, the modal carries the tier through the embed, and the FL X role
+# is auto-assigned when an admin clicks Accept.
+# Open queue is intentionally absent: FL HUB is granted on server join,
+# no application required.
+QUEUE_TIERS: dict[str, tuple[str, str]] = {
+    "pro": ("Pro Queue", "FL PRO"),
+    "semipro": ("Semi Pro Queue", "FL SEMIPRO"),
+    "gc": ("GC Queue", "FL GC"),
+}
+QUEUE_TIER_FIELD_NAME = "🎯 Queue cible"
 
 
 def _has_access(interaction: discord.Interaction, db) -> bool:
@@ -92,14 +98,23 @@ def _try_acquire_candidature_cooldown(db, uid: str) -> tuple[bool, float]:
     return False, remaining
 
 
-def _parse_application_embed(message: discord.Message) -> tuple[int | None, str, bool]:
-    """Extracts (applicant_id, username, is_staff) from an application embed.
+def _parse_application_embed(
+    message: discord.Message,
+) -> tuple[int | None, str, bool, str | None]:
+    """Extracts (applicant_id, username, is_staff, queue_tier) from an
+    application embed.
 
     Allows `ApplicationReviewView` to be persistent (without internal state)
     by reconstructing the context from the message on each click.
+
+    `queue_tier` is the QUEUE_TIERS key matching the embed's
+    `QUEUE_TIER_FIELD_NAME` value, or None for:
+      - staff applications (no queue),
+      - legacy embeds (pre-queue-tier rollout),
+      - unknown queue labels (safer than guessing).
     """
     if not message.embeds:
-        return None, "", False
+        return None, "", False, None
     embed = message.embeds[0]
     is_staff = "Staff" in (embed.title or "")
     applicant_id: int | None = None
@@ -110,11 +125,19 @@ def _parse_application_embed(message: discord.Message) -> tuple[int | None, str,
         except (ValueError, IndexError):
             applicant_id = None
     pseudo = ""
+    queue_label: str | None = None
     for field in embed.fields:
         if field.name in ("🎮 In-game username", "🎮 Username"):
             pseudo = field.value or ""
-            break
-    return applicant_id, pseudo, is_staff
+        elif field.name == QUEUE_TIER_FIELD_NAME:
+            queue_label = (field.value or "").strip()
+    queue_tier: str | None = None
+    if queue_label:
+        for tier_key, (label, _role) in QUEUE_TIERS.items():
+            if label == queue_label:
+                queue_tier = tier_key
+                break
+    return applicant_id, pseudo, is_staff, queue_tier
 
 
 # ── Modals ────────────────────────────────────────────────────────
@@ -135,10 +158,13 @@ class ApplicationModal(discord.ui.Modal, title="10mans Application"):
         max_length=500,
     )
 
-    def __init__(self, db, review_view: ApplicationReviewView) -> None:
+    def __init__(self, db, review_view: ApplicationReviewView, queue_tier: str) -> None:
         super().__init__()
+        if queue_tier not in QUEUE_TIERS:
+            raise ValueError(f"unknown queue_tier {queue_tier!r}; expected one of {list(QUEUE_TIERS)}")
         self.db = db
         self.review_view = review_view
+        self.queue_tier = queue_tier
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -165,6 +191,7 @@ class ApplicationModal(discord.ui.Modal, title="10mans Application"):
         if not channel:
             await interaction.followup.send("Applications channel not found.", ephemeral=True)
             return
+        queue_label, _fl_role = QUEUE_TIERS[self.queue_tier]
         embed = discord.Embed(
             title="📋 New application",
             description="🎮 **Player application**",
@@ -174,6 +201,7 @@ class ApplicationModal(discord.ui.Modal, title="10mans Application"):
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.add_field(name="👤 Member", value=interaction.user.mention, inline=True)
         embed.add_field(name="🎮 In-game username", value=self.pseudo.value, inline=True)
+        embed.add_field(name=QUEUE_TIER_FIELD_NAME, value=queue_label, inline=True)
         embed.add_field(name="🔗 Tracker", value=self.tracker.value, inline=False)
         embed.add_field(
             name="🏆 Tournaments / LAN",
@@ -575,7 +603,7 @@ class ApplicationReviewView(discord.ui.View):
             return
         await interaction.response.defer(ephemeral=True)
         # 1) Validate BEFORE the CAS (cf. audit: avoids stuck state).
-        applicant_id, pseudo, is_staff = _parse_application_embed(interaction.message)
+        applicant_id, pseudo, is_staff, queue_tier = _parse_application_embed(interaction.message)
         if applicant_id is None:
             await interaction.followup.send(
                 "❌ Application data unreadable (corrupted embed).",
@@ -611,6 +639,7 @@ class ApplicationReviewView(discord.ui.View):
             if old_embed:
                 for field in old_embed.fields:
                     if field.name in (
+                        QUEUE_TIER_FIELD_NAME,
                         "🔗 Tracker",
                         "🏆 Tournaments / LAN",
                         "💼 Position",
@@ -641,6 +670,20 @@ class ApplicationReviewView(discord.ui.View):
                     await member.add_roles(members_role)
                 except Exception:
                     logger.exception("[accept] Members role assignment failed")
+        if queue_tier and not is_staff:
+            _, fl_role_name = QUEUE_TIERS[queue_tier]
+            fl_role = discord.utils.get(interaction.guild.roles, name=fl_role_name)
+            if fl_role:
+                try:
+                    await member.add_roles(fl_role)
+                except Exception:
+                    logger.exception("[accept] FL queue role assignment failed")
+            else:
+                logger.warning(
+                    "[accept] Queue role %r not found on guild %s; skipping",
+                    fl_role_name,
+                    interaction.guild_id,
+                )
         with contextlib.suppress(Exception):
             await member.edit(nick=pseudo)
         with contextlib.suppress(discord.Forbidden):
@@ -666,7 +709,7 @@ class ApplicationReviewView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        applicant_id, _pseudo, _is_staff = _parse_application_embed(interaction.message)
+        applicant_id, _pseudo, _is_staff, _queue_tier = _parse_application_embed(interaction.message)
         if applicant_id is None:
             await interaction.response.send_message(
                 "❌ Application data unreadable (corrupted embed).",
@@ -678,61 +721,92 @@ class ApplicationReviewView(discord.ui.View):
         )
 
 
-class RoleChoiceView(discord.ui.View):
-    """Ephemeral view (timeout = APPLICATION_VIEW_TIMEOUT_SECONDS): Player vs Staff."""
+def _candidature_cooldown_remaining(db, user_id: str) -> float:
+    """Returns seconds remaining on the candidature cooldown for user_id,
+    or 0.0 if the user can apply now. Non-atomic peek — the atomic claim
+    happens in ApplicationModal/StaffModal.on_submit so that abandoning
+    the modal does not consume the cooldown."""
+    doc = db["candidature_cooldowns"].find_one({"_id": user_id})
+    if not doc:
+        return 0.0
+    last = doc["last_apply"]
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    diff = datetime.now(UTC) - last
+    elapsed = diff.total_seconds()
+    if elapsed >= CANDIDATURE_COOLDOWN_SECONDS:
+        return 0.0
+    return CANDIDATURE_COOLDOWN_SECONDS - elapsed
 
-    def __init__(self, db, review_view: ApplicationReviewView) -> None:
-        super().__init__(timeout=APPLICATION_VIEW_TIMEOUT_SECONDS)
-        self.db = db
-        self.review_view = review_view
 
-    @discord.ui.button(label="Player", style=discord.ButtonStyle.primary)
-    async def player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(
-            ApplicationModal(db=self.db, review_view=self.review_view)
-        )
-
-    @discord.ui.button(label="Coach / Analyst / Manager", style=discord.ButtonStyle.secondary)
-    async def staff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(StaffModal(db=self.db, review_view=self.review_view))
+def _cooldown_message(remaining: float) -> str:
+    minutes = int(remaining // 60)
+    seconds = int(remaining % 60)
+    return f"⏳ You have already applied recently! Try again in **{minutes}min {seconds}s**."
 
 
 class WelcomeView(discord.ui.View):
-    """Persistent view: Apply button in #verify."""
+    """Persistent view in #verify: one Apply button per queue tier + a
+    Coach/Analyst/Manager button. Each queue button opens an
+    ApplicationModal tagged with its queue tier so the FL X role can be
+    auto-assigned on accept."""
 
     def __init__(self, db, review_view: ApplicationReviewView) -> None:
         super().__init__(timeout=None)
         self.db = db
         self.review_view = review_view
 
+    async def _send_application_modal(
+        self, interaction: discord.Interaction, queue_tier: str
+    ) -> None:
+        remaining = _candidature_cooldown_remaining(self.db, str(interaction.user.id))
+        if remaining > 0:
+            await interaction.response.send_message(_cooldown_message(remaining), ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            ApplicationModal(db=self.db, review_view=self.review_view, queue_tier=queue_tier)
+        )
+
     @discord.ui.button(
-        label="Apply", style=discord.ButtonStyle.primary, custom_id="postuler_btn"
+        label="Apply Pro Queue",
+        style=discord.ButtonStyle.primary,
+        custom_id="welcome_apply_pro",
+        row=0,
     )
-    async def postuler(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Non-atomic peek: we do not consume the cooldown here (otherwise
-        # a user who closes the modal without submitting would be blocked
-        # for 1h for nothing). The real atomic claim happens in
-        # ApplicationModal/StaffModal.on_submit.
-        uid = str(interaction.user.id)
-        doc = self.db["candidature_cooldowns"].find_one({"_id": uid})
-        if doc:
-            last = doc["last_apply"]
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=UTC)
-            diff = datetime.now(UTC) - last
-            if diff.total_seconds() < CANDIDATURE_COOLDOWN_SECONDS:
-                remaining = CANDIDATURE_COOLDOWN_SECONDS - diff.total_seconds()
-                minutes = int(remaining // 60)
-                seconds = int(remaining % 60)
-                await interaction.response.send_message(
-                    f"⏳ You have already applied recently! Try again in **{minutes}min {seconds}s**.",
-                    ephemeral=True,
-                )
-                return
-        await interaction.response.send_message(
-            "## Which position would you like to apply for? 🎮",
-            view=RoleChoiceView(db=self.db, review_view=self.review_view),
-            ephemeral=True,
+    async def apply_pro(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._send_application_modal(interaction, "pro")
+
+    @discord.ui.button(
+        label="Apply Semi Pro Queue",
+        style=discord.ButtonStyle.primary,
+        custom_id="welcome_apply_semipro",
+        row=0,
+    )
+    async def apply_semipro(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._send_application_modal(interaction, "semipro")
+
+    @discord.ui.button(
+        label="Apply GC Queue",
+        style=discord.ButtonStyle.primary,
+        custom_id="welcome_apply_gc",
+        row=0,
+    )
+    async def apply_gc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._send_application_modal(interaction, "gc")
+
+    @discord.ui.button(
+        label="Coach / Analyst / Manager",
+        style=discord.ButtonStyle.secondary,
+        custom_id="welcome_apply_staff",
+        row=1,
+    )
+    async def apply_staff(self, interaction: discord.Interaction, button: discord.ui.Button):
+        remaining = _candidature_cooldown_remaining(self.db, str(interaction.user.id))
+        if remaining > 0:
+            await interaction.response.send_message(_cooldown_message(remaining), ephemeral=True)
+            return
+        await interaction.response.send_modal(
+            StaffModal(db=self.db, review_view=self.review_view)
         )
 
 
@@ -843,7 +917,16 @@ class ApplicationsCog(commands.Cog):
             return
         embed = discord.Embed(
             title="Welcome to The Hub Matchmaking",
-            description="Welcome to a **10mans** server with 4 queues:\n\n• **FL Pro** - VCL / VCT\n• **FL Semi-Pro** - TOP VRC\n• **FL Open** - Open to everyone\n• **FL GC** - Open to GC only\n\nTo gain access to the server, please click the **Apply** button just below.\n\n**Have fun! 🍀**",
+            description=(
+                "Welcome to a **10mans** server with 4 queues:\n\n"
+                "• **FL Pro** - VCL / VCT\n"
+                "• **FL Semi-Pro** - TOP VRC\n"
+                "• **FL Open** - Open to everyone\n"
+                "• **FL GC** - Open to GC only\n\n"
+                "Click the button matching the queue you want to apply for. "
+                "The Open queue is free for every member — no application needed.\n\n"
+                "**Have fun! 🍀**"
+            ),
             color=0x5865F2,
             timestamp=datetime.now(UTC),
         )

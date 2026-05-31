@@ -64,10 +64,11 @@ def test_parse_embed_returns_id_pseudo_player():
         fields=[("🎮 In-game username", "Alice")],
     )
     msg = _message_with_embeds([embed])
-    applicant_id, pseudo, is_staff = _parse_application_embed(msg)
+    applicant_id, pseudo, is_staff, queue_tier = _parse_application_embed(msg)
     assert applicant_id == 42
     assert pseudo == "Alice"
     assert is_staff is False
+    assert queue_tier is None
 
 
 def test_parse_embed_detects_staff_in_title():
@@ -77,16 +78,17 @@ def test_parse_embed_detects_staff_in_title():
         fields=[("🎮 Username", "Bob")],
     )
     msg = _message_with_embeds([embed])
-    _, _, is_staff = _parse_application_embed(msg)
+    _, _, is_staff, _ = _parse_application_embed(msg)
     assert is_staff is True
 
 
 def test_parse_embed_returns_none_when_no_embeds():
     msg = _message_with_embeds([])
-    applicant_id, pseudo, is_staff = _parse_application_embed(msg)
+    applicant_id, pseudo, is_staff, queue_tier = _parse_application_embed(msg)
     assert applicant_id is None
     assert pseudo == ""
     assert is_staff is False
+    assert queue_tier is None
 
 
 def test_parse_embed_returns_none_on_invalid_footer():
@@ -96,15 +98,97 @@ def test_parse_embed_returns_none_on_invalid_footer():
         fields=[("🎮 In-game username", "Alice")],
     )
     msg = _message_with_embeds([embed])
-    applicant_id, _, _ = _parse_application_embed(msg)
+    applicant_id, *_ = _parse_application_embed(msg)
     assert applicant_id is None
 
 
 def test_parse_embed_returns_none_on_non_numeric_footer():
     embed = _embed_with(title="X", footer_id="abc", fields=[("🎮 Nickname", "A")])
     msg = _message_with_embeds([embed])
-    applicant_id, _, _ = _parse_application_embed(msg)
+    applicant_id, *_ = _parse_application_embed(msg)
     assert applicant_id is None
+
+
+def test_parse_embed_extracts_pro_queue_tier():
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[
+            ("🎮 In-game username", "Alice"),
+            ("🎯 Queue cible", "Pro Queue"),
+        ],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, _, queue_tier = _parse_application_embed(msg)
+    assert queue_tier == "pro"
+
+
+def test_parse_embed_extracts_semipro_queue_tier():
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[
+            ("🎮 In-game username", "Alice"),
+            ("🎯 Queue cible", "Semi Pro Queue"),
+        ],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, _, queue_tier = _parse_application_embed(msg)
+    assert queue_tier == "semipro"
+
+
+def test_parse_embed_extracts_gc_queue_tier():
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[
+            ("🎮 In-game username", "Alice"),
+            ("🎯 Queue cible", "GC Queue"),
+        ],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, _, queue_tier = _parse_application_embed(msg)
+    assert queue_tier == "gc"
+
+
+def test_parse_embed_returns_none_tier_for_legacy_embed_without_queue_field():
+    """Legacy embed (pre-queue-tier rollout): parse must not crash and
+    queue_tier must be None so accept skips the FL X role assignment."""
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[("🎮 In-game username", "Alice")],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, _, queue_tier = _parse_application_embed(msg)
+    assert queue_tier is None
+
+
+def test_parse_embed_returns_none_tier_for_unknown_queue_label():
+    """Unknown queue label is treated as None (safer than guessing)."""
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[
+            ("🎮 In-game username", "Alice"),
+            ("🎯 Queue cible", "Mystery Queue"),
+        ],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, _, queue_tier = _parse_application_embed(msg)
+    assert queue_tier is None
+
+
+def test_parse_embed_staff_app_has_none_tier():
+    embed = _embed_with(
+        title="📋 New Staff application",
+        footer_id=99,
+        fields=[("🎮 Username", "Bob")],
+    )
+    msg = _message_with_embeds([embed])
+    _, _, is_staff, queue_tier = _parse_application_embed(msg)
+    assert is_staff is True
+    assert queue_tier is None
 
 
 # ── _try_acquire_candidature_cooldown ─────────────────────────────
@@ -222,6 +306,170 @@ async def test_accept_happy_path_grants_role_and_validates():
     # Role grant + DM were attempted
     applicant.add_roles.assert_awaited()
     inter.followup.send.assert_awaited()
+
+
+def _make_named_role(name: str) -> MagicMock:
+    role = MagicMock()
+    role.name = name
+    return role
+
+
+async def _run_accept_with_tier(
+    *,
+    queue_label: str,
+    fl_role_name: str,
+    include_fl_role_in_guild: bool = True,
+):
+    """Helper: spin up a happy-path accept with a queue tier and the FL X
+    role provisioned in the guild. Returns (applicant, members_role, fl_role)."""
+    from services import repository
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    admin = _fake_member(1, "Admin", manage_guild=True)
+    applicant = _fake_member(42, "Alice", manage_guild=False)
+    guild = _fake_guild(99, members=[admin, applicant])
+
+    members_role = _make_named_role("Members")
+    fl_role = _make_named_role(fl_role_name)
+    guild.roles = [members_role, fl_role] if include_fl_role_in_guild else [members_role]
+
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[
+            ("🎮 In-game username", "Alice"),
+            ("🎯 Queue cible", queue_label),
+        ],
+    )
+    message = MagicMock()
+    message.id = 1000
+    message.embeds = [embed]
+    message.edit = AsyncMock()
+
+    inter = _fake_interaction(admin, guild, message)
+    repository.register_application(db, guild.id, message.id, applicant.id, is_staff=False)
+
+    view = ApplicationReviewView(db=db)
+    await view.accept.callback(inter)
+    return applicant, members_role, fl_role
+
+
+def _assert_role_added(applicant: MagicMock, role: MagicMock) -> None:
+    """add_roles can be called once with multiple roles or many times
+    with one role each. Flatten the awaited args and check membership."""
+    added = []
+    for call in applicant.add_roles.await_args_list:
+        for arg in call.args:
+            added.append(arg)
+    assert role in added, f"expected {role.name!r} in {[r.name for r in added]}"
+
+
+async def test_accept_adds_fl_pro_role_for_pro_tier():
+    applicant, members_role, fl_role = await _run_accept_with_tier(
+        queue_label="Pro Queue", fl_role_name="FL PRO"
+    )
+    _assert_role_added(applicant, members_role)
+    _assert_role_added(applicant, fl_role)
+
+
+async def test_accept_adds_fl_semipro_role_for_semipro_tier():
+    applicant, members_role, fl_role = await _run_accept_with_tier(
+        queue_label="Semi Pro Queue", fl_role_name="FL SEMIPRO"
+    )
+    _assert_role_added(applicant, members_role)
+    _assert_role_added(applicant, fl_role)
+
+
+async def test_accept_adds_fl_gc_role_for_gc_tier():
+    applicant, members_role, fl_role = await _run_accept_with_tier(
+        queue_label="GC Queue", fl_role_name="FL GC"
+    )
+    _assert_role_added(applicant, members_role)
+    _assert_role_added(applicant, fl_role)
+
+
+async def test_accept_does_not_crash_when_fl_role_missing_from_guild():
+    """If the FL X role is not provisioned on the guild, accept must not
+    raise — Members role still gets added, and a warning is logged."""
+    applicant, members_role, fl_role = await _run_accept_with_tier(
+        queue_label="Pro Queue",
+        fl_role_name="FL PRO",
+        include_fl_role_in_guild=False,
+    )
+    _assert_role_added(applicant, members_role)
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL PRO" not in added_names
+
+
+async def test_accept_staff_application_does_not_add_any_fl_role():
+    from services import repository
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    admin = _fake_member(1, "Admin", manage_guild=True)
+    applicant = _fake_member(42, "Bob", manage_guild=False)
+    guild = _fake_guild(99, members=[admin, applicant])
+
+    members_role = _make_named_role("Members")
+    staff_role = _make_named_role("Coach/Analyst/Manager")
+    fl_pro = _make_named_role("FL PRO")
+    guild.roles = [members_role, staff_role, fl_pro]
+
+    embed = _embed_with(
+        title="📋 New Staff application",
+        footer_id=42,
+        fields=[("🎮 Username", "Bob")],
+    )
+    message = MagicMock()
+    message.id = 2000
+    message.embeds = [embed]
+    message.edit = AsyncMock()
+
+    inter = _fake_interaction(admin, guild, message)
+    repository.register_application(db, guild.id, message.id, applicant.id, is_staff=True)
+
+    view = ApplicationReviewView(db=db)
+    await view.accept.callback(inter)
+
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL PRO" not in added_names
+    assert "Coach/Analyst/Manager" in added_names
+    assert "Members" in added_names
+
+
+async def test_accept_legacy_embed_without_tier_does_not_crash():
+    """Backwards compat: applications submitted before the queue-tier
+    rollout have no 🎯 Queue cible field. Accept must still grant Members
+    and not attempt any FL X assignment."""
+    from services import repository
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    admin = _fake_member(1, "Admin", manage_guild=True)
+    applicant = _fake_member(42, "Alice", manage_guild=False)
+    guild = _fake_guild(99, members=[admin, applicant])
+
+    members_role = _make_named_role("Members")
+    fl_pro = _make_named_role("FL PRO")
+    guild.roles = [members_role, fl_pro]
+
+    embed = _embed_with(
+        title="📋 New application",
+        footer_id=42,
+        fields=[("🎮 In-game username", "Alice")],
+    )
+    message = MagicMock()
+    message.id = 3000
+    message.embeds = [embed]
+    message.edit = AsyncMock()
+
+    inter = _fake_interaction(admin, guild, message)
+    repository.register_application(db, guild.id, message.id, applicant.id, is_staff=False)
+
+    view = ApplicationReviewView(db=db)
+    await view.accept.callback(inter)
+
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "Members" in added_names
+    assert "FL PRO" not in added_names
 
 
 async def test_accept_refuses_when_no_permission():
@@ -681,3 +929,95 @@ async def test_ticket_panel_ranks_button_opens_rank_modal():
     assert isinstance(modal, RankModal)
     # The RankModal receives the shared close_view from the panel
     assert modal.close_view is close_view
+
+
+# ── WelcomeView per-queue buttons ─────────────────────────────────
+def _welcome_interaction() -> MagicMock:
+    inter = MagicMock()
+    inter.user = _fake_member(7, "Candidate", manage_guild=False)
+    inter.response = MagicMock()
+    inter.response.send_modal = AsyncMock()
+    inter.response.send_message = AsyncMock()
+    return inter
+
+
+async def _run_welcome_button(button_callback_name: str):
+    from cogs.applications import ApplicationModal, WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction()
+
+    callback = getattr(view, button_callback_name).callback
+    await callback(inter)
+
+    inter.response.send_modal.assert_awaited_once()
+    modal = inter.response.send_modal.call_args.args[0]
+    assert isinstance(modal, ApplicationModal)
+    return modal
+
+
+async def test_welcome_apply_pro_opens_modal_with_pro_tier():
+    modal = await _run_welcome_button("apply_pro")
+    assert modal.queue_tier == "pro"
+
+
+async def test_welcome_apply_semipro_opens_modal_with_semipro_tier():
+    modal = await _run_welcome_button("apply_semipro")
+    assert modal.queue_tier == "semipro"
+
+
+async def test_welcome_apply_gc_opens_modal_with_gc_tier():
+    modal = await _run_welcome_button("apply_gc")
+    assert modal.queue_tier == "gc"
+
+
+async def test_welcome_coach_button_opens_staff_modal():
+    from cogs.applications import StaffModal, WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction()
+
+    await view.apply_staff.callback(inter)
+
+    inter.response.send_modal.assert_awaited_once()
+    modal = inter.response.send_modal.call_args.args[0]
+    assert isinstance(modal, StaffModal)
+
+
+async def test_welcome_apply_pro_respects_cooldown():
+    """When the user is still inside the 1h cooldown, the queue button
+    must respond with the cooldown message and NOT open a modal."""
+    from cogs.applications import WelcomeView
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    # Seed a recent cooldown doc (15 minutes ago, well within the 1h window)
+    recent = datetime.now(UTC) - timedelta(minutes=15)
+    db["candidature_cooldowns"].insert_one({"_id": "7", "last_apply": recent})
+
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction()
+
+    await view.apply_pro.callback(inter)
+
+    inter.response.send_modal.assert_not_awaited()
+    inter.response.send_message.assert_awaited_once()
+    msg = inter.response.send_message.call_args.args[0]
+    assert "applied recently" in msg
+
+
+async def test_welcome_application_modal_rejects_unknown_tier():
+    """Defensive: ApplicationModal constructor rejects unknown tier keys
+    so a bad call site fails loudly instead of producing a broken embed."""
+    import pytest
+
+    from cogs.applications import ApplicationModal
+
+    db = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    with pytest.raises(ValueError):
+        ApplicationModal(db=db, review_view=review_view, queue_tier="open")
