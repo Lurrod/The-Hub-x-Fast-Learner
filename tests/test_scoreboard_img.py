@@ -185,3 +185,101 @@ def test_generate_scoreboard_omits_queue_label_when_empty():
     )
     img = Image.open(buf)
     assert img.width == WIDTH
+
+
+# ── Agent icon loading ──────────────────────────────────────────
+def test_load_agent_icon_returns_image_for_known_agent():
+    """A committed agent asset should resolve to a PIL image."""
+    from services.scoreboard_img import (
+        AGENT_ICON_SIZE,
+        _AGENT_ICON_CACHE,
+        _load_agent_icon,
+    )
+
+    _AGENT_ICON_CACHE.clear()
+    icon = _load_agent_icon("Jett")
+    assert icon is not None
+    assert icon.size == (AGENT_ICON_SIZE, AGENT_ICON_SIZE)
+
+
+def test_load_agent_icon_handles_slash_in_name():
+    """KAY/O lives on disk as KAY_O.png — the loader must remap."""
+    from services.scoreboard_img import _AGENT_ICON_CACHE, _load_agent_icon
+
+    _AGENT_ICON_CACHE.clear()
+    assert _load_agent_icon("KAY/O") is not None
+
+
+def test_load_agent_icon_returns_none_for_unknown_agent():
+    """Unknown agent name (never released, typo) -> None, no crash."""
+    from services.scoreboard_img import _AGENT_ICON_CACHE, _load_agent_icon
+
+    _AGENT_ICON_CACHE.clear()
+    assert _load_agent_icon("MysteryAgentZ") is None
+
+
+def test_load_agent_icon_returns_none_for_empty_string():
+    """Empty/None agent -> None (the renderer falls back to a placeholder)."""
+    from services.scoreboard_img import _load_agent_icon
+
+    assert _load_agent_icon("") is None
+    assert _load_agent_icon(None) is None
+
+
+def test_load_agent_icon_caches_repeated_lookups():
+    """Second call returns the same Image instance from memory."""
+    from services.scoreboard_img import _AGENT_ICON_CACHE, _load_agent_icon
+
+    _AGENT_ICON_CACHE.clear()
+    first = _load_agent_icon("Sage")
+    second = _load_agent_icon("Sage")
+    assert first is second
+
+
+# ── Column headers + new layout ────────────────────────────────
+def test_scoreboard_includes_column_header_strip():
+    """The header band must be drawn — total height reflects COLUMN_HEADER_BAND."""
+    from services.scoreboard_img import (
+        COLUMN_HEADER_BAND,
+        FOOTER_BAND,
+        PLAYERS_PER_TEAM,
+        ROW_HEIGHT,
+        SCORE_BAND,
+        TOP_STRIP_BAND,
+    )
+
+    buf = generate_scoreboard(
+        map_name="Ascent",
+        rounds_a=13,
+        rounds_b=7,
+        team_a_label="Team A",
+        team_b_label="Team B",
+        team_a_players=_team("A"),
+        team_b_players=_team("B"),
+    )
+    img = Image.open(buf)
+    expected_h = (
+        TOP_STRIP_BAND
+        + SCORE_BAND
+        + COLUMN_HEADER_BAND
+        + PLAYERS_PER_TEAM * ROW_HEIGHT
+        + FOOTER_BAND
+    )
+    assert img.height == expected_h
+
+
+def test_scoreboard_renders_with_agent_field_present():
+    """Generator must not crash when player rows carry an agent name."""
+    a = [{**p, "agent": "Jett"} for p in _team("A")]
+    b = [{**p, "agent": "Sage"} for p in _team("B")]
+    buf = generate_scoreboard(
+        map_name="Haven",
+        rounds_a=10,
+        rounds_b=13,
+        team_a_label="Team A",
+        team_b_label="Team B",
+        team_a_players=a,
+        team_b_players=b,
+    )
+    img = Image.open(buf)
+    assert img.width == WIDTH

@@ -82,6 +82,7 @@ class MatchPlayerStats:
     kills: int
     deaths: int
     assists: int
+    agent: str = ""  # Valorant agent name, e.g. "Jett" / "KAY/O" / "Sage"
 
 
 @dataclass(frozen=True)
@@ -324,6 +325,7 @@ def _parse_match(entry: dict) -> MatchSummary:
                 kills=int(stats.get("kills") or 0),
                 deaths=int(stats.get("deaths") or 0),
                 assists=int(stats.get("assists") or 0),
+                agent=str(p.get("character", "") or ""),
             )
         )
 

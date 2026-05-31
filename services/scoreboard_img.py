@@ -4,25 +4,32 @@ Per-match scoreboard image generation via Pillow.
 Posted by the bot in the queue's results channel (pro-results / etc.)
 once Henrik finds the custom and we have the match stats.
 
-Layout: title band (map + score), 2 team columns side by side, each
-row = circle avatar + Riot name#tag + K/D/A + ACS + post-game ELO.
-Style mirrors leaderboard_img.py (dark theme, Inter/DejaVu fonts, green
-for winning side, red for losing).
+Modern layout:
+    top strip      — queue label (left) + map name (right)
+    score band     — big team labels and rounds, crown on the winner
+    column headers — PLAYER  KILLS  DEATHS  ASSISTS  ACS  ELO
+    rows           — Discord avatar + agent icon + name + stats per column
+    footer         — "Play'IT Matchmaking Bot"
+
+Agent icons are loaded from `assets/agents/<AgentName>.png` (committed to
+the repo). "KAY/O" maps to `KAY_O.png`. Missing icon → grey placeholder.
 
 Input format (per player, both teams):
     {
-        "name":       str,   # Riot "name#tag"
+        "name":       str,          # Riot "name#tag"
         "kills":      int,
         "deaths":     int,
         "assists":    int,
-        "acs":        int,   # average combat score (rounded)
-        "elo":        int,   # post-game ELO
+        "acs":        int,
+        "elo":        int,
+        "agent":      str | None,   # Valorant agent name, optional
         "avatar_url": str | None,
     }
 """
 
 from __future__ import annotations
 
+import os
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from io import BytesIO
@@ -33,49 +40,64 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 # ── Layout ────────────────────────────────────────────────────────
-WIDTH = 1400
-TITLE_BAND = 110
-TEAM_HEADER_BAND = 55
+WIDTH = 1500
+TOP_STRIP_BAND = 38
+SCORE_BAND = 130
+COLUMN_HEADER_BAND = 42
 ROW_HEIGHT = 70
-FOOTER_BAND = 50
+FOOTER_BAND = 44
 PLAYERS_PER_TEAM = 5
 
-# Two columns, ~700 px each
 COL_W = WIDTH // 2
 COL_A_X0 = 0
 COL_B_X0 = COL_W
-COL_GAP_X = COL_W  # divider line position
 
-# Per-row x positions (relative to the column origin)
-COL_PAD_LEFT = 24
+# Per-row positions (within a 750px column)
+COL_PAD_LEFT = 22
+AVATAR_SIZE = 38
+AGENT_ICON_SIZE = 50
 X_AVATAR_REL = COL_PAD_LEFT
-X_NAME_REL = COL_PAD_LEFT + 70  # avatar (50) + gap
-X_KDA_REL = COL_W - 290
-X_ACS_REL = COL_W - 170
-X_ELO_REL = COL_W - 70
-
-AVATAR_SIZE = 50
+X_AGENT_REL = X_AVATAR_REL + AVATAR_SIZE + 8         # right of avatar
+X_NAME_REL = X_AGENT_REL + AGENT_ICON_SIZE + 12      # right of agent icon
+X_K = 380
+X_D = 460
+X_A = 540
+X_ACS = 625
+X_ELO_RIGHT = COL_W - 30  # right-aligned
 
 # ── Colors ────────────────────────────────────────────────────────
 BG = (12, 16, 22)
+TOP_STRIP_BG = (16, 21, 28)
 ROW_BG_A = (19, 24, 30)
 ROW_BG_B = (24, 30, 38)
 SEPARATOR = (35, 41, 50)
 DIVIDER = (45, 52, 64)
 
 WHITE = (245, 245, 250)
-SOFT_GRAY = (140, 145, 158)
+SOFT_GRAY = (148, 154, 168)
 DIM_GRAY = (100, 105, 118)
-GREEN = (96, 220, 134)
-RED = (228, 88, 88)
-BLUE = (96, 160, 240)
+HEADER_GRAY = (130, 138, 152)
 
-WINNER_BG_TINT = (24, 40, 30)  # slight green tint on winning team
-LOSER_BG_TINT = (40, 24, 24)
+WIN_GREEN = (96, 220, 134)
+LOSE_RED = (228, 88, 88)
 
-# ── Avatar cache (LRU) ────────────────────────────────────────────
+# Column accents
+KILL_COLOR = WHITE
+DEATH_COLOR = (210, 130, 130)
+ASSIST_COLOR = (140, 195, 235)
+ACS_COLOR = (240, 200, 120)
+ELO_COLOR = (130, 165, 240)
+
+WINNER_TINT = (24, 38, 28)
+LOSER_TINT = (36, 24, 24)
+
+
+# ── Caches ────────────────────────────────────────────────────────
 _AVATAR_CACHE_MAXSIZE: int = 500
 _AVATAR_CACHE: OrderedDict[str, Image.Image] = OrderedDict()
+
+_AGENT_ICON_CACHE_MAXSIZE: int = 64
+_AGENT_ICON_CACHE: OrderedDict[str, Image.Image] = OrderedDict()
 
 
 def _avatar_cache_get(url: str) -> Image.Image | None:
@@ -90,6 +112,20 @@ def _avatar_cache_set(url: str, img: Image.Image) -> None:
     _AVATAR_CACHE.move_to_end(url)
     while len(_AVATAR_CACHE) > _AVATAR_CACHE_MAXSIZE:
         _AVATAR_CACHE.popitem(last=False)
+
+
+def _agent_icon_cache_get(key: str) -> Image.Image | None:
+    img = _AGENT_ICON_CACHE.get(key)
+    if img is not None:
+        _AGENT_ICON_CACHE.move_to_end(key)
+    return img
+
+
+def _agent_icon_cache_set(key: str, img: Image.Image) -> None:
+    _AGENT_ICON_CACHE[key] = img
+    _AGENT_ICON_CACHE.move_to_end(key)
+    while len(_AGENT_ICON_CACHE) > _AGENT_ICON_CACHE_MAXSIZE:
+        _AGENT_ICON_CACHE.popitem(last=False)
 
 
 # ── Font / text helpers ──────────────────────────────────────────
@@ -142,7 +178,7 @@ def _draw_right(draw, text, x_right, y_center, font, color):
     _draw_v_center(draw, text, x_right - w, y_center, font, color)
 
 
-# ── Avatar fetch ─────────────────────────────────────────────────
+# ── Avatar fetch (Discord avatars, network) ───────────────────────
 _HTTP_TIMEOUT_SECONDS = 5
 
 
@@ -167,12 +203,53 @@ def _fetch_avatar(url: str | None) -> Image.Image | None:
 
 
 def _placeholder_avatar() -> Image.Image:
-    """Generic circular grey avatar used when no URL is available or fetch fails."""
     a = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (*DIM_GRAY, 255))
     mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=255)
     a.putalpha(mask)
     return a
+
+
+# ── Agent icon (local assets) ─────────────────────────────────────
+_AGENTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "assets",
+    "agents",
+)
+
+
+def _agent_icon_filename(agent: str) -> str:
+    """Map an agent name to its on-disk filename, normalizing the
+    one edge case ('KAY/O' -> 'KAY_O.png')."""
+    safe = agent.replace("/", "_")
+    return f"{safe}.png"
+
+
+def _load_agent_icon(agent: str | None) -> Image.Image | None:
+    """Returns the agent icon from local cache (memory or disk).
+    None if the agent is unknown / file is missing."""
+    if not agent:
+        return None
+    key = agent
+    cached = _agent_icon_cache_get(key)
+    if cached is not None:
+        return cached
+    path = os.path.join(_AGENTS_DIR, _agent_icon_filename(agent))
+    if not os.path.isfile(path):
+        return None
+    try:
+        img = Image.open(path).convert("RGBA")
+        img = img.resize((AGENT_ICON_SIZE, AGENT_ICON_SIZE), Image.Resampling.LANCZOS)
+    except Exception:
+        return None
+    _agent_icon_cache_set(key, img)
+    return img
+
+
+def _placeholder_agent_icon() -> Image.Image:
+    """Soft grey rounded square used when the agent is unknown."""
+    img = Image.new("RGBA", (AGENT_ICON_SIZE, AGENT_ICON_SIZE), (*DIM_GRAY, 255))
+    return img
 
 
 # ── Public API ───────────────────────────────────────────────────
@@ -187,12 +264,7 @@ def generate_scoreboard(
     team_b_players: Iterable[Mapping[str, Any]],
     queue_label: str = "",
 ) -> BytesIO:
-    """Generate a PNG scoreboard image and return it as a BytesIO.
-
-    Both team rosters are sorted by ACS descending. Missing keys default
-    safely (0 for ints, "?" for name). Avatars are best-effort: a grey
-    circle is used when no URL is given or the fetch fails.
-    """
+    """Generate a PNG scoreboard image and return it as a BytesIO."""
     a_players: Sequence[Mapping[str, Any]] = sorted(
         team_a_players, key=lambda p: p.get("acs", 0), reverse=True
     )
@@ -200,73 +272,104 @@ def generate_scoreboard(
         team_b_players, key=lambda p: p.get("acs", 0), reverse=True
     )
 
-    height = TITLE_BAND + TEAM_HEADER_BAND + PLAYERS_PER_TEAM * ROW_HEIGHT + FOOTER_BAND
+    height = (
+        TOP_STRIP_BAND
+        + SCORE_BAND
+        + COLUMN_HEADER_BAND
+        + PLAYERS_PER_TEAM * ROW_HEIGHT
+        + FOOTER_BAND
+    )
     img = Image.new("RGB", (WIDTH, height), BG)
     draw = ImageDraw.Draw(img)
 
     a_wins = rounds_a > rounds_b
     b_wins = rounds_b > rounds_a
 
-    # Title band
-    title_font = _font(38, bold=True)
-    sub_font = _font(22, bold=False)
-    title_y = TITLE_BAND // 2 - 14
-    sub_y = TITLE_BAND // 2 + 22
-
-    title_text = f"{map_name.upper()}"
-    _draw_centered(draw, title_text, WIDTH // 2, title_y, title_font, WHITE)
-
-    sub_left = f"{team_a_label} {rounds_a}"
-    sub_right = f"{rounds_b} {team_b_label}"
-    sep = " — "
-    sub_full = f"{sub_left}{sep}{sub_right}"
-    _draw_centered(draw, sub_full, WIDTH // 2, sub_y, sub_font, SOFT_GRAY)
-
+    # ── Top strip ────────────────────────────────────────────────
+    draw.rectangle([(0, 0), (WIDTH, TOP_STRIP_BAND)], fill=TOP_STRIP_BG)
+    strip_y = TOP_STRIP_BAND // 2
+    small_font = _font(15, bold=True)
     if queue_label:
-        small_font = _font(16, bold=False)
-        _draw_v_center(draw, queue_label.upper(), 24, 22, small_font, DIM_GRAY)
+        _draw_v_center(draw, queue_label.upper(), 24, strip_y, small_font, HEADER_GRAY)
+    if map_name:
+        _draw_right(draw, map_name.upper(), WIDTH - 24, strip_y, small_font, HEADER_GRAY)
 
-    # Vertical divider between columns
-    draw.line(
-        [(COL_GAP_X, TITLE_BAND), (COL_GAP_X, height - FOOTER_BAND)],
-        fill=DIVIDER,
-        width=2,
+    # ── Score band ───────────────────────────────────────────────
+    score_y_top = TOP_STRIP_BAND
+    score_y_center = score_y_top + SCORE_BAND // 2
+
+    team_a_color = WIN_GREEN if a_wins else (LOSE_RED if b_wins else WHITE)
+    team_b_color = WIN_GREEN if b_wins else (LOSE_RED if a_wins else WHITE)
+
+    label_font = _font(28, bold=True)
+    score_font = _font(58, bold=True)
+    dash_font = _font(36, bold=False)
+    crown_font = _font(28, bold=True)
+
+    a_score_str = str(rounds_a)
+    b_score_str = str(rounds_b)
+    dash = "-"
+
+    # Calculate centered group: [crown] LABEL_A  SCORE_A  —  SCORE_B  LABEL_B
+    pad = 32
+    label_a_w = _text_w(draw, team_a_label, label_font)
+    label_b_w = _text_w(draw, team_b_label, label_font)
+    score_a_w = _text_w(draw, a_score_str, score_font)
+    score_b_w = _text_w(draw, b_score_str, score_font)
+    dash_w = _text_w(draw, dash, dash_font)
+    crown_w = _text_w(draw, "🏆", crown_font) if (a_wins or b_wins) else 0
+    group_w = (
+        crown_w + (12 if crown_w else 0)
+        + label_a_w + pad + score_a_w + pad + dash_w + pad + score_b_w + pad + label_b_w
     )
+    x = (WIDTH - group_w) // 2
 
-    # Team headers
-    header_y = TITLE_BAND + TEAM_HEADER_BAND // 2
-    header_font = _font(24, bold=True)
-    a_color = GREEN if a_wins else (RED if b_wins else WHITE)
-    b_color = GREEN if b_wins else (RED if a_wins else WHITE)
-    _draw_centered(draw, team_a_label, COL_A_X0 + COL_W // 2, header_y, header_font, a_color)
-    _draw_centered(draw, team_b_label, COL_B_X0 + COL_W // 2, header_y, header_font, b_color)
+    if a_wins:
+        _draw_v_center(draw, "🏆", x, score_y_center, crown_font, ACS_COLOR)
+        x += crown_w + 12
+    _draw_v_center(draw, team_a_label, x, score_y_center, label_font, team_a_color)
+    x += label_a_w + pad
+    _draw_v_center(draw, a_score_str, x, score_y_center, score_font, team_a_color)
+    x += score_a_w + pad
+    _draw_v_center(draw, dash, x, score_y_center, dash_font, SOFT_GRAY)
+    x += dash_w + pad
+    _draw_v_center(draw, b_score_str, x, score_y_center, score_font, team_b_color)
+    x += score_b_w + pad
+    _draw_v_center(draw, team_b_label, x, score_y_center, label_font, team_b_color)
+    if b_wins:
+        x += label_b_w + 12
+        _draw_v_center(draw, "🏆", x, score_y_center, crown_font, ACS_COLOR)
 
-    # Rows
+    # ── Vertical divider between columns ─────────────────────────
+    div_top = TOP_STRIP_BAND + SCORE_BAND
+    div_bottom = height - FOOTER_BAND
+    draw.line([(COL_W, div_top), (COL_W, div_bottom)], fill=DIVIDER, width=2)
+
+    # ── Column header strip ──────────────────────────────────────
+    header_y_top = TOP_STRIP_BAND + SCORE_BAND
+    _draw_column_header(draw, COL_A_X0, header_y_top)
+    _draw_column_header(draw, COL_B_X0, header_y_top)
+
+    # ── Rows ─────────────────────────────────────────────────────
+    rows_y0 = header_y_top + COLUMN_HEADER_BAND
     name_font = _font(20, bold=True)
-    stats_font = _font(20, bold=True)
-    rows_y0 = TITLE_BAND + TEAM_HEADER_BAND
+    stats_font = _font(22, bold=True)
+
     for i in range(PLAYERS_PER_TEAM):
         y_top = rows_y0 + i * ROW_HEIGHT
         y_center = y_top + ROW_HEIGHT // 2
         bg = ROW_BG_A if i % 2 == 0 else ROW_BG_B
         # Left column
-        draw.rectangle([(COL_A_X0, y_top), (COL_GAP_X - 1, y_top + ROW_HEIGHT)], fill=bg)
+        draw.rectangle([(COL_A_X0, y_top), (COL_W - 1, y_top + ROW_HEIGHT)], fill=bg)
         # Right column
-        draw.rectangle([(COL_B_X0 + 1, y_top), (WIDTH, y_top + ROW_HEIGHT)], fill=bg)
-
+        draw.rectangle([(COL_W + 1, y_top), (WIDTH, y_top + ROW_HEIGHT)], fill=bg)
         if i < len(a_players):
-            _draw_player_row(
-                img, draw, a_players[i], COL_A_X0, y_center,
-                name_font, stats_font,
-            )
+            _draw_player_row(img, draw, a_players[i], COL_A_X0, y_center, name_font, stats_font)
         if i < len(b_players):
-            _draw_player_row(
-                img, draw, b_players[i], COL_B_X0, y_center,
-                name_font, stats_font,
-            )
+            _draw_player_row(img, draw, b_players[i], COL_B_X0, y_center, name_font, stats_font)
 
-    # Footer
-    footer_font = _font(16, bold=False)
+    # ── Footer ───────────────────────────────────────────────────
+    footer_font = _font(15, bold=False)
     footer_y = height - FOOTER_BAND // 2
     _draw_centered(
         draw,
@@ -281,6 +384,27 @@ def generate_scoreboard(
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf
+
+
+def _draw_column_header(draw: ImageDraw.ImageDraw, col_x0: int, y_top: int) -> None:
+    """Renders the PLAYER / KILLS / DEATHS / ASSISTS / ACS / ELO labels above
+    the rows for a single team column."""
+    header_font = _font(13, bold=True)
+    y_center = y_top + COLUMN_HEADER_BAND // 2
+
+    # Soft separator below the header
+    draw.line(
+        [(col_x0, y_top + COLUMN_HEADER_BAND - 1),
+         (col_x0 + COL_W, y_top + COLUMN_HEADER_BAND - 1)],
+        fill=SEPARATOR, width=1,
+    )
+
+    _draw_v_center(draw, "PLAYER", col_x0 + X_NAME_REL, y_center, header_font, HEADER_GRAY)
+    _draw_centered(draw, "KILLS", col_x0 + X_K, y_center, header_font, KILL_COLOR)
+    _draw_centered(draw, "DEATHS", col_x0 + X_D, y_center, header_font, DEATH_COLOR)
+    _draw_centered(draw, "ASSISTS", col_x0 + X_A, y_center, header_font, ASSIST_COLOR)
+    _draw_centered(draw, "ACS", col_x0 + X_ACS, y_center, header_font, ACS_COLOR)
+    _draw_right(draw, "ELO", col_x0 + X_ELO_RIGHT, y_center, header_font, ELO_COLOR)
 
 
 def _draw_player_row(
@@ -299,33 +423,38 @@ def _draw_player_row(
     acs = int(player.get("acs", 0) or 0)
     elo = int(player.get("elo", 0) or 0)
     avatar_url = player.get("avatar_url")
+    agent = player.get("agent") or None
 
-    # Avatar
+    # Discord avatar (small circle)
     avatar = _fetch_avatar(avatar_url) if avatar_url else None
     if avatar is None:
         avatar = _placeholder_avatar()
     img.paste(avatar, (col_x0 + X_AVATAR_REL, y_center - AVATAR_SIZE // 2), avatar)
 
-    # Name (truncate to fit)
-    name_text = _truncate(draw, name, name_font, X_KDA_REL - X_NAME_REL - 10)
+    # Agent icon (square)
+    icon = _load_agent_icon(agent)
+    if icon is None:
+        icon = _placeholder_agent_icon()
+    icon_pos = (col_x0 + X_AGENT_REL, y_center - AGENT_ICON_SIZE // 2)
+    img.paste(icon, icon_pos, icon if icon.mode == "RGBA" else None)
+
+    # Name (truncate to fit before K column)
+    max_name_w = (col_x0 + X_K) - (col_x0 + X_NAME_REL) - 40
+    name_text = _truncate(draw, name, name_font, max_name_w)
     _draw_v_center(draw, name_text, col_x0 + X_NAME_REL, y_center, name_font, WHITE)
 
-    # K/D/A
-    kda_text = f"{kills}/{deaths}/{assists}"
-    _draw_centered(draw, kda_text, col_x0 + X_KDA_REL, y_center, stats_font, SOFT_GRAY)
-
-    # ACS
-    _draw_centered(draw, str(acs), col_x0 + X_ACS_REL, y_center, stats_font, GREEN)
-
-    # ELO
-    _draw_right(draw, str(elo), col_x0 + X_ELO_REL, y_center, stats_font, BLUE)
+    # Stats columns
+    _draw_centered(draw, str(kills), col_x0 + X_K, y_center, stats_font, KILL_COLOR)
+    _draw_centered(draw, str(deaths), col_x0 + X_D, y_center, stats_font, DEATH_COLOR)
+    _draw_centered(draw, str(assists), col_x0 + X_A, y_center, stats_font, ASSIST_COLOR)
+    _draw_centered(draw, str(acs), col_x0 + X_ACS, y_center, stats_font, ACS_COLOR)
+    _draw_right(draw, str(elo), col_x0 + X_ELO_RIGHT, y_center, stats_font, ELO_COLOR)
 
 
 def _truncate(draw, text: str, font, max_width: int) -> str:
     if _text_w(draw, text, font) <= max_width:
         return text
     ellipsis = "…"
-    # Shrink character-by-character until the text + ellipsis fits.
     truncated = text
     while truncated and _text_w(draw, truncated + ellipsis, font) > max_width:
         truncated = truncated[:-1]

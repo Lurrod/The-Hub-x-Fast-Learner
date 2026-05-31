@@ -1222,6 +1222,7 @@ class MatchCog(commands.Cog):
                         "acs": round(stats.score / rounds),
                         "elo": elo_by_uid.get(uid, 0),
                         "avatar_url": avatar_url,
+                        "agent": getattr(stats, "agent", ""),
                     }
                 )
             return rows
