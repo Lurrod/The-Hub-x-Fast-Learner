@@ -47,9 +47,9 @@ def pick_captains(
     return cap_a, cap_b
 
 
-# Alternating order ABABABAB. Sur 8 picks, capA pick aux indices 0, 2, 4, 6
-# et capB pick aux indices 1, 3, 5, 7. Avec les 2 captains deja en team,
-# chaque equipe finit avec 5 joueurs (1 cap + 4 picks).
+# Alternating order ABABABAB. Across 8 picks, capA picks at indices
+# 0, 2, 4, 6 and capB at indices 1, 3, 5, 7. With the 2 captains already
+# on their team, each side ends up with 5 players (1 cap + 4 picks).
 PICK_SEQUENCE: tuple[Literal["A", "B"], ...] = (
     "A",
     "B",
@@ -219,8 +219,8 @@ class CaptainDraftSession:
         self.admin_role_names = admin_role_names
         self.message: Any | None = None
         self._lock = asyncio.Lock()
-        # _done est cree paresseusement dans run() pour eviter
-        # asyncio.get_event_loop() hors d'une coroutine (deprecation Python 3.12+).
+        # _done is created lazily inside run() to avoid calling
+        # asyncio.get_event_loop() outside a coroutine (deprecated since Python 3.12+).
         self._done: asyncio.Future[DraftResult] | None = None
 
     async def run(self) -> DraftResult:
@@ -357,8 +357,8 @@ class CaptainDraftSession:
     async def _on_pick(self, interaction: Any) -> None:
         async with self._lock:
             if self.state.status != "picking":
-                # Interaction obsolete (draft fini/annule entre temps) : on
-                # acknowledge silencieusement pour eviter "Interaction failed".
+                # Interaction is stale (draft finished/cancelled in the meantime):
+                # acknowledge silently to avoid the "Interaction failed" red banner.
                 with contextlib.suppress(Exception):
                     await interaction.response.defer()
                 return

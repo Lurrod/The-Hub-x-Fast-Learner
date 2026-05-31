@@ -115,7 +115,7 @@ def test_parse_embed_extracts_pro_queue_tier():
         footer_id=42,
         fields=[
             ("🎮 In-game username", "Alice"),
-            ("🎯 Queue cible", "Pro Queue"),
+            ("🎯 Target queue", "Pro Queue"),
         ],
     )
     msg = _message_with_embeds([embed])
@@ -129,7 +129,7 @@ def test_parse_embed_extracts_semipro_queue_tier():
         footer_id=42,
         fields=[
             ("🎮 In-game username", "Alice"),
-            ("🎯 Queue cible", "Semi Pro Queue"),
+            ("🎯 Target queue", "Semi Pro Queue"),
         ],
     )
     msg = _message_with_embeds([embed])
@@ -143,7 +143,7 @@ def test_parse_embed_extracts_gc_queue_tier():
         footer_id=42,
         fields=[
             ("🎮 In-game username", "Alice"),
-            ("🎯 Queue cible", "GC Queue"),
+            ("🎯 Target queue", "GC Queue"),
         ],
     )
     msg = _message_with_embeds([embed])
@@ -171,7 +171,7 @@ def test_parse_embed_returns_none_tier_for_unknown_queue_label():
         footer_id=42,
         fields=[
             ("🎮 In-game username", "Alice"),
-            ("🎯 Queue cible", "Mystery Queue"),
+            ("🎯 Target queue", "Mystery Queue"),
         ],
     )
     msg = _message_with_embeds([embed])
@@ -346,7 +346,7 @@ async def _run_accept_with_tier(
         footer_id=42,
         fields=[
             ("🎮 In-game username", "Alice"),
-            ("🎯 Queue cible", queue_label),
+            ("🎯 Target queue", queue_label),
         ],
     )
     message = MagicMock()
@@ -467,7 +467,7 @@ async def test_accept_staff_application_does_not_add_any_fl_role():
 
 async def test_accept_legacy_embed_without_tier_does_not_crash():
     """Backwards compat: applications submitted before the queue-tier
-    rollout have no 🎯 Queue cible field. Accept must still grant Members
+    rollout have no 🎯 Target queue field. Accept must still grant Members
     and not attempt any FL X assignment."""
     from services import repository
 
@@ -802,11 +802,11 @@ async def test_report_modal_creates_anonymous_ticket():
 
     modal = ReportModal(db=db, close_view=MagicMock())
     for name, value in [
-        ("cible", "Cheater#1"),
+        ("target", "Cheater#1"),
         ("queue", "Pro"),
-        ("raison", "Cheating"),
+        ("reason", "Cheating"),
         ("details", "Obvious aimbot on Ascent"),
-        ("preuves", ""),  # empty -> optional field omitted
+        ("evidence", ""),  # empty -> optional field omitted
     ]:
         field = MagicMock()
         field.value = value
@@ -836,11 +836,11 @@ async def test_report_modal_includes_evidence_when_provided():
 
     modal = ReportModal(db=db, close_view=MagicMock())
     for name, value in [
-        ("cible", "Cheater#1"),
+        ("target", "Cheater#1"),
         ("queue", "Open"),
-        ("raison", "Toxicity"),
+        ("reason", "Toxicity"),
         ("details", "Repeated insults"),
-        ("preuves", "https://clips.twitch.tv/xyz"),
+        ("evidence", "https://clips.twitch.tv/xyz"),
     ]:
         field = MagicMock()
         field.value = value

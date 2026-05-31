@@ -1,4 +1,4 @@
-"""Tests purs pour le draft capitaine de la Pro Queue."""
+"""Pure tests for the Pro Queue captain draft."""
 
 from __future__ import annotations
 
@@ -179,15 +179,15 @@ def _fake_user(*, role_names: tuple[str, ...] = (), manage_guild: bool = False):
 
 
 def test_is_admin_accepts_manage_guild_permission():
-    """Un admin Discord (manage_guild=True) doit pouvoir annuler le draft,
-    meme sans role nomme 'Admin'/'Match Staff'/'Administrateur'."""
+    """A Discord admin (manage_guild=True) must be able to cancel the
+    draft, even without a role named 'Admin'/'Match Staff'/'Administrator'."""
     user = _fake_user(role_names=("Administrator",), manage_guild=True)
     assert _is_admin(user, ADMIN_ROLE_NAMES) is True
 
 
 def test_is_admin_accepts_named_admin_role_as_fallback():
-    """Compat : un user avec role 'Match Staff' mais sans manage_guild
-    reste autorise (cas d'un staff sans permissions elevees)."""
+    """Backwards-compat: a user with the 'Match Staff' role but no
+    manage_guild permission stays authorized (staff without elevated perms)."""
     user = _fake_user(role_names=("Match Staff",), manage_guild=False)
     assert _is_admin(user, ADMIN_ROLE_NAMES) is True
 

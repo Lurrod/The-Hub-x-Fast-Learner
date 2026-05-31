@@ -97,10 +97,10 @@ async def test_cog_load_per_guild_error_does_not_block_others(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cog_load_excludes_in_flight_cleanup_categories(monkeypatch):
-    """Recovery apres crash partiel : un match dont la cleanup a ete
-    amorcee (delete_started_at set) mais dont le status est encore actif
-    doit etre retire de active_category_ids pour que orphan_cleanup
-    finisse le travail."""
+    """Recovery after a partial crash: a match whose cleanup has been
+    started (delete_started_at set) but whose status is still active
+    must be removed from active_category_ids so orphan_cleanup can
+    finish the job."""
     from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
 

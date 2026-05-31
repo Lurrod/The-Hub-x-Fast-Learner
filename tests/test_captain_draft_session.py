@@ -1,4 +1,4 @@
-"""Tests d'integration pour CaptainDraftSession (UI Discord avec fakes)."""
+"""Integration tests for CaptainDraftSession (Discord UI with fakes)."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ async def test_session_happy_path_8_picks_complete():
 
 
 async def test_session_admin_cancel_raises():
-    """Un admin clique Cancel -> run() leve DraftCancelledError."""
+    """An admin clicks Cancel -> run() raises DraftCancelledError."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))
@@ -135,8 +135,8 @@ async def test_session_admin_cancel_raises():
 async def test_session_admin_with_manage_guild_can_cancel_without_named_role():
     """Regression : un admin Discord avec permission `manage_guild` mais
     sans role nomme 'Admin'/'Match Staff'/'Administrateur' doit pouvoir
-    annuler. Avant fix, seul le nom de role etait verifie -> les admins
-    ne pouvaient plus annuler le draft (rapport user 2026-05-16)."""
+    must be able to cancel. Before the fix, only the role name was
+    checked -> admins could no longer cancel the draft (user report 2026-05-16)."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))
@@ -159,7 +159,7 @@ async def test_session_admin_with_manage_guild_can_cancel_without_named_role():
     admin = _fake_user(99, role_names=("Administrator",), manage_guild=True)
     inter = _fake_interaction(admin, "pro_draft_cancel")
     ok = await session._interaction_check(inter)
-    assert ok is True, "Admin avec manage_guild doit pouvoir cliquer Cancel"
+    assert ok is True, "Admin with manage_guild must be able to click Cancel"
 
     await session._on_cancel(inter)
     with pytest.raises(DraftCancelledError):
@@ -167,7 +167,7 @@ async def test_session_admin_with_manage_guild_can_cancel_without_named_role():
 
 
 async def test_session_non_admin_cancel_rejected_by_interaction_check():
-    """Un non-admin qui clique Cancel : interaction_check renvoie False (ephemeral)."""
+    """A non-admin clicks Cancel: interaction_check returns False (ephemeral)."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))
@@ -195,14 +195,14 @@ async def test_session_non_admin_cancel_rejected_by_interaction_check():
     # Le draft est toujours en picking
     assert session.state.status == "picking"
 
-    # Cleanup : annuler la task avant qu'elle finisse pas (sinon warning)
+    # Cleanup: cancel the task before it finishes on its own (otherwise warning).
     run_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await run_task
 
 
 async def test_session_pick_by_wrong_captain_rejected_by_interaction_check():
-    """Cap B clique pendant tour de Cap A : interaction_check renvoie False."""
+    """Cap B clicks during Cap A's turn: interaction_check returns False."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))

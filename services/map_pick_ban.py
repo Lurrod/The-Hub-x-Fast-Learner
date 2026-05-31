@@ -190,7 +190,7 @@ class MapBanSession:
         view = self._build_view()
         content = (
             f"<@{self.state.cap_a.id}> <@{self.state.cap_b.id}> "
-            f"- map ban phase, à vous de bannir !"
+            f"- map ban phase, your turn to ban!"
         )
         self.message = await self.prep_channel.send(
             content=content, embed=embed, view=view

@@ -55,7 +55,7 @@ QUEUE_TIERS: dict[str, tuple[str, str]] = {
     "semipro": ("Semi Pro Queue", "FL SEMIPRO"),
     "gc": ("GC Queue", "FL GC"),
 }
-QUEUE_TIER_FIELD_NAME = "🎯 Queue cible"
+QUEUE_TIER_FIELD_NAME = "🎯 Target queue"
 
 
 def _has_access(interaction: discord.Interaction, db) -> bool:
@@ -438,7 +438,7 @@ async def _open_ticket_channel(
 
 
 class ReportModal(discord.ui.Modal, title="Send an anonymous report"):
-    cible: discord.ui.TextInput = discord.ui.TextInput(
+    target: discord.ui.TextInput = discord.ui.TextInput(
         label="Who are you reporting?",
         placeholder="Discord username / @mention / player ID",
         style=discord.TextStyle.short,
@@ -452,7 +452,7 @@ class ReportModal(discord.ui.Modal, title="Send an anonymous report"):
         required=True,
         max_length=50,
     )
-    raison: discord.ui.TextInput = discord.ui.TextInput(
+    reason: discord.ui.TextInput = discord.ui.TextInput(
         label="For what reason?",
         placeholder="Cheating, toxicity, throwing, insults, AFK, etc.",
         style=discord.TextStyle.short,
@@ -466,7 +466,7 @@ class ReportModal(discord.ui.Modal, title="Send an anonymous report"):
         required=True,
         max_length=1500,
     )
-    preuves: discord.ui.TextInput = discord.ui.TextInput(
+    evidence: discord.ui.TextInput = discord.ui.TextInput(
         label="Evidence (links, clips, screenshots)",
         placeholder="Paste links to your evidence here (optional)",
         style=discord.TextStyle.paragraph,
@@ -490,12 +490,12 @@ class ReportModal(discord.ui.Modal, title="Send an anonymous report"):
             color=0xE67E22,
             timestamp=datetime.now(UTC),
         )
-        embed.add_field(name="Reported player", value=self.cible.value, inline=False)
+        embed.add_field(name="Reported player", value=self.target.value, inline=False)
         embed.add_field(name="Queue concerned", value=self.queue.value, inline=False)
-        embed.add_field(name="Reason", value=self.raison.value, inline=False)
+        embed.add_field(name="Reason", value=self.reason.value, inline=False)
         embed.add_field(name="Details", value=self.details.value, inline=False)
-        if self.preuves.value.strip():
-            embed.add_field(name="Evidence", value=self.preuves.value, inline=False)
+        if self.evidence.value.strip():
+            embed.add_field(name="Evidence", value=self.evidence.value, inline=False)
         embed.set_footer(text="Anonymous report")
         try:
             await ticket_channel.send(embed=embed, view=self.close_view)
