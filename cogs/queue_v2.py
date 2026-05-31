@@ -58,10 +58,10 @@ WAITING_ROOM_NAMES: dict[str, str] = {
 # Allowed roles to join a gated queue (any one of them is enough).
 # None = no gate.
 QUEUE_ROLE_GATES: dict[str, tuple[str, ...] | None] = {
-    "pro": ("FL PRO", "FL STAFF PRO", "FL CAST"),
-    "semipro": ("FL SEMIPRO", "FL STAFF SEMIPRO", "FL CAST"),
-    "open": ("FL HUB", "FL CAST"),
-    "gc": ("FL GC", "FL STAFF GC", "FL CAST"),
+    "pro": ("FL PRO", "FL STAFF PRO"),
+    "semipro": ("FL SEMIPRO", "FL STAFF SEMIPRO"),
+    "open": ("FL HUB",),
+    "gc": ("FL GC", "FL STAFF GC"),
 }
 
 # Expected text channel name for each queue (used by /setup to

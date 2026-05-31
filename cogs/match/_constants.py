@@ -47,12 +47,16 @@ ADMIN_ROLE_NAMES: Final[tuple[str, ...]] = (
 # (same overwrites as the 10 players), but without `manage_channels`.
 # Distinct from ADMIN_ROLE_NAMES which grants admin powers (draft
 # cancel, ping, channel management).
+# FL CAST lives here (not in QUEUE_ROLE_GATES): casters see all match
+# channels and can join the voice rooms to commentate, but they do not
+# queue up as players.
 MATCH_VIEWER_ROLE_NAMES: Final[tuple[str, ...]] = (
     "FAST LEARNER x The Hub",
     "ADMINISTRATORS",
     "FL STAFF PRO",
     "FL STAFF SEMIPRO",
     "FL STAFF GC",
+    "FL CAST",
 )
 
 # "Spectator" roles: see the category + read history, but cannot

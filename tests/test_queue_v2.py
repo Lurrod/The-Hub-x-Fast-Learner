@@ -1060,14 +1060,15 @@ def test_waiting_room_name_per_queue_type():
 
 
 def test_queue_role_gates_per_queue_type():
-    """Snapshot of QUEUE_ROLE_GATES: every queue accepts its player role,
-    its staff role (where applicable), and FL CAST."""
+    """Snapshot of QUEUE_ROLE_GATES: each queue accepts its player role
+    and the matching staff role (where applicable). FL CAST is NOT a
+    queue gate — casters access match channels via MATCH_VIEWER_ROLE_NAMES."""
     from cogs.queue_v2 import QUEUE_ROLE_GATES
 
-    assert QUEUE_ROLE_GATES["pro"] == ("FL PRO", "FL STAFF PRO", "FL CAST")
-    assert QUEUE_ROLE_GATES["semipro"] == ("FL SEMIPRO", "FL STAFF SEMIPRO", "FL CAST")
-    assert QUEUE_ROLE_GATES["open"] == ("FL HUB", "FL CAST")
-    assert QUEUE_ROLE_GATES["gc"] == ("FL GC", "FL STAFF GC", "FL CAST")
+    assert QUEUE_ROLE_GATES["pro"] == ("FL PRO", "FL STAFF PRO")
+    assert QUEUE_ROLE_GATES["semipro"] == ("FL SEMIPRO", "FL STAFF SEMIPRO")
+    assert QUEUE_ROLE_GATES["open"] == ("FL HUB",)
+    assert QUEUE_ROLE_GATES["gc"] == ("FL GC", "FL STAFF GC")
 
 
 def test_queue_channel_names_per_queue_type():
@@ -1199,43 +1200,15 @@ async def test_join_gc_queue_allowed_with_fl_staff_gc_role():
     assert "1" in doc["players"]
 
 
-async def test_join_pro_queue_allowed_with_fl_cast_role():
-    """Pro Queue: join OK with the FL CAST role (universal caster access)."""
-    import bot as bot_module
-    from cogs.queue_v2 import QueueView
+def test_fl_cast_in_match_viewer_role_names_only():
+    """FL CAST belongs to MATCH_VIEWER_ROLE_NAMES (sees match channels,
+    joins voice rooms) but is NOT in QUEUE_ROLE_GATES (cannot queue up
+    as a player)."""
+    from cogs.match._constants import MATCH_VIEWER_ROLE_NAMES
+    from cogs.queue_v2 import QUEUE_ROLE_GATES
 
-    db = bot_module.db
-    repository.setup_active_queue(db, guild_id=42, queue_type="pro", channel_id=100, message_id=999)
-    _seed_riot_link(db, 42, 1)
-
-    member = _fake_member(1)
-    member.roles = [_make_rank_role("FL CAST")]
-    inter = _fake_interaction(member, channel_name="pro-queue")
-    inter.user = member
-
-    view = QueueView(db, queue_type="pro")
-    await view._join_callback(inter)
-
-    doc = repository.get_active_queue(db, 42, "pro")
-    assert "1" in doc["players"]
-
-
-async def test_join_open_queue_allowed_with_fl_cast_role():
-    """Open Queue: join OK with the FL CAST role (universal caster access)."""
-    import bot as bot_module
-    from cogs.queue_v2 import QueueView
-
-    db = bot_module.db
-    repository.setup_active_queue(db, guild_id=42, queue_type="open", channel_id=100, message_id=999)
-    _seed_riot_link(db, 42, 1)
-
-    member = _fake_member(1)
-    member.roles = [_make_rank_role("FL CAST")]
-    inter = _fake_interaction(member, channel_name="open-queue")
-    inter.user = member
-
-    view = QueueView(db, queue_type="open")
-    await view._join_callback(inter)
-
-    doc = repository.get_active_queue(db, 42, "open")
-    assert "1" in doc["players"]
+    assert "FL CAST" in MATCH_VIEWER_ROLE_NAMES
+    for queue_type, gate in QUEUE_ROLE_GATES.items():
+        assert "FL CAST" not in gate, (
+            f"FL CAST must not gate the {queue_type} queue"
+        )
