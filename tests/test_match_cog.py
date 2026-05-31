@@ -1,6 +1,5 @@
 """Integration tests for the match cog (formation + persistence + reset queue)."""
 
-import contextlib
 import random
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -511,12 +510,59 @@ async def test_queue_full_does_not_crash_when_no_team_vcs(monkeypatch):
     assert match_id is not None
 
 
+# ── Draft + ban stubs for pro/semipro tests ───────────────────────────────
+
+
+def _patch_draft_and_ban_for_pro(monkeypatch, fake_plan):
+    """Make on_queue_full's pro/semipro branch complete instantly with fake_plan.
+
+    Stubs out CaptainDraftSession, MapBanSession, pick_captains, and
+    build_plan_from_draft so tests asserting downstream behavior (DB
+    persistence, embed posting) can use queue_type="pro" without
+    hanging on the draft/ban awaits.
+    """
+
+    class _FakeDraftSession:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def run(self):
+            return MagicMock(
+                cap_a=MagicMock(id=1),
+                cap_b=MagicMock(id=2),
+                team_a=tuple(MagicMock(id=i) for i in range(1, 6)),
+                team_b=tuple(MagicMock(id=i) for i in range(6, 11)),
+            )
+
+    class _FakeBanSession:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def run(self):
+            return MagicMock(selected_map="Haven", ban_history=())
+
+    monkeypatch.setattr("cogs.match._cog.CaptainDraftSession", _FakeDraftSession)
+    monkeypatch.setattr("cogs.match._cog.MapBanSession", _FakeBanSession)
+    monkeypatch.setattr(
+        "cogs.match._cog.pick_captains",
+        lambda players, *, rng: (
+            (players[0], players[1]) if len(players) >= 2 else (MagicMock(id=1), MagicMock(id=2))
+        ),
+    )
+    monkeypatch.setattr(
+        "cogs.match._cog.build_plan_from_draft",
+        lambda *a, **kw: fake_plan,
+    )
+
+
 # ── queue_type propagation ────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
     """The match doc must store the queue_type from the queue."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
+    from services.match_service import MatchPlan
+    from services.team_balancer import Player, balance_teams
 
     fake_channels = _make_fake_channels()
     monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
@@ -530,7 +576,20 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
     guild = _fake_guild(42, members=members, categories=[], channel=channel)
     inter = _fake_interaction(guild)
 
+    # Build a fake_plan whose shape matches what build_plan_from_draft would return
+    # so the downstream persistence + embed code can proceed without hanging.
+    _players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
+    _teams = balance_teams(_players)
+    fake_plan = MatchPlan(
+        teams=_teams,
+        map_name="Haven",
+        lobby_leader=_players[0],
+        category_name="Match #1",
+    )
+    _patch_draft_and_ban_for_pro(monkeypatch, fake_plan)
+
     cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    monkeypatch.setattr(cog, "_move_players_to_waiting_match", AsyncMock())
     match_id = await cog.on_queue_full(inter, queue_doc, "pro")
 
     match = repository.get_match(bot_module.db, match_id)
@@ -733,5 +792,208 @@ async def test_admin_cancel_deletes_match_category(monkeypatch):
 
     delete_mock.assert_awaited_once()
     assert delete_mock.await_args.kwargs["category_id"] == 5555
+
+
+# ── Branch coverage: open vs pro/semipro ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_queue_full_open_queue_calls_plan_match_not_draft(monkeypatch):
+    """Open queue: plan_match is called; CaptainDraftSession is NOT constructed."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.team_balancer import Player, balance_teams
+    from services.match_service import MatchPlan
+
+    calls = {"plan_match": 0, "draft_ctor": 0, "ban_ctor": 0}
+
+    _players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
+    _teams = balance_teams(_players)
+    fake_plan = MatchPlan(
+        teams=_teams,
+        map_name="Ascent",
+        lobby_leader=_players[0],
+        category_name="Match #1",
+    )
+
+    def fake_plan_match(*a, **kw):
+        calls["plan_match"] += 1
+        return fake_plan
+
+    class _NeverDraft:
+        def __init__(self, *a, **kw):
+            calls["draft_ctor"] += 1
+            raise AssertionError("CaptainDraftSession must NOT be constructed for open queue")
+
+        async def run(self):
+            raise AssertionError("never")
+
+    class _NeverBan:
+        def __init__(self, *a, **kw):
+            calls["ban_ctor"] += 1
+            raise AssertionError("MapBanSession must NOT be constructed for open queue")
+
+        async def run(self):
+            raise AssertionError("never")
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
+    monkeypatch.setattr("cogs.match._cog.plan_match", fake_plan_match)
+    monkeypatch.setattr("cogs.match._cog.CaptainDraftSession", _NeverDraft)
+    monkeypatch.setattr("cogs.match._cog.MapBanSession", _NeverBan)
+
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="open")
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    await cog.on_queue_full(inter, queue_doc, "open")
+
+    assert calls["plan_match"] == 1
+    assert calls["draft_ctor"] == 0
+    assert calls["ban_ctor"] == 0
+
+
+@pytest.mark.asyncio
+async def test_on_queue_full_pro_queue_runs_draft_then_ban_then_build(monkeypatch):
+    """Pro queue: draft -> ban -> build_plan_from_draft with map_name from ban."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.team_balancer import Player, balance_teams
+    from services.match_service import MatchPlan
+
+    seq: list[str] = []
+
+    _players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
+    _teams = balance_teams(_players)
+
+    class _FakeDraft:
+        def __init__(self, *a, **kw):
+            seq.append("draft_ctor")
+
+        async def run(self):
+            seq.append("draft_run")
+            return MagicMock(
+                cap_a=MagicMock(id=1),
+                cap_b=MagicMock(id=2),
+                team_a=tuple(MagicMock(id=i) for i in range(1, 6)),
+                team_b=tuple(MagicMock(id=i) for i in range(6, 11)),
+            )
+
+    class _FakeBan:
+        def __init__(self, *a, **kw):
+            seq.append("ban_ctor")
+
+        async def run(self):
+            seq.append("ban_run")
+            return MagicMock(selected_map="Haven", ban_history=())
+
+    def fake_build_plan(*a, **kw):
+        seq.append(f"build({kw.get('map_name')})")
+        return MatchPlan(
+            teams=_teams,
+            map_name=kw.get("map_name", "Haven"),
+            lobby_leader=_players[0],
+            category_name="Match #1",
+        )
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
+    monkeypatch.setattr("cogs.match._cog.CaptainDraftSession", _FakeDraft)
+    monkeypatch.setattr("cogs.match._cog.MapBanSession", _FakeBan)
+    monkeypatch.setattr("cogs.match._cog.build_plan_from_draft", fake_build_plan)
+    monkeypatch.setattr(
+        "cogs.match._cog.pick_captains",
+        lambda players, *, rng: (players[0], players[1]),
+    )
+
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="pro")
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    monkeypatch.setattr(cog, "_move_players_to_waiting_match", AsyncMock())
+    await cog.on_queue_full(inter, queue_doc, "pro")
+
+    assert seq == ["draft_ctor", "draft_run", "ban_ctor", "ban_run", "build(Haven)"]
+
+
+@pytest.mark.asyncio
+async def test_on_queue_full_semipro_queue_runs_draft_then_ban(monkeypatch):
+    """Semi-Pro queue: same branching as Pro (verifies condition is 'in (pro, semipro)' not '== pro')."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.team_balancer import Player, balance_teams
+    from services.match_service import MatchPlan
+
+    seq: list[str] = []
+
+    _players = [Player(id=i, name=f"P{i}", elo=1500 + i * 50) for i in range(10)]
+    _teams = balance_teams(_players)
+
+    class _FakeDraft:
+        def __init__(self, *a, **kw):
+            seq.append("draft_ctor")
+
+        async def run(self):
+            seq.append("draft_run")
+            return MagicMock(
+                cap_a=MagicMock(id=1),
+                cap_b=MagicMock(id=2),
+                team_a=tuple(MagicMock(id=i) for i in range(1, 6)),
+                team_b=tuple(MagicMock(id=i) for i in range(6, 11)),
+            )
+
+    class _FakeBan:
+        def __init__(self, *a, **kw):
+            seq.append("ban_ctor")
+
+        async def run(self):
+            seq.append("ban_run")
+            return MagicMock(selected_map="Haven", ban_history=())
+
+    def fake_build_plan(*a, **kw):
+        seq.append(f"build({kw.get('map_name')})")
+        return MatchPlan(
+            teams=_teams,
+            map_name=kw.get("map_name", "Haven"),
+            lobby_leader=_players[0],
+            category_name="Match #1",
+        )
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
+    monkeypatch.setattr("cogs.match._cog.CaptainDraftSession", _FakeDraft)
+    monkeypatch.setattr("cogs.match._cog.MapBanSession", _FakeBan)
+    monkeypatch.setattr("cogs.match._cog.build_plan_from_draft", fake_build_plan)
+    monkeypatch.setattr(
+        "cogs.match._cog.pick_captains",
+        lambda players, *, rng: (players[0], players[1]),
+    )
+
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="semipro")
+    members = [_fake_member(i, f"P{i}") for i in range(10)]
+    channel = _fake_channel(100)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    monkeypatch.setattr(cog, "_move_players_to_waiting_match", AsyncMock())
+    await cog.on_queue_full(inter, queue_doc, "semipro")
+
+    assert seq == ["draft_ctor", "draft_run", "ban_ctor", "ban_run", "build(Haven)"]
 
 
