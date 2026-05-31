@@ -103,3 +103,43 @@ def plan_match(
 def serialize_team(team: tuple[Player, ...]) -> list[dict]:
     """For MongoDB storage."""
     return [asdict(p) for p in team]
+
+
+def build_plan_from_draft(
+    result,  # services.captain_draft.DraftResult (duck-typed to avoid import cycle)
+    *,
+    free_category: str,
+    rng: random.Random,
+    map_name: str | None = None,
+) -> MatchPlan:
+    """Build a MatchPlan from a captain DraftResult.
+
+    Used on the Pro / Semi-Pro branch where teams come from the captain
+    draft (not balance_teams). Computes elo_diff/peak_diff for info only.
+
+    Args:
+        result:        DraftResult with team_a, team_b, cap_a, cap_b.
+        free_category: name of the free `Match #N` category.
+        rng:           random source (used only when map_name is None).
+        map_name:      map chosen by the map ban phase; if None, falls
+                       back to rng.choice(elo_calc.MAPS).
+    """
+    team_a = result.team_a
+    team_b = result.team_b
+    sum_a = sum(p.elo for p in team_a)
+    sum_b = sum(p.elo for p in team_b)
+    max_a = max(p.elo for p in team_a)
+    max_b = max(p.elo for p in team_b)
+    teams = BalancedTeams(
+        team_a=team_a,
+        team_b=team_b,
+        elo_diff=abs(sum_a - sum_b),
+        peak_diff=abs(max_a - max_b),
+    )
+    chosen_map = map_name if map_name is not None else rng.choice(elo_calc.MAPS)
+    return MatchPlan(
+        teams=teams,
+        map_name=chosen_map,
+        lobby_leader=result.cap_a,
+        category_name=free_category,
+    )

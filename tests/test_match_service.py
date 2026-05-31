@@ -133,3 +133,69 @@ def test_serialize_team_returns_list_of_dicts():
         {"id": 1, "name": "A", "elo": 1500},
         {"id": 2, "name": "B", "elo": 1600},
     ]
+
+
+# ── build_plan_from_draft ─────────────────────────────────────────
+from types import SimpleNamespace
+
+
+def _p_draft(uid: int, elo: int = 2000) -> Player:
+    return Player(id=uid, name=f"P{uid}", elo=elo)
+
+
+def _draft_result(team_a_ids: list, team_b_ids: list):
+    """Build a duck-typed DraftResult for build_plan_from_draft."""
+    team_a = tuple(_p_draft(i) for i in team_a_ids)
+    team_b = tuple(_p_draft(i) for i in team_b_ids)
+    return SimpleNamespace(
+        cap_a=team_a[0],
+        cap_b=team_b[0],
+        team_a=team_a,
+        team_b=team_b,
+    )
+
+
+def test_build_plan_from_draft_uses_provided_map_name():
+    from services.match_service import build_plan_from_draft
+    result = _draft_result([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
+    plan = build_plan_from_draft(
+        result,
+        free_category="Match #1",
+        rng=random.Random(0),
+        map_name="Haven",
+    )
+    assert plan.map_name == "Haven"
+    assert plan.category_name == "Match #1"
+    assert plan.lobby_leader.id == 1  # cap_a
+    assert plan.teams.team_a == result.team_a
+    assert plan.teams.team_b == result.team_b
+
+
+def test_build_plan_from_draft_falls_back_to_random_map_when_none():
+    from services.match_service import build_plan_from_draft
+    from services.elo_calc import MAPS
+    result = _draft_result([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
+    plan = build_plan_from_draft(
+        result,
+        free_category="Match #1",
+        rng=random.Random(0),
+        map_name=None,
+    )
+    assert plan.map_name in MAPS
+
+
+def test_build_plan_from_draft_computes_elo_diff_and_peak_diff():
+    from services.match_service import build_plan_from_draft
+    team_a = tuple(Player(id=i, name=f"A{i}", elo=3000) for i in range(1, 6))
+    team_b = tuple(Player(id=i, name=f"B{i}", elo=2000) for i in range(6, 11))
+    result = SimpleNamespace(
+        cap_a=team_a[0], cap_b=team_b[0], team_a=team_a, team_b=team_b
+    )
+    plan = build_plan_from_draft(
+        result,
+        free_category="Match #1",
+        rng=random.Random(0),
+        map_name="Ascent",
+    )
+    assert plan.teams.elo_diff == 5000
+    assert plan.teams.peak_diff == 1000

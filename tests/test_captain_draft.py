@@ -9,8 +9,7 @@ import pytest
 from types import SimpleNamespace
 
 from services.captain_draft import DraftState, PICK_SEQUENCE, pick_captains, DraftResult, _is_admin
-# TEMPORARILY DISABLED: re-enable in Task 3 (build_plan_from_draft restored)
-# from services.match_service import build_plan_from_draft
+from services.match_service import build_plan_from_draft
 from services.team_balancer import Player
 
 pytestmark = pytest.mark.unit
@@ -204,8 +203,6 @@ def test_is_admin_handles_missing_attributes():
     assert _is_admin(bare, ADMIN_ROLE_NAMES) is False
 
 
-# TEMPORARILY DISABLED: re-enable in Task 3 (build_plan_from_draft restored)
-@pytest.mark.skip(reason="re-enable in Task 3: build_plan_from_draft")
 def test_build_plan_from_draft_uses_capA_as_leader():
     state, pool = _make_state_with_8_pool()
     for p in pool:
