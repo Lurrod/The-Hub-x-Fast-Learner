@@ -474,6 +474,56 @@ class MatchCog(commands.Cog):
             return_exceptions=True,
         )
 
+    async def _move_players_to_waiting_match(
+        self,
+        guild,
+        category,
+        player_ids: list[str],
+    ) -> None:
+        """Move all `player_ids` to the 'Waiting Match' VC of `category`.
+
+        Used on the Pro / Semi-Pro branch BEFORE the captain draft, so the
+        10 players are grouped in one VC while captains pick their teams.
+
+        Guards:
+          - skip if guild.get_member returns None
+          - skip if member is not in voice
+          - skip if already at destination
+        """
+        waiting_match = discord.utils.get(category.voice_channels, name="Waiting Match")
+        if waiting_match is None:
+            logger.warning(
+                "[match] _move_players_to_waiting_match: 'Waiting Match' "
+                "not found in %s, no-op",
+                category.name,
+            )
+            return
+
+        async def _move_one(uid_str: str) -> None:
+            try:
+                uid = int(uid_str)
+            except (TypeError, ValueError):
+                return
+            member = guild.get_member(uid)
+            if member is None:
+                return
+            voice = getattr(member, "voice", None)
+            if voice is None or voice.channel is None:
+                return
+            if voice.channel.id == waiting_match.id:
+                return
+            async with self._guild_member_edit_sem:
+                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                    await member.move_to(
+                        waiting_match,
+                        reason="Pro/Semi-Pro Queue: grouping before captain draft",
+                    )
+
+        await asyncio.gather(
+            *[_move_one(uid) for uid in player_ids],
+            return_exceptions=True,
+        )
+
     async def _fail(
         self,
         interaction,
