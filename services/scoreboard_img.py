@@ -6,9 +6,9 @@ once Henrik finds the custom and we have the match stats.
 
 Modern layout:
     top strip      — queue label (left) + map name (right)
-    score band     — big team labels and rounds, crown on the winner
+    score band     — big team labels and rounds
     column headers — PLAYER  KILLS  DEATHS  ASSISTS  ACS  ELO
-    rows           — Discord avatar + agent icon + name + stats per column
+    rows           — agent icon + Discord display name + stats per column
     footer         — "Play'IT Matchmaking Bot"
 
 Agent icons are loaded from `assets/agents/<AgentName>.png` (committed to
@@ -16,14 +16,13 @@ the repo). "KAY/O" maps to `KAY_O.png`. Missing icon → grey placeholder.
 
 Input format (per player, both teams):
     {
-        "name":       str,          # Riot "name#tag"
-        "kills":      int,
-        "deaths":     int,
-        "assists":    int,
-        "acs":        int,
-        "elo":        int,
-        "agent":      str | None,   # Valorant agent name, optional
-        "avatar_url": str | None,
+        "name":    str,          # Discord display name
+        "kills":   int,
+        "deaths":  int,
+        "assists": int,
+        "acs":     int,
+        "elo":     int,
+        "agent":   str | None,   # Valorant agent name, optional
     }
 """
 
@@ -35,7 +34,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from io import BytesIO
 from typing import Any
 
-import requests
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -54,11 +52,9 @@ COL_B_X0 = COL_W
 
 # Per-row positions (within a 750px column)
 COL_PAD_LEFT = 22
-AVATAR_SIZE = 38
 AGENT_ICON_SIZE = 50
-X_AVATAR_REL = COL_PAD_LEFT
-X_AGENT_REL = X_AVATAR_REL + AVATAR_SIZE + 8         # right of avatar
-X_NAME_REL = X_AGENT_REL + AGENT_ICON_SIZE + 12      # right of agent icon
+X_AGENT_REL = COL_PAD_LEFT
+X_NAME_REL = X_AGENT_REL + AGENT_ICON_SIZE + 14      # right of agent icon
 X_K = 380
 X_D = 460
 X_A = 540
@@ -92,26 +88,9 @@ WINNER_TINT = (24, 38, 28)
 LOSER_TINT = (36, 24, 24)
 
 
-# ── Caches ────────────────────────────────────────────────────────
-_AVATAR_CACHE_MAXSIZE: int = 500
-_AVATAR_CACHE: OrderedDict[str, Image.Image] = OrderedDict()
-
+# ── Cache ────────────────────────────────────────────────────────
 _AGENT_ICON_CACHE_MAXSIZE: int = 64
 _AGENT_ICON_CACHE: OrderedDict[str, Image.Image] = OrderedDict()
-
-
-def _avatar_cache_get(url: str) -> Image.Image | None:
-    img = _AVATAR_CACHE.get(url)
-    if img is not None:
-        _AVATAR_CACHE.move_to_end(url)
-    return img
-
-
-def _avatar_cache_set(url: str, img: Image.Image) -> None:
-    _AVATAR_CACHE[url] = img
-    _AVATAR_CACHE.move_to_end(url)
-    while len(_AVATAR_CACHE) > _AVATAR_CACHE_MAXSIZE:
-        _AVATAR_CACHE.popitem(last=False)
 
 
 def _agent_icon_cache_get(key: str) -> Image.Image | None:
@@ -176,38 +155,6 @@ def _draw_centered(draw, text, x_center, y_center, font, color):
 def _draw_right(draw, text, x_right, y_center, font, color):
     w = _text_w(draw, text, font)
     _draw_v_center(draw, text, x_right - w, y_center, font, color)
-
-
-# ── Avatar fetch (Discord avatars, network) ───────────────────────
-_HTTP_TIMEOUT_SECONDS = 5
-
-
-def _fetch_avatar(url: str | None) -> Image.Image | None:
-    if not url:
-        return None
-    cached = _avatar_cache_get(url)
-    if cached is not None:
-        return cached
-    try:
-        resp = requests.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        a = Image.open(BytesIO(resp.content)).convert("RGBA")
-        a = a.resize((AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS)
-        mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=255)
-        a.putalpha(mask)
-    except Exception:
-        return None
-    _avatar_cache_set(url, a)
-    return a
-
-
-def _placeholder_avatar() -> Image.Image:
-    a = Image.new("RGBA", (AVATAR_SIZE, AVATAR_SIZE), (*DIM_GRAY, 255))
-    mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, AVATAR_SIZE, AVATAR_SIZE), fill=255)
-    a.putalpha(mask)
-    return a
 
 
 # ── Agent icon (local assets) ─────────────────────────────────────
@@ -304,29 +251,23 @@ def generate_scoreboard(
     label_font = _font(28, bold=True)
     score_font = _font(58, bold=True)
     dash_font = _font(36, bold=False)
-    crown_font = _font(28, bold=True)
 
     a_score_str = str(rounds_a)
     b_score_str = str(rounds_b)
     dash = "-"
 
-    # Calculate centered group: [crown] LABEL_A  SCORE_A  —  SCORE_B  LABEL_B
+    # Centered group: LABEL_A  SCORE_A  -  SCORE_B  LABEL_B
     pad = 32
     label_a_w = _text_w(draw, team_a_label, label_font)
     label_b_w = _text_w(draw, team_b_label, label_font)
     score_a_w = _text_w(draw, a_score_str, score_font)
     score_b_w = _text_w(draw, b_score_str, score_font)
     dash_w = _text_w(draw, dash, dash_font)
-    crown_w = _text_w(draw, "🏆", crown_font) if (a_wins or b_wins) else 0
     group_w = (
-        crown_w + (12 if crown_w else 0)
-        + label_a_w + pad + score_a_w + pad + dash_w + pad + score_b_w + pad + label_b_w
+        label_a_w + pad + score_a_w + pad + dash_w + pad + score_b_w + pad + label_b_w
     )
     x = (WIDTH - group_w) // 2
 
-    if a_wins:
-        _draw_v_center(draw, "🏆", x, score_y_center, crown_font, ACS_COLOR)
-        x += crown_w + 12
     _draw_v_center(draw, team_a_label, x, score_y_center, label_font, team_a_color)
     x += label_a_w + pad
     _draw_v_center(draw, a_score_str, x, score_y_center, score_font, team_a_color)
@@ -336,9 +277,6 @@ def generate_scoreboard(
     _draw_v_center(draw, b_score_str, x, score_y_center, score_font, team_b_color)
     x += score_b_w + pad
     _draw_v_center(draw, team_b_label, x, score_y_center, label_font, team_b_color)
-    if b_wins:
-        x += label_b_w + 12
-        _draw_v_center(draw, "🏆", x, score_y_center, crown_font, ACS_COLOR)
 
     # ── Vertical divider between columns ─────────────────────────
     div_top = TOP_STRIP_BAND + SCORE_BAND
@@ -422,14 +360,7 @@ def _draw_player_row(
     assists = int(player.get("assists", 0) or 0)
     acs = int(player.get("acs", 0) or 0)
     elo = int(player.get("elo", 0) or 0)
-    avatar_url = player.get("avatar_url")
     agent = player.get("agent") or None
-
-    # Discord avatar (small circle)
-    avatar = _fetch_avatar(avatar_url) if avatar_url else None
-    if avatar is None:
-        avatar = _placeholder_avatar()
-    img.paste(avatar, (col_x0 + X_AVATAR_REL, y_center - AVATAR_SIZE // 2), avatar)
 
     # Agent icon (square)
     icon = _load_agent_icon(agent)

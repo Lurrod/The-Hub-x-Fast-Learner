@@ -1208,20 +1208,23 @@ class MatchCog(commands.Cog):
                 uid = uid_by_puuid.get(stats.puuid)
                 if uid is None:
                     continue
-                full_name = f"{stats.name}#{stats.tag}" if stats.tag else stats.name
                 member = guild.get_member(int(uid)) if uid.isdigit() else None
-                avatar_url = (
-                    str(member.display_avatar.url) if member is not None else None
-                )
+                # Prefer Discord display name; fall back to Riot name#tag
+                # if the user is no longer on the server (kick/leave).
+                if member is not None:
+                    display_name = member.display_name
+                else:
+                    display_name = (
+                        f"{stats.name}#{stats.tag}" if stats.tag else stats.name
+                    )
                 rows.append(
                     {
-                        "name": full_name,
+                        "name": display_name,
                         "kills": stats.kills,
                         "deaths": stats.deaths,
                         "assists": stats.assists,
                         "acs": round(stats.score / rounds),
                         "elo": elo_by_uid.get(uid, 0),
-                        "avatar_url": avatar_url,
                         "agent": getattr(stats, "agent", ""),
                     }
                 )

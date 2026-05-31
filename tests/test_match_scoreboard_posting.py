@@ -219,11 +219,9 @@ async def test_post_scoreboard_renders_with_actual_image_generator():
     match_doc = {"queue_type": "gc"}
 
     cog = _make_cog()
-    # No avatar fetching — kills the network call
-    with patch("services.scoreboard_img._fetch_avatar", return_value=None):
-        await cog._post_match_scoreboard(
-            guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
-        )
+    await cog._post_match_scoreboard(
+        guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+    )
     channel.send.assert_awaited_once()
     sent_file = channel.send.call_args.kwargs["file"]
     assert sent_file.filename == "scoreboard_gc.png"
