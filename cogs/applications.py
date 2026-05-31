@@ -38,6 +38,10 @@ CANDIDATURE_CHANNEL = "applications"
 WELCOME_CHANNEL = "verify"
 PLAYERS_ROLE = "Members"
 STAFF_ROLE = "Coach/Analyst/Manager"
+# Open queue gate: every accepted queue applicant gets it so they can
+# also play Open, regardless of which tier they applied for. Staff
+# applications don't get it (Coach/Analyst/Manager don't queue up).
+OPEN_QUEUE_ROLE = "FL HUB"
 TICKETS_CATEGORY_NAME = "Tickets"
 CANDIDATURE_COOLDOWN_SECONDS = 3600
 
@@ -682,6 +686,18 @@ class ApplicationReviewView(discord.ui.View):
                 logger.warning(
                     "[accept] Queue role %r not found on guild %s; skipping",
                     fl_role_name,
+                    interaction.guild_id,
+                )
+            fl_hub_role = discord.utils.get(interaction.guild.roles, name=OPEN_QUEUE_ROLE)
+            if fl_hub_role:
+                try:
+                    await member.add_roles(fl_hub_role)
+                except Exception:
+                    logger.exception("[accept] FL HUB role assignment failed")
+            else:
+                logger.warning(
+                    "[accept] Open queue role %r not found on guild %s; skipping",
+                    OPEN_QUEUE_ROLE,
                     interaction.guild_id,
                 )
         with contextlib.suppress(Exception):

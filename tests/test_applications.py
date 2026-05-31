@@ -319,9 +319,12 @@ async def _run_accept_with_tier(
     queue_label: str,
     fl_role_name: str,
     include_fl_role_in_guild: bool = True,
+    include_fl_hub_in_guild: bool = True,
 ):
-    """Helper: spin up a happy-path accept with a queue tier and the FL X
-    role provisioned in the guild. Returns (applicant, members_role, fl_role)."""
+    """Helper: spin up a happy-path accept with a queue tier, the FL X
+    role and the FL HUB role provisioned in the guild.
+    Returns (applicant, members_role, fl_role, fl_hub_role).
+    fl_hub_role is None when include_fl_hub_in_guild=False."""
     from services import repository
 
     db = mongomock.MongoClient(tz_aware=True).db
@@ -331,7 +334,12 @@ async def _run_accept_with_tier(
 
     members_role = _make_named_role("Members")
     fl_role = _make_named_role(fl_role_name)
-    guild.roles = [members_role, fl_role] if include_fl_role_in_guild else [members_role]
+    fl_hub_role = _make_named_role("FL HUB") if include_fl_hub_in_guild else None
+    guild.roles = [members_role]
+    if include_fl_role_in_guild:
+        guild.roles.append(fl_role)
+    if fl_hub_role is not None:
+        guild.roles.append(fl_hub_role)
 
     embed = _embed_with(
         title="📋 New application",
@@ -351,7 +359,7 @@ async def _run_accept_with_tier(
 
     view = ApplicationReviewView(db=db)
     await view.accept.callback(inter)
-    return applicant, members_role, fl_role
+    return applicant, members_role, fl_role, fl_hub_role
 
 
 def _assert_role_added(applicant: MagicMock, role: MagicMock) -> None:
@@ -365,33 +373,50 @@ def _assert_role_added(applicant: MagicMock, role: MagicMock) -> None:
 
 
 async def test_accept_adds_fl_pro_role_for_pro_tier():
-    applicant, members_role, fl_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="Pro Queue", fl_role_name="FL PRO"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
+    _assert_role_added(applicant, fl_hub_role)
 
 
 async def test_accept_adds_fl_semipro_role_for_semipro_tier():
-    applicant, members_role, fl_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="Semi Pro Queue", fl_role_name="FL SEMIPRO"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
+    _assert_role_added(applicant, fl_hub_role)
 
 
 async def test_accept_adds_fl_gc_role_for_gc_tier():
-    applicant, members_role, fl_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="GC Queue", fl_role_name="FL GC"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
+    _assert_role_added(applicant, fl_hub_role)
+
+
+async def test_accept_does_not_crash_when_fl_hub_missing_from_guild():
+    """If FL HUB is not provisioned on the guild, accept must not crash —
+    Members and FL X still get added, a warning is logged for FL HUB."""
+    applicant, members_role, fl_role, _ = await _run_accept_with_tier(
+        queue_label="Pro Queue",
+        fl_role_name="FL PRO",
+        include_fl_hub_in_guild=False,
+    )
+    _assert_role_added(applicant, members_role)
+    _assert_role_added(applicant, fl_role)
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL HUB" not in added_names
 
 
 async def test_accept_does_not_crash_when_fl_role_missing_from_guild():
     """If the FL X role is not provisioned on the guild, accept must not
     raise — Members role still gets added, and a warning is logged."""
-    applicant, members_role, fl_role = await _run_accept_with_tier(
+    applicant, members_role, _fl_role, _fl_hub = await _run_accept_with_tier(
         queue_label="Pro Queue",
         fl_role_name="FL PRO",
         include_fl_role_in_guild=False,
@@ -412,7 +437,8 @@ async def test_accept_staff_application_does_not_add_any_fl_role():
     members_role = _make_named_role("Members")
     staff_role = _make_named_role("Coach/Analyst/Manager")
     fl_pro = _make_named_role("FL PRO")
-    guild.roles = [members_role, staff_role, fl_pro]
+    fl_hub = _make_named_role("FL HUB")
+    guild.roles = [members_role, staff_role, fl_pro, fl_hub]
 
     embed = _embed_with(
         title="📋 New Staff application",
@@ -432,6 +458,9 @@ async def test_accept_staff_application_does_not_add_any_fl_role():
 
     added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
     assert "FL PRO" not in added_names
+    # FL HUB is queue-application-only; staff (Coach/Analyst/Manager) don't queue
+    # up as players, so they don't need the Open queue gate.
+    assert "FL HUB" not in added_names
     assert "Coach/Analyst/Manager" in added_names
     assert "Members" in added_names
 
