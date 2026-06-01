@@ -51,7 +51,6 @@ for _name in (
     "elomodify",
     "winmodify",
     "losemodify",
-    "stats",
 ):
     setattr(_bot_module, _name, _BoundCommand(_elo_cog, getattr(_elo_cog, _name)))
 for _name in ("map_pick", "coinflip", "clear", "help_cmd", "setup_bot", "bypass"):
@@ -102,12 +101,14 @@ def _fake_interaction(user, guild):
 # ── /stats ────────────────────────────────────────────────────────
 async def test_slash_stats_unknown_player():
     import bot as bot_module
+    from cogs.stats._cog import StatsCog
 
     user = _fake_member(1, "Alice")
     guild = _fake_guild(42, members=[user])
     inter = _fake_interaction(user, guild)
 
-    await bot_module.stats.callback(inter, queue="open", player=user)
+    cog = StatsCog(bot_module.bot, bot_module.db)
+    await cog.stats.callback(cog, inter, "open", user)
 
     inter.response.send_message.assert_awaited_once()
     args, kwargs = inter.response.send_message.call_args
@@ -117,6 +118,7 @@ async def test_slash_stats_unknown_player():
 
 async def test_slash_stats_known_player():
     import bot as bot_module
+    from cogs.stats._cog import StatsCog
 
     user = _fake_member(1, "Alice")
     guild = _fake_guild(42, members=[user])
@@ -135,7 +137,8 @@ async def test_slash_stats_known_player():
         }
     )
 
-    await bot_module.stats.callback(inter, queue="open", player=user)
+    cog = StatsCog(bot_module.bot, bot_module.db)
+    await cog.stats.callback(cog, inter, "open", user)
 
     inter.response.send_message.assert_awaited_once()
     embed = inter.response.send_message.call_args.kwargs["embed"]

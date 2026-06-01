@@ -1,9 +1,8 @@
 """
 ELO admin cog: /win, /lose, /elomodify, /winmodify, /losemodify, /resetelo,
-/reset-queue, /stats, /leaderboard, /inactivity. Extracted from bot.py (monolith refactor).
+/reset-queue, /leaderboard, /inactivity. Extracted from bot.py (monolith refactor).
 
 Admin commands reserved to manage_guild OR bypass role.
-`/stats` is public (visible to everyone).
 `/leaderboard` is public in #leaderboard, ephemeral elsewhere.
 """
 
@@ -608,59 +607,6 @@ class ELOAdminCog(commands.Cog):
         embed.set_footer(text=f"By {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
-
-    # ── /stats ─────────────────────────────────────────────────
-    @app_commands.command(
-        name="stats", description="Show a player's ELO stats in a queue"
-    )
-    @app_commands.describe(queue="Queue type", player="The player whose stats you want to see")
-    @app_commands.choices(queue=_QUEUE_CHOICES)
-    async def stats(
-        self, interaction: discord.Interaction, queue: str, player: discord.Member = None
-    ):
-        if player is None:
-            player = interaction.user
-        col = repository.get_elo_col(self.db)
-        doc_id = repository.player_doc_id(player.id, queue)
-        doc = col.find_one({"_id": doc_id})
-        if not doc:
-            await interaction.response.send_message(
-                f"{player.display_name} hasn't played yet in {QUEUE_LABELS[queue]}.",
-                ephemeral=True,
-            )
-            return
-        elo = doc["elo"]
-        wins = doc.get("wins", 0)
-        losses = doc.get("losses", 0)
-        total = wins + losses
-        winrate = round((wins / total) * 100, 1) if total > 0 else 0
-        rank = (
-            col.count_documents(
-                {
-                    "queue_type": queue,
-                    "$or": [
-                        {"elo": {"$gt": elo}},
-                        {"elo": elo, "wins": {"$gt": wins}},
-                        {"elo": elo, "wins": wins, "_id": {"$lt": doc_id}},
-                    ],
-                }
-            )
-            + 1
-        )
-        embed = discord.Embed(
-            title=f"📊 {QUEUE_LABELS[queue]} stats for {player.display_name}",
-            color=0x3498DB,
-            timestamp=datetime.now(UTC),
-        )
-        embed.set_thumbnail(url=player.display_avatar.url)
-        embed.add_field(name="🏅 ELO", value=f"**{elo}**", inline=True)
-        embed.add_field(name="🏆 Rank", value=f"**#{rank}**", inline=True)
-        embed.add_field(name="📈 Winrate", value=f"**{winrate}%**", inline=True)
-        embed.add_field(name="✅ Wins", value=f"**{wins}**", inline=True)
-        embed.add_field(name="❌ Losses", value=f"**{losses}**", inline=True)
-        embed.add_field(name="🎮 Games", value=f"**{total}**", inline=True)
-        embed.set_footer(text=interaction.guild.name)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /inactivity ────────────────────────────────────────────
     @app_commands.command(
