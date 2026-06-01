@@ -1104,9 +1104,10 @@ class ApplicationsCog(commands.Cog):
                 "is not revealed to staff.\n\n"
                 "**Queue Application** - Apply for a private queue. We will "
                 "ask which queue you are aiming for, the criteria are:\n"
-                "• Pro Queue: Recent 600rr peak or 5 VLR 2025/2026 lineups\n"
-                "• Semi Pro Queue: Current High Immortal / Radiant or by invitation\n"
-                "• Advanced Queue: Current Immortal 3 or by invitation"
+                "• Pro Queue: VCT or VCL players\n"
+                "• Semi Pro Queue: 5 lignes VLR\n"
+                "• GC Queue: GC players\n"
+                "• Open Queue: Open to everyone"
             ),
             color=0x5865F2,
             timestamp=datetime.now(UTC),
