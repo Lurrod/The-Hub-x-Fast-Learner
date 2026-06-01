@@ -96,6 +96,9 @@ def _ensure_indexes(col, kind: str) -> None:
         elif kind == "match_player_stats":
             # Leaderboard queries: lookup by user/queue/date, sorted by date desc.
             col.create_index([("user_id", 1), ("queue_type", 1), ("created_at", -1)])
+        elif kind == "player_rating_aggregates":
+            # PK lookups only; no secondary index needed.
+            pass
     except Exception as e:
         logger.error(f"[repository] _ensure_indexes({kind}) raised: {e}", exc_info=True)
     _indexed_collections.add(name)
@@ -866,6 +869,61 @@ def insert_match_player_stats(
     except BulkWriteError as e:
         details = getattr(e, "details", {}) or {}
         return int(details.get("nInserted", 0))
+
+
+def get_player_rating_aggregates_col(db: Database) -> Collection:
+    col = db["player_rating_aggregates"]
+    _ensure_indexes(col, "player_rating_aggregates")
+    return col
+
+
+_AGGREGATE_COUNTER_FIELDS: tuple[str, ...] = (
+    "games", "rounds_played",
+    "kills", "deaths", "assists",
+    "damage_made", "damage_received",
+    "headshots", "bodyshots", "legshots",
+    "multikills_2k", "multikills_3k", "multikills_4k", "multikills_5k",
+    "first_kills", "first_deaths",
+    "kast_rounds", "rating_2_0_sum",
+)
+
+
+def update_rating_aggregates(
+    db: Database, deltas: list[Mapping[str, Any]]
+) -> None:
+    """For each delta, upsert the {user_id}:{queue_type} aggregate
+    doc, incrementing the counter fields by the delta and stamping
+    updated_at = now.
+    """
+    if not deltas:
+        return
+    col = get_player_rating_aggregates_col(db)
+    now = datetime.now(UTC)
+    for d in deltas:
+        user_id = str(d["user_id"])
+        queue_type = str(d["queue_type"])
+        _check_queue_type(queue_type)
+        inc = {f: d.get(f, 0) for f in _AGGREGATE_COUNTER_FIELDS}
+        col.update_one(
+            {"_id": f"{user_id}:{queue_type}"},
+            {
+                "$inc": inc,
+                "$set": {
+                    "user_id": user_id,
+                    "queue_type": queue_type,
+                    "updated_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+
+def get_rating_aggregate(
+    db: Database, *, user_id: int | str, queue_type: str
+) -> Mapping[str, Any] | None:
+    return get_player_rating_aggregates_col(db).find_one(
+        {"_id": f"{user_id}:{queue_type}"}
+    )
 
 
 def get_leaderboard_state_col(db: Database, guild_id: int | str) -> Collection:

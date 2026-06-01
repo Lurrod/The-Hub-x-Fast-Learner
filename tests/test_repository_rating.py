@@ -73,3 +73,74 @@ def test_insert_match_player_stats_partial_dup_inserts_new(mongo_db):
 def test_insert_match_player_stats_empty_list_is_noop(mongo_db):
     from services.repository import insert_match_player_stats
     assert insert_match_player_stats(mongo_db, []) == 0
+
+
+def test_update_rating_aggregates_upserts_and_increments(mongo_db):
+    from services.repository import update_rating_aggregates
+
+    delta = {
+        "user_id": "U1", "queue_type": "pro",
+        "games": 1, "rounds_played": 24,
+        "kills": 22, "deaths": 14, "assists": 5,
+        "damage_made": 4123, "damage_received": 3580,
+        "headshots": 18, "bodyshots": 50, "legshots": 4,
+        "multikills_2k": 3, "multikills_3k": 1,
+        "multikills_4k": 0, "multikills_5k": 0,
+        "first_kills": 4, "first_deaths": 2,
+        "kast_rounds": 19,
+        "rating_2_0_sum": 1.34,
+    }
+    update_rating_aggregates(mongo_db, [delta])
+    doc = mongo_db["player_rating_aggregates"].find_one({"_id": "U1:pro"})
+    assert doc["games"] == 1
+    assert doc["kills"] == 22
+    assert doc["damage_made"] == 4123
+    assert "updated_at" in doc
+
+
+def test_update_rating_aggregates_accumulates_on_second_call(mongo_db):
+    from services.repository import update_rating_aggregates
+
+    base = {
+        "user_id": "U2", "queue_type": "open",
+        "games": 1, "rounds_played": 20,
+        "kills": 10, "deaths": 10, "assists": 2,
+        "damage_made": 2000, "damage_received": 2000,
+        "headshots": 5, "bodyshots": 30, "legshots": 1,
+        "multikills_2k": 1, "multikills_3k": 0,
+        "multikills_4k": 0, "multikills_5k": 0,
+        "first_kills": 1, "first_deaths": 1,
+        "kast_rounds": 12,
+        "rating_2_0_sum": 1.0,
+    }
+    update_rating_aggregates(mongo_db, [base])
+    update_rating_aggregates(mongo_db, [base])
+    doc = mongo_db["player_rating_aggregates"].find_one({"_id": "U2:open"})
+    assert doc["games"] == 2
+    assert doc["kills"] == 20
+    assert doc["kast_rounds"] == 24
+    assert doc["rating_2_0_sum"] == pytest.approx(2.0)
+
+
+def test_get_rating_aggregate_returns_none_when_missing(mongo_db):
+    from services.repository import get_rating_aggregate
+    assert get_rating_aggregate(mongo_db, user_id="missing", queue_type="pro") is None
+
+
+def test_get_rating_aggregate_returns_doc(mongo_db):
+    from services.repository import get_rating_aggregate, update_rating_aggregates
+
+    update_rating_aggregates(mongo_db, [{
+        "user_id": "U3", "queue_type": "semipro",
+        "games": 1, "rounds_played": 24,
+        "kills": 0, "deaths": 0, "assists": 0,
+        "damage_made": 0, "damage_received": 0,
+        "headshots": 0, "bodyshots": 0, "legshots": 0,
+        "multikills_2k": 0, "multikills_3k": 0,
+        "multikills_4k": 0, "multikills_5k": 0,
+        "first_kills": 0, "first_deaths": 0,
+        "kast_rounds": 0, "rating_2_0_sum": 0.1587,
+    }])
+    doc = get_rating_aggregate(mongo_db, user_id="U3", queue_type="semipro")
+    assert doc is not None
+    assert doc["games"] == 1
