@@ -51,3 +51,178 @@ def test_parser_extracts_damage_and_shots():
     assert p.headshots == 18
     assert p.bodyshots == 50
     assert p.legshots == 4
+
+
+# ---------------------------------------------------------------------------
+# Round-event helpers
+# ---------------------------------------------------------------------------
+
+def _round(kill_events):
+    """A minimal Henrik round dict with the given kill_events."""
+    return {"kill_events": kill_events}
+
+
+def _kill_event(*, killer_puuid, victim_puuid, kill_time_in_round,
+                assistants=None):
+    return {
+        "killer_puuid": killer_puuid,
+        "victim_puuid": victim_puuid,
+        "kill_time_in_round": kill_time_in_round,
+        "assistants": [{"assistant_puuid": pu} for pu in (assistants or [])],
+    }
+
+
+def _payload_with_rounds(rounds, players=None):
+    return {
+        "data": {
+            "metadata": {
+                "matchid": "abc", "mode": "Custom Game",
+                "map": "Ascent", "game_start": 1700000000,
+                "rounds_played": len(rounds),
+            },
+            "players": {"all_players": players or _two_player_roster()},
+            "teams": {"red": {"rounds_won": 0}, "blue": {"rounds_won": 0}},
+            "rounds": rounds,
+        }
+    }
+
+
+def _two_player_roster():
+    return [
+        {
+            "puuid": "A", "name": "A", "tag": "1", "team": "Red",
+            "character": "Jett",
+            "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0},
+        },
+        {
+            "puuid": "B", "name": "B", "tag": "1", "team": "Blue",
+            "character": "Sage",
+            "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0},
+        },
+    ]
+
+
+def test_parser_counts_first_kill_and_first_death():
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [
+        _round([
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=12500),
+            _kill_event(killer_puuid="B", victim_puuid="A",
+                        kill_time_in_round=14000),
+        ]),
+    ]
+    summary = _parse_henrik_match(_payload_with_rounds(rounds))
+    pa = next(p for p in summary.players if p.puuid == "A")
+    pb = next(p for p in summary.players if p.puuid == "B")
+    assert pa.first_kills == 1
+    assert pa.first_deaths == 0
+    assert pb.first_kills == 0
+    assert pb.first_deaths == 1
+
+
+def test_parser_counts_multikills_per_round():
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [
+        _round([
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=1000),
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=2000),
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=3000),
+        ]),
+        _round([
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=1000),
+            _kill_event(killer_puuid="A", victim_puuid="B",
+                        kill_time_in_round=2000),
+        ]),
+    ]
+    summary = _parse_henrik_match(_payload_with_rounds(rounds))
+    pa = next(p for p in summary.players if p.puuid == "A")
+    assert pa.multikills_2k == 1
+    assert pa.multikills_3k == 1
+    assert pa.multikills_4k == 0
+    assert pa.multikills_5k == 0
+
+
+def test_parser_counts_kast_kill_or_assist_or_survive():
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [
+        _round([_kill_event(killer_puuid="A", victim_puuid="B",
+                            kill_time_in_round=1000)]),
+        _round([]),
+    ]
+    summary = _parse_henrik_match(_payload_with_rounds(rounds))
+    pa = next(p for p in summary.players if p.puuid == "A")
+    pb = next(p for p in summary.players if p.puuid == "B")
+    assert pa.kast_rounds == 2  # round 1 (kill) + round 2 (survive)
+    assert pb.kast_rounds == 1  # round 2 (survive) only
+
+
+def test_parser_counts_traded_death_as_kast():
+    from services.riot_api import _parse_henrik_match
+
+    roster = [
+        {"puuid": "A", "name": "A", "tag": "1", "team": "Red",
+         "character": "X",
+         "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+        {"puuid": "B", "name": "B", "tag": "1", "team": "Blue",
+         "character": "Y",
+         "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+        {"puuid": "C", "name": "C", "tag": "1", "team": "Red",
+         "character": "Z",
+         "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+    ]
+    rounds = [_round([
+        _kill_event(killer_puuid="B", victim_puuid="A",
+                    kill_time_in_round=10000),
+        _kill_event(killer_puuid="C", victim_puuid="B",
+                    kill_time_in_round=13000),
+    ])]
+    summary = _parse_henrik_match(
+        _payload_with_rounds(rounds, players=roster)
+    )
+    pa = next(p for p in summary.players if p.puuid == "A")
+    assert pa.kast_rounds == 1
+
+
+def test_parser_kast_assist_credits_player():
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [_round([
+        _kill_event(killer_puuid="A", victim_puuid="B",
+                    kill_time_in_round=1000, assistants=["C"]),
+    ])]
+    summary = _parse_henrik_match(_payload_with_rounds(
+        rounds,
+        players=[
+            {"puuid": "A", "name": "A", "tag": "1", "team": "Red",
+             "character": "X",
+             "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+            {"puuid": "B", "name": "B", "tag": "1", "team": "Blue",
+             "character": "Y",
+             "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+            {"puuid": "C", "name": "C", "tag": "1", "team": "Red",
+             "character": "Z",
+             "stats": {"score": 0, "kills": 0, "deaths": 0, "assists": 0}},
+        ],
+    ))
+    pc = next(p for p in summary.players if p.puuid == "C")
+    assert pc.kast_rounds == 1
+
+
+def test_parser_handles_missing_rounds_array():
+    from services.riot_api import _parse_henrik_match
+
+    payload = _payload_with_rounds([])
+    payload["data"].pop("rounds")
+    summary = _parse_henrik_match(payload)
+    for p in summary.players:
+        assert p.multikills_2k == 0
+        assert p.first_kills == 0
+        assert p.kast_rounds == 0

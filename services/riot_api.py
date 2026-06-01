@@ -317,6 +317,130 @@ class HenrikDevClient:
         self._cache.clear()
 
 
+_TRADE_WINDOW_MS = 5000
+
+
+def _accumulate_round_events(
+    rounds: list[dict],
+    all_players: list[dict],
+) -> dict[str, dict[str, int]]:
+    """Walk the Henrik rounds[] array and return per-puuid counters.
+
+    Counters per puuid:
+      first_kills, first_deaths,
+      multikills_2k / 3k / 4k / 5k,
+      kast_rounds
+
+    Notes:
+      - "kast" credits a round when the player has a kill, an assist,
+        survived, or died-but-was-traded (teammate killed the
+        attacker within _TRADE_WINDOW_MS).
+      - Round events with ``kill_time_in_round=None`` are ignored.
+    """
+    team_of: dict[str, str] = {
+        p.get("puuid", ""): str(p.get("team", ""))
+        for p in all_players
+    }
+    counters: dict[str, dict[str, int]] = {
+        puuid: {
+            "first_kills": 0, "first_deaths": 0,
+            "multikills_2k": 0, "multikills_3k": 0,
+            "multikills_4k": 0, "multikills_5k": 0,
+            "kast_rounds": 0,
+        }
+        for puuid in team_of
+        if puuid
+    }
+
+    for rnd in rounds or []:
+        events = rnd.get("kill_events", []) or []
+        events_sorted = sorted(
+            (e for e in events if e.get("kill_time_in_round") is not None),
+            key=lambda e: e["kill_time_in_round"],
+        )
+
+        # First kill / first death.
+        if events_sorted:
+            first = events_sorted[0]
+            fk = first.get("killer_puuid", "")
+            fd = first.get("victim_puuid", "")
+            if fk in counters:
+                counters[fk]["first_kills"] += 1
+            if fd in counters:
+                counters[fd]["first_deaths"] += 1
+
+        # Per-round kills per player -> multikills.
+        kills_per_player: dict[str, int] = {}
+        for e in events_sorted:
+            k = e.get("killer_puuid", "")
+            if k:
+                kills_per_player[k] = kills_per_player.get(k, 0) + 1
+        for puuid, n in kills_per_player.items():
+            if puuid not in counters:
+                continue
+            if n == 2:
+                counters[puuid]["multikills_2k"] += 1
+            elif n == 3:
+                counters[puuid]["multikills_3k"] += 1
+            elif n == 4:
+                counters[puuid]["multikills_4k"] += 1
+            elif n >= 5:
+                counters[puuid]["multikills_5k"] += 1
+
+        # KAST: for each player, did they K / A / S / T in this round?
+        killers = {e.get("killer_puuid", "") for e in events_sorted}
+        victims_with_time: dict[str, int] = {}
+        assistants_in_round: set[str] = set()
+        for e in events_sorted:
+            v = e.get("victim_puuid", "")
+            t = e.get("kill_time_in_round")
+            if v and t is not None:
+                victims_with_time[v] = t
+            for a in e.get("assistants", []) or []:
+                ap = a.get("assistant_puuid", "")
+                if ap:
+                    assistants_in_round.add(ap)
+
+        for puuid in counters:
+            # K
+            if puuid in killers:
+                counters[puuid]["kast_rounds"] += 1
+                continue
+            # A
+            if puuid in assistants_in_round:
+                counters[puuid]["kast_rounds"] += 1
+                continue
+            # S (not a victim this round)
+            if puuid not in victims_with_time:
+                counters[puuid]["kast_rounds"] += 1
+                continue
+            # T (death was traded by a teammate within the window)
+            death_time = victims_with_time[puuid]
+            team = team_of.get(puuid, "")
+            attacker = next(
+                (e.get("killer_puuid", "") for e in events_sorted
+                 if e.get("victim_puuid") == puuid),
+                "",
+            )
+            traded = False
+            for e in events_sorted:
+                t = e.get("kill_time_in_round")
+                if t is None or t < death_time:
+                    continue
+                if t - death_time > _TRADE_WINDOW_MS:
+                    break
+                if (
+                    e.get("victim_puuid") == attacker
+                    and team_of.get(e.get("killer_puuid", "")) == team
+                ):
+                    traded = True
+                    break
+            if traded:
+                counters[puuid]["kast_rounds"] += 1
+
+    return counters
+
+
 def _parse_match(entry: dict) -> MatchSummary:
     meta = entry.get("metadata", {}) or {}
     teams = entry.get("teams", {}) or {}
@@ -325,12 +449,17 @@ def _parse_match(entry: dict) -> MatchSummary:
     started_raw = meta.get("game_start") or 0
     started_at = datetime.fromtimestamp(int(started_raw), tz=UTC)
 
+    rounds_data = entry.get("rounds", []) or []
+    counters = _accumulate_round_events(rounds_data, players)
+
     parsed_players: list[MatchPlayerStats] = []
     for p in players:
         stats = p.get("stats", {}) or {}
+        puuid = p.get("puuid", "")
+        c = counters.get(puuid, {})
         parsed_players.append(
             MatchPlayerStats(
-                puuid=p.get("puuid", ""),
+                puuid=puuid,
                 name=p.get("name", ""),
                 tag=p.get("tag", ""),
                 team=str(p.get("team", "")),
@@ -344,6 +473,13 @@ def _parse_match(entry: dict) -> MatchSummary:
                 headshots=int(stats.get("headshots") or 0),
                 bodyshots=int(stats.get("bodyshots") or 0),
                 legshots=int(stats.get("legshots") or 0),
+                multikills_2k=c.get("multikills_2k", 0),
+                multikills_3k=c.get("multikills_3k", 0),
+                multikills_4k=c.get("multikills_4k", 0),
+                multikills_5k=c.get("multikills_5k", 0),
+                first_kills=c.get("first_kills", 0),
+                first_deaths=c.get("first_deaths", 0),
+                kast_rounds=c.get("kast_rounds", 0),
             )
         )
 
@@ -357,3 +493,12 @@ def _parse_match(entry: dict) -> MatchSummary:
         rounds_red=int((teams.get("red") or {}).get("rounds_won") or 0),
         rounds_blue=int((teams.get("blue") or {}).get("rounds_won") or 0),
     )
+
+
+def _parse_henrik_match(payload: dict) -> MatchSummary:
+    """Unwrap the outer ``{"data": {...}}`` envelope and parse the match.
+
+    Backwards-compatible alias used by tests that work with the full
+    Henrik API response shape rather than the already-unwrapped entry.
+    """
+    return _parse_match(payload.get("data", {}) or {})
