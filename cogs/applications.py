@@ -1105,7 +1105,7 @@ class ApplicationsCog(commands.Cog):
                 "**Queue Application** - Apply for a private queue. We will "
                 "ask which queue you are aiming for, the criteria are:\n"
                 "• Pro Queue: VCT or VCL players\n"
-                "• Semi Pro Queue: 5 lignes VLR\n"
+                "• Semi Pro Queue: Top VRC players\n"
                 "• GC Queue: GC players\n"
                 "• Open Queue: Open to everyone"
             ),
