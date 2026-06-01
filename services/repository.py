@@ -93,6 +93,9 @@ def _ensure_indexes(col, kind: str) -> None:
             # silent no-op of the if/elif and a future dev might think it
             # was forgotten).
             pass
+        elif kind == "match_player_stats":
+            # Leaderboard queries: lookup by user/queue/date, sorted by date desc.
+            col.create_index([("user_id", 1), ("queue_type", 1), ("created_at", -1)])
     except Exception as e:
         logger.error(f"[repository] _ensure_indexes({kind}) raised: {e}", exc_info=True)
     _indexed_collections.add(name)
@@ -833,6 +836,36 @@ def set_match_henrik_verified(
         {"_id": match_id},
         {"$set": update},
     )
+
+
+def get_match_player_stats_col(db: Database) -> Collection:
+    """Match player stats collection shared across all guilds.
+
+    Stores per-match, per-player stats including damage, kills, deaths,
+    rating 2.0, etc. _id is compound: match_id:user_id."""
+    col = db["match_player_stats"]
+    _ensure_indexes(col, "match_player_stats")
+    return col
+
+
+def insert_match_player_stats(
+    db: Database, docs: list[Mapping[str, Any]]
+) -> int:
+    """Bulk insert per-match player stat docs. Returns inserted count.
+
+    Idempotent: duplicate _id errors are swallowed (the caller relies
+    on this when the Henrik verifier retries the same match)."""
+    if not docs:
+        return 0
+    from pymongo.errors import BulkWriteError
+
+    col = get_match_player_stats_col(db)
+    try:
+        res = col.insert_many(list(docs), ordered=False)
+        return len(res.inserted_ids)
+    except BulkWriteError as e:
+        details = getattr(e, "details", {}) or {}
+        return int(details.get("nInserted", 0))
 
 
 def get_leaderboard_state_col(db: Database, guild_id: int | str) -> Collection:
