@@ -939,7 +939,10 @@ class MatchCog(commands.Cog):
 
         # Per-guild parallelization: same principle as check_vote_timeouts.
         results = await asyncio.gather(
-            *[self._check_henrik_verifications_for_guild(g, start_cutoff) for g in self.bot.guilds],
+            *[
+                self._check_henrik_verifications_for_guild(g, start_cutoff, now=now)
+                for g in self.bot.guilds
+            ],
             return_exceptions=True,
         )
         processed = 0
@@ -954,6 +957,8 @@ class MatchCog(commands.Cog):
         self,
         guild,
         start_cutoff: datetime,
+        *,
+        now: datetime | None = None,
     ) -> int:
         processed = 0
         # Blocking scan -> thread to avoid freezing the event loop.
@@ -965,7 +970,7 @@ class MatchCog(commands.Cog):
         )
         for match in stale:
             try:
-                await self._verify_match(guild, match)
+                await self._verify_match(guild, match, now=now)
             except Exception:
                 logger.exception("[match] verify_match raised")
             processed += 1
@@ -975,17 +980,55 @@ class MatchCog(commands.Cog):
         self,
         guild,
         match_doc: dict,
+        *,
+        now: datetime | None = None,
+        force_apply: bool = False,
     ) -> None:
         """
-        Apply the flat ±20 ELO for a validated match. ACS/Henrik
-        weighting has been removed.
+        Verify the match against Henrik and apply ELO.
+
+        Flow:
+          1. Try Henrik first. If the custom is found, apply flat ELO,
+             mark `henrik_verified=True, found=True`, post the scoreboard
+             and persist extended stats.
+          2. If Henrik did not find the custom AND we are still within
+             HENRIK_VERIFY_TIMEOUT_MINUTES of `validated_at`, do nothing —
+             the next tick (1 min loop) will retry. Henrik typically
+             indexes customs 10-30 min after they end, so retrying is
+             essential to give the scoreboard a chance.
+          3. If Henrik never responded AND the timeout has elapsed (or
+             `force_apply=True`), apply flat ELO and mark
+             `henrik_verified=True, found=False` (no scoreboard).
 
         Idempotency: we **claim** the match (`elo_applied=True`) BEFORE
         applying the ELO. If the claim fails (already applied elsewhere),
         we skip. If the ELO application raises, we release the claim to
         allow a retry on the next tick.
+
+        `force_apply=True` bypasses the retry-window check. Used by
+        tests that want to assert the flat-fallback path without
+        manipulating `validated_at`.
         """
         queue_type = match_doc.get("queue_type", "open")
+        now = now or datetime.now(UTC)
+
+        # Try Henrik BEFORE claiming the match. If Henrik has not indexed
+        # the custom yet and we are still within the retry window, we
+        # must leave the match doc untouched so the next tick retries.
+        try:
+            fetched = await self._fetch_henrik_match_summary(guild, match_doc)
+        except Exception:
+            logger.exception("[match] _fetch_henrik_match_summary raised")
+            fetched = None
+
+        if fetched is None and not force_apply:
+            validated_at = match_doc.get("validated_at")
+            if validated_at is not None:
+                elapsed = now - validated_at
+                if elapsed < timedelta(minutes=HENRIK_VERIFY_TIMEOUT_MINUTES):
+                    # Within retry window — leave the match alone, the
+                    # next 1-min tick will try Henrik again.
+                    return
 
         # Atomic claim: only the first call goes through. Prevents double
         # application in case of a crash between apply_match_validation
@@ -1018,7 +1061,7 @@ class MatchCog(commands.Cog):
             repository.set_match_henrik_verified,
             self.db,
             match_doc["_id"],
-            found=False,
+            found=(fetched is not None),
             multipliers=None,
         )
 
@@ -1035,14 +1078,7 @@ class MatchCog(commands.Cog):
         except Exception:
             logger.exception("[match] leaderboard refresh raised")
 
-        # Best-effort scoreboard: look up the custom on Henrik and post
-        # the image in the queue's results channel. Independent from the
-        # flat ELO above — a Henrik failure or missing channel is silent.
-        try:
-            fetched = await self._fetch_henrik_match_summary(guild, match_doc)
-        except Exception:
-            logger.exception("[match] _fetch_henrik_match_summary raised")
-            fetched = None
+        # Scoreboard + extended stats: only if Henrik responded.
         if fetched is not None:
             summary, team_a_uid_by_puuid, team_b_uid_by_puuid = fetched
             try:

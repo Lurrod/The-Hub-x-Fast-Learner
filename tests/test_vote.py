@@ -3,6 +3,9 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
+from cogs.match._constants import (
+    HENRIK_VERIFY_TIMEOUT_MINUTES,
+)
 from cogs.match import (
     MAJORITY_THRESHOLD,
     VOTE_TIMEOUT_MINUTES,
@@ -597,7 +600,7 @@ async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: i
             await view.vote_b.callback(inter)
     match_doc = repository.get_match(db, match_id)
     # force_apply=True simulates passing the Henrik timeout (flat ELO)
-    await cog._verify_match(guild, match_doc)
+    await cog._verify_match(guild, match_doc, force_apply=True)
 
 
 async def test_validation_triggers_elo_update_in_db():
@@ -926,3 +929,98 @@ async def test_vote_disputed_does_not_delete_category(monkeypatch):
 
     # Disputed match: category must NOT be deleted
     delete_mock.assert_not_called()
+
+
+# -- Phase: Henrik retry window vs flat-fallback timeout --
+async def test_verify_match_within_retry_window_does_not_apply_elo(monkeypatch):
+    """When Henrik returns None and the match was validated < HENRIK_VERIFY_TIMEOUT_MINUTES
+    ago, _verify_match must leave the match doc untouched so the next 1-min
+    tick retries. This protects the scoreboard against Henrik's typical
+    10-30 min indexing delay for customs."""
+    import bot as bot_module
+    from cogs.match import MatchCog
+
+    match_id = _seed_match_with_avg_2400(bot_module.db)
+    _seed_db_elos(bot_module.db)
+
+    # Simulate a recent validation: 6 min ago, well within the 30 min window.
+    bot_module.db["matches"].update_one(
+        {"_id": match_id},
+        {
+            "$set": {
+                "status": "validated_a",
+                "validated_at": datetime.now(UTC) - timedelta(minutes=6),
+            }
+        },
+    )
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    guild = _fake_guild(channel=channel)
+
+    cog = MatchCog(bot_module.bot, bot_module.db)
+    # Henrik returns None (custom not yet indexed).
+    monkeypatch.setattr(
+        cog, "_fetch_henrik_match_summary", AsyncMock(return_value=None)
+    )
+
+    match_doc = repository.get_match(bot_module.db, match_id)
+    await cog._verify_match(guild, match_doc)
+
+    # Match must NOT have been claimed nor verified — next tick should retry.
+    fresh = repository.get_match(bot_module.db, match_id)
+    assert fresh.get("elo_applied") is not True, "elo_applied set within retry window"
+    assert fresh.get("henrik_verified") is not True, "henrik_verified set within retry window"
+
+    # ELO untouched.
+    elo_col = repository.get_elo_col(bot_module.db)
+    for i in range(10):
+        doc = elo_col.find_one({"_id": f"{i}:open"})
+        assert doc["elo"] == 2000, f"ELO mutated for player {i}"
+
+
+async def test_verify_match_after_timeout_applies_flat_elo(monkeypatch):
+    """When Henrik never responded and HENRIK_VERIFY_TIMEOUT_MINUTES has elapsed,
+    _verify_match must apply flat ELO and mark henrik_verified=True with
+    found=False (no scoreboard, but ELO is no longer stuck in limbo)."""
+    import bot as bot_module
+    from cogs.match import MatchCog
+
+    match_id = _seed_match_with_avg_2400(bot_module.db)
+    _seed_db_elos(bot_module.db)
+
+    # Simulate a validation that has passed the timeout.
+    bot_module.db["matches"].update_one(
+        {"_id": match_id},
+        {
+            "$set": {
+                "status": "validated_a",
+                "validated_at": datetime.now(UTC)
+                - timedelta(minutes=HENRIK_VERIFY_TIMEOUT_MINUTES + 1),
+            }
+        },
+    )
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    guild = _fake_guild(channel=channel)
+
+    cog = MatchCog(bot_module.bot, bot_module.db)
+    monkeypatch.setattr(
+        cog, "_fetch_henrik_match_summary", AsyncMock(return_value=None)
+    )
+
+    match_doc = repository.get_match(bot_module.db, match_id)
+    await cog._verify_match(guild, match_doc)
+
+    fresh = repository.get_match(bot_module.db, match_id)
+    assert fresh.get("elo_applied") is True
+    assert fresh.get("henrik_verified") is True
+    assert fresh.get("henrik_found") is False, "found=False when Henrik never replied"
+
+    # Flat ELO applied.
+    elo_col = repository.get_elo_col(bot_module.db)
+    for i in range(5):
+        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 2020
+    for i in range(5, 10):
+        assert elo_col.find_one({"_id": f"{i}:open"})["elo"] == 1980
