@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Final
 from collections.abc import Mapping
 
+from services.rating import RatingInputs, compute_rating_2_0
 from services.riot_api import (
     HenrikDevClient,
     MatchPlayerStats,
@@ -44,6 +45,37 @@ class VerifiedMatch:
     started_at: datetime
     winning_team: str  # "Red" or "Blue" (empty if draw)
     performances: tuple[PlayerPerformance, ...]
+
+
+@dataclass(frozen=True)
+class PlayerStatsExtended:
+    """Full Rating 2.0 footprint for a single player in one match."""
+
+    user_id: str
+    puuid: str
+    queue_type: str
+    map_name: str
+    agent: str
+    team: str
+    win: bool
+    rounds_played: int
+    acs: float
+    kills: int
+    deaths: int
+    assists: int
+    damage_made: int
+    damage_received: int
+    headshots: int
+    bodyshots: int
+    legshots: int
+    multikills_2k: int
+    multikills_3k: int
+    multikills_4k: int
+    multikills_5k: int
+    first_kills: int
+    first_deaths: int
+    kast_rounds: int
+    rating_2_0: float
 
 
 def find_henrik_custom_match(
@@ -139,3 +171,54 @@ def compute_acs_multipliers(
         winning_team=winning,
         performances=tuple(perfs),
     )
+
+
+def build_extended_stats(
+    summary: MatchSummary,
+    *,
+    puuid_to_user_id: dict[str, str],
+    queue_type: str,
+) -> tuple[PlayerStatsExtended, ...]:
+    """Translate a verified MatchSummary into one PlayerStatsExtended
+    per linked Discord user. Players whose puuid is not in
+    `puuid_to_user_id` are skipped.
+    """
+    if summary.rounds_red > summary.rounds_blue:
+        winning_team = "Red"
+    elif summary.rounds_blue > summary.rounds_red:
+        winning_team = "Blue"
+    else:
+        winning_team = ""
+
+    rounds = max(int(summary.rounds_played), 1)
+    out: list[PlayerStatsExtended] = []
+    for p in summary.players:
+        uid = puuid_to_user_id.get(p.puuid)
+        if not uid:
+            continue
+        rating = compute_rating_2_0(RatingInputs(
+            rounds_played=rounds,
+            kills=p.kills, deaths=p.deaths, assists=p.assists,
+            damage_made=p.damage_made,
+            kast_rounds=p.kast_rounds,
+        ))
+        out.append(PlayerStatsExtended(
+            user_id=str(uid),
+            puuid=p.puuid,
+            queue_type=queue_type,
+            map_name=summary.map_name,
+            agent=p.agent,
+            team=p.team,
+            win=(p.team == winning_team) if winning_team else False,
+            rounds_played=rounds,
+            acs=p.score / rounds if rounds else 0.0,
+            kills=p.kills, deaths=p.deaths, assists=p.assists,
+            damage_made=p.damage_made, damage_received=p.damage_received,
+            headshots=p.headshots, bodyshots=p.bodyshots, legshots=p.legshots,
+            multikills_2k=p.multikills_2k, multikills_3k=p.multikills_3k,
+            multikills_4k=p.multikills_4k, multikills_5k=p.multikills_5k,
+            first_kills=p.first_kills, first_deaths=p.first_deaths,
+            kast_rounds=p.kast_rounds,
+            rating_2_0=rating,
+        ))
+    return tuple(out)
