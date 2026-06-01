@@ -81,6 +81,7 @@ from services.match_verifier import (
 )
 from services.repository import reserve_match_number
 from services.riot_api import HenrikDevClient
+from services.rating import RatingInputs, compute_rating_2_0
 from services.scoreboard_img import generate_scoreboard
 
 # Inlined to avoid cross-cog import (cogs.queue_v2 -> match), would
@@ -1339,6 +1340,30 @@ class MatchCog(commands.Cog):
                     display_name = member.display_name
                 else:
                     display_name = f"{stats.name}#{stats.tag}" if stats.tag else stats.name
+                shots_total = (
+                    int(getattr(stats, "headshots", 0) or 0)
+                    + int(getattr(stats, "bodyshots", 0) or 0)
+                    + int(getattr(stats, "legshots", 0) or 0)
+                )
+                hs_pct = (
+                    (int(getattr(stats, "headshots", 0) or 0) / shots_total) * 100.0
+                    if shots_total
+                    else 0.0
+                )
+                kast_pct = (
+                    (int(getattr(stats, "kast_rounds", 0) or 0) / rounds) * 100.0
+                )
+                adr = int(getattr(stats, "damage_made", 0) or 0) / rounds
+                rating_2_0 = compute_rating_2_0(
+                    RatingInputs(
+                        rounds_played=rounds,
+                        kills=int(stats.kills or 0),
+                        deaths=int(stats.deaths or 0),
+                        assists=int(stats.assists or 0),
+                        damage_made=int(getattr(stats, "damage_made", 0) or 0),
+                        kast_rounds=int(getattr(stats, "kast_rounds", 0) or 0),
+                    )
+                )
                 rows.append(
                     {
                         "name": display_name,
@@ -1348,6 +1373,12 @@ class MatchCog(commands.Cog):
                         "acs": round(stats.score / rounds),
                         "elo": elo_by_uid.get(uid, 0),
                         "agent": getattr(stats, "agent", ""),
+                        "rating_2_0": rating_2_0,
+                        "kast_pct": kast_pct,
+                        "adr": adr,
+                        "hs_pct": hs_pct,
+                        "first_kills": int(getattr(stats, "first_kills", 0) or 0),
+                        "first_deaths": int(getattr(stats, "first_deaths", 0) or 0),
                     }
                 )
             return rows
@@ -1355,6 +1386,17 @@ class MatchCog(commands.Cog):
         team_a_rows = _rows(team_a_uid_by_puuid)
         team_b_rows = _rows(team_b_uid_by_puuid)
         queue_label = _QUEUE_LABEL_BY_TYPE.get(queue_type, queue_type)
+        # Re-order the per-round winners so that index 0 maps to team A's
+        # actual perspective. Henrik labels each round by Red/Blue, but
+        # team A may be either; the scoreboard expects A = Red.
+        round_winners = tuple(getattr(summary, "round_winners", ()) or ())
+        if a_side == "Blue":
+            round_winners = tuple(
+                "Red" if w == "Blue" else ("Blue" if w == "Red" else "")
+                for w in round_winners
+            )
+        # End-type is symmetric per round, no remap needed.
+        round_end_types = tuple(getattr(summary, "round_end_types", ()) or ())
 
         try:
             buf = await asyncio.to_thread(
@@ -1367,6 +1409,8 @@ class MatchCog(commands.Cog):
                 team_a_players=team_a_rows,
                 team_b_players=team_b_rows,
                 queue_label=queue_label,
+                round_winners=round_winners,
+                round_end_types=round_end_types,
             )
         except Exception:
             logger.exception("[match] scoreboard image generation raised")

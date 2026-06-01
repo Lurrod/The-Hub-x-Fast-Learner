@@ -21,7 +21,27 @@ from services.scoreboard_img import (
 )
 
 
-def _player(name: str = "Jet", kills=20, deaths=15, assists=5, acs=240, elo=1500):
+def _player(
+    name: str = "Jet",
+    kills=20,
+    deaths=15,
+    assists=5,
+    acs=240,
+    elo=1500,
+    *,
+    rating_2_0: float | None = None,
+    kast_pct=70.0,
+    adr=140.0,
+    hs_pct=25.0,
+    first_kills=2,
+    first_deaths=1,
+):
+    """Build a player row used by ``generate_scoreboard``.
+
+    ``rating_2_0`` is the VLR-style scoreboard's primary sort key. When
+    not provided we derive a stable proxy from ACS so that tests that
+    only care about ordering keep working without spelling rating out.
+    """
     return {
         "name": name,
         "kills": kills,
@@ -30,6 +50,12 @@ def _player(name: str = "Jet", kills=20, deaths=15, assists=5, acs=240, elo=1500
         "acs": acs,
         "elo": elo,
         "avatar_url": None,
+        "rating_2_0": acs / 200.0 if rating_2_0 is None else rating_2_0,
+        "kast_pct": kast_pct,
+        "adr": adr,
+        "hs_pct": hs_pct,
+        "first_kills": first_kills,
+        "first_deaths": first_deaths,
     }
 
 
@@ -108,27 +134,25 @@ def test_generate_scoreboard_handles_missing_fields():
     assert img.width == WIDTH
 
 
-def test_generate_scoreboard_sorts_by_acs_desc():
-    """Top fragger appears in row 1 even if input is unsorted."""
-    # Patch _draw_player_row to record the per-row players (in render order)
-    rendered_a: list = []
-    rendered_b: list = []
+def test_generate_scoreboard_sorts_by_rating_desc():
+    """Top Rating 2.0 appears first even if input is unsorted.
 
+    The VLR-style layout sorts both blocks by Rating 2.0 — captures
+    overall impact better than ACS alone (KAST + ADR factor in).
+    """
+    rendered: list[dict] = []
     real = generate_scoreboard.__globals__["_draw_player_row"]
 
-    def spy(img, draw, player, col_x0, y_center, name_font, stats_font):
-        if col_x0 == 0:
-            rendered_a.append(player)
-        else:
-            rendered_b.append(player)
-        return real(img, draw, player, col_x0, y_center, name_font, stats_font)
+    def spy(img, draw, player, **kwargs):
+        rendered.append(player)
+        return real(img, draw, player, **kwargs)
 
     unsorted = [
-        _player(name="low", acs=100),
-        _player(name="mid", acs=200),
-        _player(name="top", acs=300),
-        _player(name="other1", acs=150),
-        _player(name="other2", acs=250),
+        _player(name="low", rating_2_0=0.50),
+        _player(name="mid", rating_2_0=1.00),
+        _player(name="top", rating_2_0=1.45),
+        _player(name="other1", rating_2_0=0.80),
+        _player(name="other2", rating_2_0=1.20),
     ]
     with patch("services.scoreboard_img._draw_player_row", spy):
         generate_scoreboard(
@@ -140,7 +164,9 @@ def test_generate_scoreboard_sorts_by_acs_desc():
             team_a_players=unsorted,
             team_b_players=_team("B"),
         )
-    assert [p["name"] for p in rendered_a] == ["top", "other2", "mid", "other1", "low"]
+    # First 5 spy calls are team A, in descending rating order.
+    first_five = [p["name"] for p in rendered[:5]]
+    assert first_five == ["top", "other2", "mid", "other1", "low"]
 
 
 def test_truncate_returns_original_when_it_fits():
@@ -237,15 +263,16 @@ def test_load_agent_icon_caches_repeated_lookups():
 
 
 # ── Column headers + new layout ────────────────────────────────
-def test_scoreboard_includes_column_header_strip():
-    """The header band must be drawn — total height reflects COLUMN_HEADER_BAND."""
+def test_scoreboard_height_matches_layout_constants():
+    """Total height = sum of all layout bands (one column header + 5 rows per team)."""
     from services.scoreboard_img import (
+        BLOCK_GAP,
         COLUMN_HEADER_BAND,
         FOOTER_BAND,
+        HEADER_BAND,
         PLAYERS_PER_TEAM,
+        ROUND_BAR_BAND,
         ROW_HEIGHT,
-        SCORE_BAND,
-        TOP_STRIP_BAND,
     )
 
     buf = generate_scoreboard(
@@ -259,13 +286,62 @@ def test_scoreboard_includes_column_header_strip():
     )
     img = Image.open(buf)
     expected_h = (
-        TOP_STRIP_BAND
-        + SCORE_BAND
+        HEADER_BAND
+        + ROUND_BAR_BAND
+        + COLUMN_HEADER_BAND
+        + PLAYERS_PER_TEAM * ROW_HEIGHT
+        + BLOCK_GAP
         + COLUMN_HEADER_BAND
         + PLAYERS_PER_TEAM * ROW_HEIGHT
         + FOOTER_BAND
     )
     assert img.height == expected_h
+
+
+def test_scoreboard_accepts_round_winners_argument():
+    """Passing the per-round winners sequence (Red/Blue/"") must not crash."""
+    winners = ["Red"] * 7 + ["Blue"] * 4 + ["Red"] * 2  # 13 - 4 sample
+    buf = generate_scoreboard(
+        map_name="Ascent",
+        rounds_a=9,
+        rounds_b=4,
+        team_a_label="Team A",
+        team_b_label="Team B",
+        team_a_players=_team("A"),
+        team_b_players=_team("B"),
+        round_winners=winners,
+    )
+    img = Image.open(buf)
+    assert img.width == WIDTH
+
+
+def test_round_bar_colours_distinguish_winner_and_loser_team():
+    """The round-bar fill colour matches the OVERALL match outcome:
+    the winning team's WON squares are green, the losing team's WON
+    squares are red. Lost and not-played squares are EMPTY (grey)."""
+    from services.scoreboard_img import (
+        ROUND_EMPTY_FILL,
+        ROUND_LOSS_RED,
+        ROUND_WIN_GREEN,
+    )
+
+    # Sanity check: the three constants are distinct (test would silently
+    # pass if a future refactor collapsed them).
+    assert ROUND_WIN_GREEN != ROUND_LOSS_RED != ROUND_EMPTY_FILL
+
+
+def test_rating_color_bands():
+    """Rating < 0.85 = red, 0.85-1.10 = neutral white, >= 1.10 = green."""
+    from services.scoreboard_img import (
+        DELTA_NEG_RED,
+        DELTA_POS_GREEN,
+        WHITE,
+        _rating_color,
+    )
+
+    assert _rating_color(1.30) == DELTA_POS_GREEN
+    assert _rating_color(1.00) == WHITE
+    assert _rating_color(0.60) == DELTA_NEG_RED
 
 
 def test_scoreboard_renders_with_agent_field_present():

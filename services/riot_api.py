@@ -107,6 +107,15 @@ class MatchSummary:
     players: tuple[MatchPlayerStats, ...]
     rounds_red: int
     rounds_blue: int
+    # Per-round winning team ("Red" / "Blue"). Same length and order as
+    # the Henrik ``rounds[]`` array. Empty tuple when Henrik returns no
+    # round-level data (very old matches, parser fallback). Used by the
+    # scoreboard image to render the VLR-style W/L bar.
+    round_winners: tuple[str, ...] = ()
+    # Per-round end-type as returned by Henrik. Common values:
+    # "Eliminated", "Bomb defused", "Bomb detonated", "Round timer expired".
+    # Empty string when Henrik omits it. Same length as ``round_winners``.
+    round_end_types: tuple[str, ...] = ()
 
 
 # -- Simple TTL cache ----------------------------------------------
@@ -530,10 +539,16 @@ def _parse_match(entry: dict) -> MatchSummary:
     meta = entry.get("metadata", {}) or {}
     teams = entry.get("teams", {}) or {}
     players = (entry.get("players", {}) or {}).get("all_players", []) or []
+    rounds_data = entry.get("rounds", []) or []
 
     started_at = datetime.fromtimestamp(int(meta.get("game_start") or 0), tz=UTC)
-    counters = _accumulate_round_events(entry.get("rounds", []) or [], players)
+    counters = _accumulate_round_events(rounds_data, players)
     parsed_players = tuple(_parse_player_stats(p, counters) for p in players)
+    # Henrik names the winner ``winning_team`` ("Red" / "Blue"). Older
+    # match shapes omit the key entirely (we then emit ""); the scoreboard
+    # renders those as blank squares.
+    round_winners = tuple(str(r.get("winning_team") or "") for r in rounds_data)
+    round_end_types = tuple(str(r.get("end_type") or "") for r in rounds_data)
 
     return MatchSummary(
         matchid=str(meta.get("matchid", "")),
@@ -544,6 +559,8 @@ def _parse_match(entry: dict) -> MatchSummary:
         players=parsed_players,
         rounds_red=int((teams.get("red") or {}).get("rounds_won") or 0),
         rounds_blue=int((teams.get("blue") or {}).get("rounds_won") or 0),
+        round_winners=round_winners,
+        round_end_types=round_end_types,
     )
 
 
