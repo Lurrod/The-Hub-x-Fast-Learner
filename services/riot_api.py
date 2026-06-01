@@ -339,6 +339,11 @@ def _parse_match(entry: dict) -> MatchSummary:
                 deaths=int(stats.get("deaths") or 0),
                 assists=int(stats.get("assists") or 0),
                 agent=str(p.get("character", "") or ""),
+                damage_made=int(p.get("damage_made") or 0),
+                damage_received=int(p.get("damage_received") or 0),
+                headshots=int(stats.get("headshots") or 0),
+                bodyshots=int(stats.get("bodyshots") or 0),
+                legshots=int(stats.get("legshots") or 0),
             )
         )
 
