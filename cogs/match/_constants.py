@@ -63,6 +63,13 @@ MATCH_VIEWER_ROLE_NAMES: Final[tuple[str, ...]] = (
 # join voice channels or send messages.
 MATCH_SPECTATOR_ROLE_NAMES: Final[tuple[str, ...]] = ("Members",)
 
+# "Hub spectator" roles: see the match category and voice channels
+# (so they're aware that matches are happening), but cannot connect,
+# cannot send messages, cannot read history, and the prep text channel
+# is fully hidden from them (per-channel view_channel=False override).
+# Players in the match still get full access via member-level overwrite.
+MATCH_HUB_SPECTATOR_ROLE_NAMES: Final[tuple[str, ...]] = ("FL HUB",)
+
 # Per-queue channels where the bot posts the scoreboard image once a
 # match has been verified by Henrik. Missing channels are skipped
 # (warning logged) — admins create them manually.

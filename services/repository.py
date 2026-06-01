@@ -415,6 +415,107 @@ def get_matches_col(db: Database) -> Collection:
     return col
 
 
+def create_preparing_match(
+    db: Database,
+    *,
+    queue_type: str,
+    origin_guild_id: int,
+    match_number: int,
+    category_id: int,
+    channel_id: int,
+    player_ids: list[int],
+) -> Any:
+    """Insert a placeholder match doc with status='preparing'.
+
+    Persisted BEFORE captain draft / map ban so that:
+    - the match category is recognized at startup (not auto-deleted as
+      an orphan)
+    - `/match-cancel` and admin commands can resolve the match by
+      channel_id even while the in-memory draft/ban session is running
+    - if the bot restarts mid-draft/ban, startup recovery can detect
+      these stuck matches and clean them up.
+
+    `finalize_preparing_match` later promotes preparing -> pending once
+    the teams and map are known.
+    """
+    _check_queue_type(queue_type)
+    from datetime import datetime
+
+    doc: dict[str, Any] = {
+        "status": "preparing",
+        "queue_type": queue_type,
+        "origin_guild_id": _to_int_id(origin_guild_id, field="origin_guild_id"),
+        "match_number": int(match_number),
+        "category_id": _to_int_id(category_id, field="category_id"),
+        "channel_id": _to_int_id(channel_id, field="channel_id"),
+        "player_ids": [int(p) for p in player_ids],
+        "created_at": datetime.now(UTC),
+        "votes": {},
+        "message_id": None,
+        "team_a": None,
+        "team_b": None,
+        "map": None,
+        "lobby_leader_id": None,
+        "category_name": None,
+        "validated_at": None,
+    }
+    res = get_matches_col(db).insert_one(doc)
+    return res.inserted_id
+
+
+def finalize_preparing_match(
+    db: Database,
+    match_id: Any,
+    *,
+    team_a: list[dict],
+    team_b: list[dict],
+    map_name: str,
+    lobby_leader_id: int | str,
+    category_name: str | None,
+) -> None:
+    """Promote a 'preparing' match to 'pending' once teams + map are
+    known. No-op if the doc is no longer in 'preparing' state (e.g.
+    admin cancelled it during draft/ban)."""
+    from datetime import datetime
+
+    get_matches_col(db).update_one(
+        {"_id": match_id, "status": "preparing"},
+        {
+            "$set": {
+                "status": "pending",
+                "team_a": team_a,
+                "team_b": team_b,
+                "map": map_name,
+                "lobby_leader_id": str(lobby_leader_id),
+                "category_name": category_name,
+                "promoted_at": datetime.now(UTC),
+            }
+        },
+    )
+
+
+def cancel_preparing_match(db: Database, match_id: Any) -> Mapping[str, Any] | None:
+    """Atomically transition preparing -> cancelled. Used by draft/ban
+    cancel paths and by the startup recovery sweep. Returns the doc
+    BEFORE the update, or None if it was no longer preparing."""
+    return get_matches_col(db).find_one_and_update(
+        {"_id": match_id, "status": "preparing"},
+        {"$set": {"status": "cancelled"}},
+        return_document=ReturnDocument.BEFORE,
+    )
+
+
+def find_preparing_matches(
+    db: Database, *, origin_guild_id: int | None = None
+) -> list[Mapping[str, Any]]:
+    """Return all matches stuck in 'preparing' state. Used by startup
+    recovery to find drafts/map-bans interrupted by a bot restart."""
+    query: dict[str, Any] = {"status": "preparing"}
+    if origin_guild_id is not None:
+        query["origin_guild_id"] = _to_int_id(origin_guild_id, field="origin_guild_id")
+    return list(get_matches_col(db).find(query))
+
+
 def create_match(
     db: Database,
     *,
@@ -866,7 +967,15 @@ def cancel_match_atomically(
     return get_matches_col(db).find_one_and_update(
         {
             "channel_id": channel_id,
-            "status": {"$in": ["pending", "validated_a", "validated_b", "contested"]},
+            "status": {
+                "$in": [
+                    "preparing",
+                    "pending",
+                    "validated_a",
+                    "validated_b",
+                    "contested",
+                ]
+            },
             "elo_applied": {"$ne": True},
         },
         {"$set": {"status": "cancelled"}},

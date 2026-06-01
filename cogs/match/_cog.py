@@ -64,6 +64,7 @@ from services.scoreboard_img import generate_scoreboard
 
 from cogs.match._constants import (
     ADMIN_ROLE_NAMES,
+    MATCH_HUB_SPECTATOR_ROLE_NAMES,
     MATCH_SPECTATOR_ROLE_NAMES,
     MATCH_VIEWER_ROLE_NAMES,
     CONTESTED_EXPIRY_HOURS,
@@ -200,6 +201,7 @@ class MatchCog(commands.Cog):
                 admin_role_ids=self._admin_role_ids(guild),
                 viewer_role_ids=self._viewer_role_ids(guild),
                 spectator_role_ids=self._spectator_role_ids(guild),
+                hub_spectator_role_ids=self._hub_spectator_role_ids(guild),
             )
         except Exception:
             logger.exception("[match] create_match_category failed for #%d", match_number)
@@ -211,6 +213,21 @@ class MatchCog(commands.Cog):
         category = channels.category
         prep_channel = channels.prep_channel
         free_cat_name = category.name
+
+        # Persist a 'preparing' placeholder doc BEFORE draft/map-ban so:
+        # - admins can /match-cancel during draft/ban (DB lookup by channel)
+        # - startup orphan cleanup keeps the category (status is active)
+        # - startup recovery detects bot restarts mid-draft and cleans up
+        preparing_match_id = await asyncio.to_thread(
+            repository.create_preparing_match,
+            self.db,
+            queue_type=queue_type,
+            origin_guild_id=guild.id,
+            match_number=match_number,
+            category_id=category.id,
+            channel_id=prep_channel.id,
+            player_ids=[int(p.id) for p in players],
+        )
 
         # Pro / Semi-Pro: captain draft + map ban. Open / GC: auto-balance + random map.
         if queue_type in ("pro", "semipro"):
@@ -237,6 +254,9 @@ class MatchCog(commands.Cog):
                     exc.reason,
                     getattr(exc.actor, "id", None),
                 )
+                await asyncio.to_thread(
+                    repository.cancel_preparing_match, self.db, preparing_match_id
+                )
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(
                         "❌ Draft cancelled. The queue stays active. "
@@ -256,6 +276,9 @@ class MatchCog(commands.Cog):
                 logger.exception(
                     "[match] captain draft failed for #%d, rolling back category",
                     match_number,
+                )
+                await asyncio.to_thread(
+                    repository.cancel_preparing_match, self.db, preparing_match_id
                 )
                 await delete_match_category(
                     guild=guild,
@@ -284,6 +307,9 @@ class MatchCog(commands.Cog):
                     exc.reason,
                     getattr(exc.actor, "id", None),
                 )
+                await asyncio.to_thread(
+                    repository.cancel_preparing_match, self.db, preparing_match_id
+                )
                 with contextlib.suppress(discord.HTTPException):
                     await interaction.followup.send(
                         "❌ Map ban cancelled. The queue stays active. "
@@ -303,6 +329,9 @@ class MatchCog(commands.Cog):
                 logger.exception(
                     "[match] map ban failed for #%d, rolling back category",
                     match_number,
+                )
+                await asyncio.to_thread(
+                    repository.cancel_preparing_match, self.db, preparing_match_id
                 )
                 await delete_match_category(
                     guild=guild,
@@ -325,28 +354,21 @@ class MatchCog(commands.Cog):
         else:
             plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
 
-        # Setup ordering: we persist the match (DB) BEFORE announcing on
-        # Discord. If persistence fails (Mongo down, timeout), we do NOT
-        # want the 10 players to see a "Match found!" message without an
-        # associated match doc (dead buttons, /match-cancel finds nothing).
-        #
-        # Step 1: persist the match with message_id=None. This is the
-        # commit point: after this, the match state machine has a
-        # source of truth.
-        match_id = await asyncio.to_thread(
-            repository.create_match,
+        # Setup ordering: the match doc was already inserted with
+        # status='preparing' before captain draft / map ban started, so
+        # the channel is always resolvable from DB. Here we promote it
+        # to 'pending' with the now-known teams/map (message_id is
+        # filled in later, after the announcement is sent).
+        match_id = preparing_match_id
+        await asyncio.to_thread(
+            repository.finalize_preparing_match,
             self.db,
-            queue_type=queue_type,
-            origin_guild_id=guild.id,
+            match_id,
             team_a=serialize_team(plan.teams.team_a),
             team_b=serialize_team(plan.teams.team_b),
             map_name=plan.map_name,
             lobby_leader_id=plan.lobby_leader.id,
             category_name=plan.category_name,
-            category_id=category.id,
-            match_number=match_number,
-            message_id=None,
-            channel_id=prep_channel.id,
         )
 
         # Step 2: adjust roles BEFORE announcing. Best-effort: a crash
@@ -524,6 +546,16 @@ class MatchCog(commands.Cog):
         join the voice channels or send messages.
         """
         return self._role_ids_by_names(guild, MATCH_SPECTATOR_ROLE_NAMES)
+
+    def _hub_spectator_role_ids(self, guild: discord.Guild) -> list[int]:
+        """Return the IDs of "hub spectator" roles (see
+        MATCH_HUB_SPECTATOR_ROLE_NAMES, e.g. "FL HUB"): they see the
+        match category and voice channels in the sidebar but cannot
+        join voice nor read the prep text channel — that channel is
+        hidden via a per-channel view_channel=False override. Players
+        in the match keep full access via their member-level overwrite.
+        """
+        return self._role_ids_by_names(guild, MATCH_HUB_SPECTATOR_ROLE_NAMES)
 
     @staticmethod
     def _role_ids_by_names(guild: discord.Guild, names: tuple[str, ...]) -> list[int]:
@@ -1644,15 +1676,49 @@ class MatchCog(commands.Cog):
         # sense with a live Discord gateway anyway).
         if isinstance(self.bot, commands.Bot):
             self._timeout_loop.start()
-        # Auto-expire any lingering contested matches (admins doing
-        # /win+/lose without /match-cancel). We do this BEFORE computing
-        # active_ids: a contested > CONTESTED_EXPIRY_HOURS must be
-        # cleaned_up and therefore NOT protect its Discord category
-        # from orphan cleanup.
+            # cog_load runs inside setup_hook(), which is BEFORE on_ready
+            # -> self.bot.guilds is empty here. Defer the actual cleanup
+            # to a background task that awaits wait_until_ready first.
+            self.bot.loop.create_task(self._deferred_startup_cleanup())
+        else:
+            # Tests: bot is a MagicMock with synthetic .guilds. Run the
+            # cleanup inline so assertions can observe its effects
+            # (no real gateway -> wait_until_ready is meaningless).
+            await self._run_startup_cleanup()
+
+    async def _deferred_startup_cleanup(self) -> None:
+        """Wait for the gateway READY (so self.bot.guilds is populated)
+        then run the startup cleanup. Errors are swallowed and logged:
+        a failed sweep must not crash the bot's task loop.
+        """
+        try:
+            await self.bot.wait_until_ready()
+            await self._run_startup_cleanup()
+        except Exception:
+            logger.exception("[match] deferred startup cleanup failed")
+
+    async def _run_startup_cleanup(self) -> None:
+        """Startup recovery + orphan-category sweep.
+
+        Order matters:
+          1. Expire stale 'contested' matches so their categories drop
+             out of the active set.
+          2. Recover 'preparing' matches: a bot restart mid-draft or
+             mid-map-ban kills the in-memory session, leaving dead
+             buttons and a stuck category. We mark these cancelled and
+             delete the category. This MUST run BEFORE computing
+             active_ids so the now-cancelled docs don't protect a
+             category from orphan cleanup later.
+          3. Sweep orphan 'Match #N' categories not referenced by any
+             active match.
+        """
         try:
             await self.expire_stale_contested_matches()
         except Exception:
-            logger.exception("[match] cog_load expire_stale_contested raised")
+            logger.exception("[match] _run_startup_cleanup expire_stale_contested raised")
+
+        await self._recover_preparing_matches()
+
         active_ids: set[int] = {
             m["category_id"]
             for m in self.db["matches"].find(
@@ -1684,6 +1750,48 @@ class MatchCog(commands.Cog):
                 )
             except Exception:
                 logger.exception("[match] cog_load cleanup failed for guild %s", guild.name)
+
+    async def _recover_preparing_matches(self) -> None:
+        """Find every match stuck in status='preparing' (i.e. a draft
+        or map-ban session that was running when the bot last shut
+        down), atomically transition it to 'cancelled', and delete its
+        Discord category. The in-memory session can't be restored
+        (button views are not persistent), so leaving the category
+        would mean dead buttons and an undeletable channel for admins
+        (since /match-cancel previously could not find the match).
+        """
+        try:
+            preparing = await asyncio.to_thread(
+                repository.find_preparing_matches, self.db
+            )
+        except Exception:
+            logger.exception("[match] find_preparing_matches raised")
+            return
+
+        for m in preparing:
+            match_id = m.get("_id")
+            cat_id = m.get("category_id")
+            guild_id = m.get("origin_guild_id")
+            try:
+                await asyncio.to_thread(
+                    repository.cancel_preparing_match, self.db, match_id
+                )
+                if cat_id and guild_id:
+                    guild = self.bot.get_guild(int(guild_id))
+                    if guild is not None:
+                        await delete_match_category(
+                            guild=guild,
+                            category_id=int(cat_id),
+                            reason="Bot restart during draft/map-ban",
+                        )
+                logger.info(
+                    "[match] Recovered preparing match #%s (cancelled + category deleted)",
+                    m.get("match_number"),
+                )
+            except Exception:
+                logger.exception(
+                    "[match] failed to recover preparing match _id=%s", match_id
+                )
 
     async def cog_unload(self):
         self._timeout_loop.cancel()

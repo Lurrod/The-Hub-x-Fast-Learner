@@ -440,3 +440,192 @@ def test_expire_stale_contested_returns_count_for_multiple_docs(mongo_db):
     n = expire_stale_contested(mongo_db, origin_guild_id=1, cutoff_dt=now - timedelta(hours=24))
 
     assert n == 3
+
+
+def test_create_preparing_match_inserts_doc_with_status_preparing(mongo_db):
+    from services.repository import create_preparing_match, get_matches_col
+
+    match_id = create_preparing_match(
+        mongo_db,
+        queue_type="pro",
+        origin_guild_id=42,
+        match_number=7,
+        category_id=1234,
+        channel_id=5678,
+        player_ids=[100, 200, 300],
+    )
+
+    doc = get_matches_col(mongo_db).find_one({"_id": match_id})
+    assert doc is not None
+    assert doc["status"] == "preparing"
+    assert doc["queue_type"] == "pro"
+    assert doc["origin_guild_id"] == 42
+    assert doc["match_number"] == 7
+    assert doc["category_id"] == 1234
+    assert doc["channel_id"] == 5678
+    assert doc["player_ids"] == [100, 200, 300]
+    assert doc["team_a"] is None
+    assert doc["team_b"] is None
+    assert doc["map"] is None
+
+
+def test_finalize_preparing_match_promotes_to_pending(mongo_db):
+    from services.repository import (
+        create_preparing_match,
+        finalize_preparing_match,
+        get_matches_col,
+    )
+
+    match_id = create_preparing_match(
+        mongo_db,
+        queue_type="semipro",
+        origin_guild_id=42,
+        match_number=8,
+        category_id=1,
+        channel_id=2,
+        player_ids=[1, 2],
+    )
+
+    finalize_preparing_match(
+        mongo_db,
+        match_id,
+        team_a=[{"id": 1}],
+        team_b=[{"id": 2}],
+        map_name="Ascent",
+        lobby_leader_id=1,
+        category_name="Match #8",
+    )
+
+    doc = get_matches_col(mongo_db).find_one({"_id": match_id})
+    assert doc["status"] == "pending"
+    assert doc["team_a"] == [{"id": 1}]
+    assert doc["team_b"] == [{"id": 2}]
+    assert doc["map"] == "Ascent"
+    assert doc["lobby_leader_id"] == "1"
+    assert doc["category_name"] == "Match #8"
+
+
+def test_finalize_preparing_match_is_noop_when_already_promoted(mongo_db):
+    from services.repository import (
+        create_preparing_match,
+        finalize_preparing_match,
+        get_matches_col,
+    )
+
+    match_id = create_preparing_match(
+        mongo_db,
+        queue_type="open",
+        origin_guild_id=42,
+        match_number=9,
+        category_id=1,
+        channel_id=2,
+        player_ids=[],
+    )
+    # Manually flip to cancelled so the CAS guard rejects promotion.
+    get_matches_col(mongo_db).update_one(
+        {"_id": match_id}, {"$set": {"status": "cancelled"}}
+    )
+
+    finalize_preparing_match(
+        mongo_db,
+        match_id,
+        team_a=[],
+        team_b=[],
+        map_name="Bind",
+        lobby_leader_id=1,
+        category_name="Match #9",
+    )
+
+    doc = get_matches_col(mongo_db).find_one({"_id": match_id})
+    assert doc["status"] == "cancelled"  # untouched
+
+
+def test_cancel_preparing_match_atomic_transition(mongo_db):
+    from services.repository import (
+        cancel_preparing_match,
+        create_preparing_match,
+        get_matches_col,
+    )
+
+    match_id = create_preparing_match(
+        mongo_db,
+        queue_type="gc",
+        origin_guild_id=42,
+        match_number=10,
+        category_id=1,
+        channel_id=2,
+        player_ids=[],
+    )
+
+    before = cancel_preparing_match(mongo_db, match_id)
+    assert before is not None
+    assert before["status"] == "preparing"
+
+    doc = get_matches_col(mongo_db).find_one({"_id": match_id})
+    assert doc["status"] == "cancelled"
+
+    # Idempotent: second call returns None (already cancelled).
+    again = cancel_preparing_match(mongo_db, match_id)
+    assert again is None
+
+
+def test_cancel_match_atomically_accepts_preparing_status(mongo_db):
+    from services.repository import (
+        cancel_match_atomically,
+        create_preparing_match,
+        get_matches_col,
+    )
+
+    match_id = create_preparing_match(
+        mongo_db,
+        queue_type="pro",
+        origin_guild_id=42,
+        match_number=11,
+        category_id=1,
+        channel_id=9999,
+        player_ids=[],
+    )
+
+    before = cancel_match_atomically(mongo_db, channel_id=9999)
+    assert before is not None
+    assert before["_id"] == match_id
+    assert before["status"] == "preparing"
+
+    doc = get_matches_col(mongo_db).find_one({"_id": match_id})
+    assert doc["status"] == "cancelled"
+
+
+def test_find_preparing_matches_returns_only_preparing(mongo_db):
+    from services.repository import (
+        create_preparing_match,
+        find_preparing_matches,
+        get_matches_col,
+    )
+
+    m1 = create_preparing_match(
+        mongo_db,
+        queue_type="pro",
+        origin_guild_id=42,
+        match_number=12,
+        category_id=1,
+        channel_id=1,
+        player_ids=[],
+    )
+    m2 = create_preparing_match(
+        mongo_db,
+        queue_type="semipro",
+        origin_guild_id=42,
+        match_number=13,
+        category_id=2,
+        channel_id=2,
+        player_ids=[],
+    )
+    # Flip one to cancelled to ensure it's excluded.
+    get_matches_col(mongo_db).update_one(
+        {"_id": m2}, {"$set": {"status": "cancelled"}}
+    )
+
+    found = find_preparing_matches(mongo_db)
+    found_ids = {d["_id"] for d in found}
+    assert m1 in found_ids
+    assert m2 not in found_ids

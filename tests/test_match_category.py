@@ -581,3 +581,120 @@ async def test_create_match_category_spectator_roles_can_view_but_not_join():
     assert spec_ow.send_messages is False
     assert spec_ow.connect is False
     assert spec_ow.speak is False
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_hub_spectator_sees_category_voice_but_not_prep():
+    """`hub_spectator_role_ids` (e.g. FL HUB) see the category and voice
+    channels in the sidebar, but the text prep channel is fully hidden
+    (explicit view_channel=False override is posted on the prep channel).
+    They cannot join voice, send messages, or read history.
+    """
+    from services.match_category import create_match_category
+
+    captured: dict = {}
+
+    prep_channel = MagicMock(name="match-preparation")
+    prep_channel.set_permissions = AsyncMock()
+    team1_vc = MagicMock(name="team1")
+    team1_vc.set_permissions = AsyncMock()
+    team2_vc = MagicMock(name="team2")
+    team2_vc.set_permissions = AsyncMock()
+    waiting_vc = MagicMock(name="waiting")
+    waiting_vc.set_permissions = AsyncMock()
+
+    voice_calls = iter([team1_vc, team2_vc, waiting_vc])
+
+    async def fake_create_category(name, **kwargs):
+        captured["overwrites"] = kwargs.get("overwrites") or {}
+        category = MagicMock()
+        category.create_text_channel = AsyncMock(return_value=prep_channel)
+        category.create_voice_channel = AsyncMock(side_effect=lambda *a, **k: next(voice_calls))
+        return category
+
+    everyone = MagicMock(name="@everyone")
+    bot_top = MagicMock(name="bot top role")
+    fl_hub_role = MagicMock(name="FL HUB")
+    roles_by_id = {500: fl_hub_role}
+
+    guild = MagicMock()
+    guild.default_role = everyone
+    guild.me = MagicMock()
+    guild.me.top_role = bot_top
+    guild.create_category = AsyncMock(side_effect=fake_create_category)
+    guild.get_role = MagicMock(side_effect=lambda rid: roles_by_id.get(rid))
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=33,
+        player_ids=[],
+        admin_role_ids=[],
+        hub_spectator_role_ids=[500, 777],  # 777 not found, must be skipped
+    )
+
+    overwrites = captured["overwrites"]
+    assert fl_hub_role in overwrites
+    hub_ow = overwrites[fl_hub_role]
+    # Category-level: sees category + voice channels, but no interaction.
+    assert hub_ow.view_channel is True
+    assert hub_ow.read_message_history is False
+    assert hub_ow.send_messages is False
+    assert hub_ow.connect is False
+    assert hub_ow.speak is False
+    assert hub_ow.manage_channels is None
+
+    # Prep channel must receive an explicit view_channel=False override
+    # for FL HUB so the text channel is hidden from them.
+    prep_channel.set_permissions.assert_awaited()
+    set_perm_calls = prep_channel.set_permissions.await_args_list
+    hub_call = next(
+        (c for c in set_perm_calls if c.args and c.args[0] is fl_hub_role),
+        None,
+    )
+    assert hub_call is not None, "FL HUB must get a per-channel overwrite on prep"
+    assert hub_call.kwargs.get("view_channel") is False
+
+    # Voice channels must NOT receive a deny-view overwrite for FL HUB
+    # (they should keep the category-inherited view=True).
+    for vc in (team1_vc, team2_vc, waiting_vc):
+        for call in vc.set_permissions.await_args_list:
+            if call.args and call.args[0] is fl_hub_role:
+                assert call.kwargs.get("view_channel") is not False, (
+                    "voice channel must remain visible to FL HUB"
+                )
+
+
+@pytest.mark.asyncio
+async def test_create_match_category_hub_spectator_skipped_when_role_missing():
+    """When no hub_spectator role resolves, no per-channel overwrite
+    is posted on the prep channel.
+    """
+    from services.match_category import create_match_category
+
+    prep_channel = MagicMock(name="match-preparation")
+    prep_channel.set_permissions = AsyncMock()
+
+    async def fake_create_category(name, **kwargs):
+        category = MagicMock()
+        category.create_text_channel = AsyncMock(return_value=prep_channel)
+        category.create_voice_channel = AsyncMock(return_value=MagicMock())
+        return category
+
+    guild = MagicMock()
+    guild.default_role = MagicMock()
+    guild.me = MagicMock()
+    guild.me.top_role = MagicMock()
+    guild.create_category = AsyncMock(side_effect=fake_create_category)
+    guild.get_role = MagicMock(return_value=None)
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=34,
+        player_ids=[],
+        admin_role_ids=[],
+        hub_spectator_role_ids=[999],  # unresolved
+    )
+
+    prep_channel.set_permissions.assert_not_awaited()

@@ -599,7 +599,8 @@ async def test_on_queue_full_persists_queue_type_in_match_doc(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
-    """Spy on repository.create_match to verify queue_type kwarg is forwarded."""
+    """Spy on repository.create_preparing_match to verify queue_type
+    kwarg is forwarded at the placeholder-insert stage."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
 
@@ -612,13 +613,15 @@ async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
     queue_doc = _seed_full_queue(bot_module.db, guild_id=42, queue_type="gc")
 
     captured: dict = {}
-    real_create = repository.create_match
+    real_create_preparing = repository.create_preparing_match
 
-    def spy_create(*args, **kwargs):
+    def spy_create_preparing(*args, **kwargs):
         captured.update(kwargs)
-        return real_create(*args, **kwargs)
+        return real_create_preparing(*args, **kwargs)
 
-    monkeypatch.setattr("services.repository.create_match", spy_create)
+    monkeypatch.setattr(
+        "services.repository.create_preparing_match", spy_create_preparing
+    )
 
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
