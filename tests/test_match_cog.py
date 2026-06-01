@@ -1000,3 +1000,146 @@ async def test_on_queue_full_semipro_queue_runs_draft_then_ban(monkeypatch):
     assert seq == ["draft_ctor", "draft_run", "ban_ctor", "ban_run", "build(Haven)"]
 
 
+@pytest.mark.asyncio
+async def test_persist_extended_stats_inserts_and_updates_aggregate(monkeypatch):
+    """_persist_extended_stats must insert per-match docs and update
+    the aggregate counters when the insert is fresh.
+    """
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.match_verifier import PlayerStatsExtended
+
+    extended = (
+        PlayerStatsExtended(
+            user_id="111", puuid="P-A", queue_type="pro",
+            map_name="Ascent", agent="Jett", team="Red", win=True,
+            rounds_played=24, acs=225.0,
+            kills=22, deaths=14, assists=5,
+            damage_made=4123, damage_received=3580,
+            headshots=18, bodyshots=50, legshots=4,
+            multikills_2k=3, multikills_3k=1,
+            multikills_4k=0, multikills_5k=0,
+            first_kills=4, first_deaths=2,
+            kast_rounds=19, rating_2_0=1.34,
+        ),
+    )
+
+    insert_calls: list = []
+    update_calls: list = []
+    monkeypatch.setattr(
+        match_cog_module.repository, "insert_match_player_stats",
+        lambda db, docs: (insert_calls.append(list(docs)) or len(docs)),
+    )
+    monkeypatch.setattr(
+        match_cog_module.repository, "update_rating_aggregates",
+        lambda db, deltas: update_calls.append(list(deltas)),
+    )
+
+    cog = match_cog_module.MatchCog(bot_module.bot, bot_module.db)
+    await cog._persist_extended_stats(
+        match_id="match-1",
+        extended=extended,
+    )
+
+    assert len(insert_calls) == 1 and len(insert_calls[0]) == 1
+    doc = insert_calls[0][0]
+    assert doc["_id"] == "match-1:111"
+    assert doc["rating_2_0"] == 1.34
+    assert doc["match_id"] == "match-1"
+    assert doc["agent"] == "Jett"
+    assert doc["map"] == "Ascent"
+
+    assert len(update_calls) == 1 and len(update_calls[0]) == 1
+    delta = update_calls[0][0]
+    assert delta["user_id"] == "111"
+    assert delta["queue_type"] == "pro"
+    assert delta["games"] == 1
+    assert delta["kills"] == 22
+    assert delta["rating_2_0_sum"] == 1.34
+
+
+@pytest.mark.asyncio
+async def test_persist_extended_stats_skips_aggregate_on_duplicate_insert(monkeypatch):
+    """Duplicate insert (idempotent retry) -> skip the aggregate
+    update to prevent double-counting.
+    """
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.match_verifier import PlayerStatsExtended
+
+    one = (
+        PlayerStatsExtended(
+            user_id="111", puuid="P-A", queue_type="pro",
+            map_name="Ascent", agent="Jett", team="Red", win=True,
+            rounds_played=24, acs=200.0,
+            kills=0, deaths=0, assists=0,
+            damage_made=0, damage_received=0,
+            headshots=0, bodyshots=0, legshots=0,
+            multikills_2k=0, multikills_3k=0,
+            multikills_4k=0, multikills_5k=0,
+            first_kills=0, first_deaths=0,
+            kast_rounds=0, rating_2_0=0.0,
+        ),
+    )
+
+    monkeypatch.setattr(
+        match_cog_module.repository, "insert_match_player_stats",
+        lambda db, docs: 0,
+    )
+    update_called: list = []
+    monkeypatch.setattr(
+        match_cog_module.repository, "update_rating_aggregates",
+        lambda db, deltas: update_called.append(deltas),
+    )
+
+    cog = match_cog_module.MatchCog(bot_module.bot, bot_module.db)
+    await cog._persist_extended_stats(
+        match_id="match-x",
+        extended=one,
+    )
+
+    assert update_called == []
+
+
+@pytest.mark.asyncio
+async def test_persist_extended_stats_swallows_insert_exception(monkeypatch):
+    """Mongo error on insert -> log + skip aggregate, never raise."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+    from services.match_verifier import PlayerStatsExtended
+
+    one = (
+        PlayerStatsExtended(
+            user_id="111", puuid="P-A", queue_type="pro",
+            map_name="Ascent", agent="Jett", team="Red", win=True,
+            rounds_played=24, acs=200.0,
+            kills=0, deaths=0, assists=0,
+            damage_made=0, damage_received=0,
+            headshots=0, bodyshots=0, legshots=0,
+            multikills_2k=0, multikills_3k=0,
+            multikills_4k=0, multikills_5k=0,
+            first_kills=0, first_deaths=0,
+            kast_rounds=0, rating_2_0=0.0,
+        ),
+    )
+
+    def boom(db, docs):
+        raise RuntimeError("mongo down")
+
+    monkeypatch.setattr(
+        match_cog_module.repository, "insert_match_player_stats", boom,
+    )
+    update_called: list = []
+    monkeypatch.setattr(
+        match_cog_module.repository, "update_rating_aggregates",
+        lambda db, deltas: update_called.append(deltas),
+    )
+
+    cog = match_cog_module.MatchCog(bot_module.bot, bot_module.db)
+    # Must NOT raise.
+    await cog._persist_extended_stats(
+        match_id="match-x",
+        extended=one,
+    )
+    assert update_called == []
+

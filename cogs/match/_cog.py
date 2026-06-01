@@ -57,6 +57,7 @@ from services.match_service import (
 )
 from services.repository import reserve_match_number
 from services.match_verifier import (
+    build_extended_stats,
     find_henrik_custom_match,
 )
 from services.riot_api import HenrikDevClient
@@ -1068,6 +1069,103 @@ class MatchCog(commands.Cog):
                 )
             except Exception:
                 logger.exception("[match] _post_match_scoreboard raised")
+            try:
+                puuid_to_user_id: dict = {}
+                puuid_to_user_id.update(team_a_uid_by_puuid or {})
+                puuid_to_user_id.update(team_b_uid_by_puuid or {})
+                extended = build_extended_stats(
+                    summary,
+                    puuid_to_user_id=puuid_to_user_id,
+                    queue_type=match_doc.get("queue_type", "open"),
+                )
+                await self._persist_extended_stats(
+                    match_id=str(match_doc["_id"]),
+                    extended=extended,
+                )
+            except Exception:
+                logger.exception("[match] _persist_extended_stats wrapper raised")
+
+    async def _persist_extended_stats(
+        self,
+        *,
+        match_id: str,
+        extended,
+    ) -> None:
+        """Persist per-match Rating 2.0 stats + update aggregates.
+
+        Best-effort: errors are logged but do NOT propagate (the ELO
+        is already applied at this point — the match doc is the source
+        of truth for ranking).
+        """
+        if not extended:
+            return
+        now = datetime.now(UTC)
+
+        match_docs: list[dict] = []
+        deltas: list[dict] = []
+        for s in extended:
+            match_docs.append({
+                "_id": f"{match_id}:{s.user_id}",
+                "match_id": match_id,
+                "user_id": s.user_id,
+                "queue_type": s.queue_type,
+                "map": s.map_name,
+                "agent": s.agent,
+                "rounds_played": s.rounds_played,
+                "win": s.win,
+                "kills": s.kills, "deaths": s.deaths, "assists": s.assists,
+                "damage_made": s.damage_made,
+                "damage_received": s.damage_received,
+                "headshots": s.headshots, "bodyshots": s.bodyshots,
+                "legshots": s.legshots,
+                "multikills_2k": s.multikills_2k,
+                "multikills_3k": s.multikills_3k,
+                "multikills_4k": s.multikills_4k,
+                "multikills_5k": s.multikills_5k,
+                "first_kills": s.first_kills,
+                "first_deaths": s.first_deaths,
+                "kast_rounds": s.kast_rounds,
+                "acs": s.acs,
+                "rating_2_0": s.rating_2_0,
+                "created_at": now,
+            })
+            deltas.append({
+                "user_id": s.user_id,
+                "queue_type": s.queue_type,
+                "games": 1,
+                "rounds_played": s.rounds_played,
+                "kills": s.kills, "deaths": s.deaths, "assists": s.assists,
+                "damage_made": s.damage_made,
+                "damage_received": s.damage_received,
+                "headshots": s.headshots, "bodyshots": s.bodyshots,
+                "legshots": s.legshots,
+                "multikills_2k": s.multikills_2k,
+                "multikills_3k": s.multikills_3k,
+                "multikills_4k": s.multikills_4k,
+                "multikills_5k": s.multikills_5k,
+                "first_kills": s.first_kills,
+                "first_deaths": s.first_deaths,
+                "kast_rounds": s.kast_rounds,
+                "rating_2_0_sum": s.rating_2_0,
+            })
+
+        try:
+            inserted = await asyncio.to_thread(
+                repository.insert_match_player_stats, self.db, match_docs
+            )
+        except Exception:
+            logger.exception("[stats] insert_match_player_stats failed")
+            return
+
+        if inserted == 0:
+            return
+
+        try:
+            await asyncio.to_thread(
+                repository.update_rating_aggregates, self.db, deltas
+            )
+        except Exception:
+            logger.exception("[stats] update_rating_aggregates failed")
 
     async def _fetch_henrik_match_summary(
         self,
