@@ -166,3 +166,97 @@ async def test_paginator_invoker_passes_interaction_check():
     inter.user.id = 111
     ok = await view.interaction_check(inter)
     assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_stats_command_sends_paginated_embed_when_agg_exists(monkeypatch):
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_elo_col",
+        lambda db: MagicMock(
+            find_one=lambda *a, **k: _elo(),
+            count_documents=lambda *a, **k: 11,
+        ),
+    )
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_rating_aggregate",
+        lambda db, *, user_id, queue_type: _agg(),
+    )
+
+    cog = stats_cog_module.StatsCog(bot_module.bot, bot_module.db)
+    inter = MagicMock()
+    inter.user = _member()
+    inter.guild = MagicMock()
+    inter.guild.name = "Guild"
+    inter.response.send_message = AsyncMock()
+
+    await cog.stats.callback(cog, inter, "pro", None)
+
+    inter.response.send_message.assert_awaited_once()
+    kwargs = inter.response.send_message.call_args.kwargs
+    assert "embed" in kwargs
+    assert "view" in kwargs
+
+
+@pytest.mark.asyncio
+async def test_stats_command_empty_when_no_elo_doc(monkeypatch):
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_elo_col",
+        lambda db: MagicMock(find_one=lambda *a, **k: None),
+    )
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_rating_aggregate",
+        lambda db, *, user_id, queue_type: None,
+    )
+
+    cog = stats_cog_module.StatsCog(bot_module.bot, bot_module.db)
+    inter = MagicMock()
+    inter.user = _member()
+    inter.response.send_message = AsyncMock()
+
+    await cog.stats.callback(cog, inter, "pro", None)
+
+    inter.response.send_message.assert_awaited_once()
+    msg = inter.response.send_message.call_args.args[0]
+    assert "hasn't played" in msg.lower() or "haven't played" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_stats_command_no_aggregate_shows_single_page(monkeypatch):
+    """ELO doc exists but no rating aggregate (pre-deployment match
+    history): single-page embed, no view attached.
+    """
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_elo_col",
+        lambda db: MagicMock(
+            find_one=lambda *a, **k: _elo(),
+            count_documents=lambda *a, **k: 5,
+        ),
+    )
+    monkeypatch.setattr(
+        stats_cog_module.repository, "get_rating_aggregate",
+        lambda db, *, user_id, queue_type: None,
+    )
+
+    cog = stats_cog_module.StatsCog(bot_module.bot, bot_module.db)
+    inter = MagicMock()
+    inter.user = _member()
+    inter.response.send_message = AsyncMock()
+
+    await cog.stats.callback(cog, inter, "pro", None)
+
+    inter.response.send_message.assert_awaited_once()
+    kwargs = inter.response.send_message.call_args.kwargs
+    assert "embed" in kwargs
+    assert "view" not in kwargs or kwargs.get("view") is None
