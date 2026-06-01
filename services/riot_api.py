@@ -456,6 +456,23 @@ def _accumulate_kast(
             counters[puuid]["kast_rounds"] += 1
 
 
+def _collect_round_kill_events(rnd: dict) -> list[dict]:
+    """Return every kill event in a Henrik round.
+
+    Henrik nests ``kill_events`` under ``rounds[*].player_stats[*].kill_events``
+    (each entry only carries the kills made by that player). Flattening across
+    all ``player_stats`` yields the full per-round kill list with no duplicates.
+    The legacy ``rounds[*].kill_events`` location is still accepted as a
+    fallback so older fixtures keep parsing.
+    """
+    events: list[dict] = []
+    for ps in rnd.get("player_stats", []) or []:
+        events.extend(ps.get("kill_events", []) or [])
+    if events:
+        return events
+    return rnd.get("kill_events", []) or []
+
+
 def _accumulate_round_events(
     rounds: list[dict],
     all_players: list[dict],
@@ -488,7 +505,7 @@ def _accumulate_round_events(
     }
 
     for rnd in rounds or []:
-        events_sorted = _sort_round_kills(rnd.get("kill_events", []) or [])
+        events_sorted = _sort_round_kills(_collect_round_kill_events(rnd))
         _accumulate_first_kill_death(events_sorted, counters)
         _accumulate_multikills(events_sorted, counters)
         _accumulate_kast(events_sorted, counters, team_of)

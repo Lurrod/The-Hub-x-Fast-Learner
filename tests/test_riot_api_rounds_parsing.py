@@ -274,3 +274,95 @@ def test_parser_handles_missing_rounds_array():
         assert p.multikills_2k == 0
         assert p.first_kills == 0
         assert p.kast_rounds == 0
+
+
+# ---------------------------------------------------------------------------
+# Henrik production shape: kill_events nested under player_stats
+# ---------------------------------------------------------------------------
+
+
+def _round_production_shape(kill_events_by_killer):
+    """A round whose kill_events live under ``player_stats[*].kill_events``.
+
+    Henrik's real ``/v3/matches`` and ``/v2/match/{id}`` responses do NOT
+    expose a round-level ``kill_events`` field — each player's
+    ``player_stats`` entry only carries the kills *they* made. This helper
+    builds that shape so the parser can be tested against production data.
+    """
+    return {
+        "winning_team": "Red",
+        "end_type": "Eliminated",
+        "player_stats": [
+            {"player_puuid": puuid, "kill_events": events}
+            for puuid, events in kill_events_by_killer.items()
+        ],
+    }
+
+
+def _payload_with_production_rounds(rounds, players=None):
+    return {
+        "data": {
+            "metadata": {
+                "matchid": "abc",
+                "mode": "Custom Game",
+                "map": "Ascent",
+                "game_start": 1700000000,
+                "rounds_played": len(rounds),
+            },
+            "players": {"all_players": players or _two_player_roster()},
+            "teams": {"red": {"rounds_won": 0}, "blue": {"rounds_won": 0}},
+            "rounds": rounds,
+        }
+    }
+
+
+def test_parser_reads_kill_events_from_player_stats():
+    """Regression: Henrik nests kill_events inside player_stats. Without
+    this support, every player was credited "survived" every round, which
+    pushed KAST to 100% across the board and inflated Rating 2.0 by ~0.2.
+    """
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [
+        # Round 1: A kills B.
+        _round_production_shape(
+            {
+                "A": [
+                    _kill_event(killer_puuid="A", victim_puuid="B", kill_time_in_round=12500),
+                ],
+                "B": [],
+            }
+        ),
+        # Round 2: nobody dies (both survive).
+        _round_production_shape({"A": [], "B": []}),
+    ]
+    summary = _parse_henrik_match(_payload_with_production_rounds(rounds))
+    pa = next(p for p in summary.players if p.puuid == "A")
+    pb = next(p for p in summary.players if p.puuid == "B")
+    # A: kill (R1) + survive (R2)  → 2 KAST.
+    assert pa.kast_rounds == 2
+    assert pa.first_kills == 1
+    # B: died in R1 with no trade, survived R2 → 1 KAST (not 2).
+    assert pb.kast_rounds == 1
+    assert pb.first_deaths == 1
+
+
+def test_parser_counts_multikills_from_player_stats_shape():
+    from services.riot_api import _parse_henrik_match
+
+    rounds = [
+        _round_production_shape(
+            {
+                "A": [
+                    _kill_event(killer_puuid="A", victim_puuid="B", kill_time_in_round=1000),
+                    _kill_event(killer_puuid="A", victim_puuid="B", kill_time_in_round=2000),
+                    _kill_event(killer_puuid="A", victim_puuid="B", kill_time_in_round=3000),
+                ],
+                "B": [],
+            }
+        ),
+    ]
+    summary = _parse_henrik_match(_payload_with_production_rounds(rounds))
+    pa = next(p for p in summary.players if p.puuid == "A")
+    assert pa.multikills_3k == 1
+    assert pa.multikills_2k == 0
