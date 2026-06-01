@@ -78,3 +78,91 @@ def test_overview_embed_with_no_aggregate_shows_elo_only_hint():
     text = repr(embed.to_dict())
     assert "1547" in text
     assert "Rating 2.0 stats begin from your next match" in text
+
+
+@pytest.mark.asyncio
+async def test_paginator_flips_to_details_on_next():
+    import discord
+    from unittest.mock import AsyncMock
+
+    from cogs.stats._view import StatsPaginatorView
+
+    overview = discord.Embed(title="overview")
+    details = discord.Embed(title="details")
+    view = StatsPaginatorView(
+        overview=overview, details=details, invoker_id=999,
+    )
+    assert view.page == 0
+
+    inter = MagicMock()
+    inter.user.id = 999
+    inter.response.edit_message = AsyncMock()
+
+    next_button = next(
+        c for c in view.children if getattr(c, "custom_id", "") == "stats_next"
+    )
+    await next_button.callback(inter)
+
+    assert view.page == 1
+    args, kwargs = inter.response.edit_message.call_args
+    assert kwargs["embed"] is details
+
+
+@pytest.mark.asyncio
+async def test_paginator_flips_back_to_overview_on_prev():
+    import discord
+    from unittest.mock import AsyncMock
+
+    from cogs.stats._view import StatsPaginatorView
+
+    overview = discord.Embed(title="overview")
+    details = discord.Embed(title="details")
+    view = StatsPaginatorView(
+        overview=overview, details=details, invoker_id=999,
+    )
+    view.page = 1  # start on details
+
+    inter = MagicMock()
+    inter.user.id = 999
+    inter.response.edit_message = AsyncMock()
+
+    prev_button = next(
+        c for c in view.children if getattr(c, "custom_id", "") == "stats_prev"
+    )
+    await prev_button.callback(inter)
+
+    assert view.page == 0
+    kwargs = inter.response.edit_message.call_args.kwargs
+    assert kwargs["embed"] is overview
+
+
+@pytest.mark.asyncio
+async def test_paginator_rejects_non_invoker():
+    import discord
+    from unittest.mock import AsyncMock
+
+    from cogs.stats._view import StatsPaginatorView
+
+    view = StatsPaginatorView(
+        overview=discord.Embed(), details=discord.Embed(), invoker_id=111,
+    )
+    inter = MagicMock()
+    inter.user.id = 222
+    inter.response.send_message = AsyncMock()
+    ok = await view.interaction_check(inter)
+    assert ok is False
+    inter.response.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_paginator_invoker_passes_interaction_check():
+    import discord
+    from cogs.stats._view import StatsPaginatorView
+
+    view = StatsPaginatorView(
+        overview=discord.Embed(), details=discord.Embed(), invoker_id=111,
+    )
+    inter = MagicMock()
+    inter.user.id = 111
+    ok = await view.interaction_check(inter)
+    assert ok is True
