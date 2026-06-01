@@ -14,10 +14,9 @@ Complexity: O(126 * 10) ~= 1.3k operations. Well under a millisecond.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final
-from collections.abc import Iterable
-
 
 TEAM_SIZE: Final[int] = 5
 TOTAL_PLAYERS: Final[int] = 10
@@ -47,11 +46,15 @@ class BalancedTeams:
 
 
 def balance_teams(players: Iterable[Player]) -> BalancedTeams:
-    """
-    Returns the most balanced split.
+    """Returns the most balanced split.
+
+    Complexity:
+        Pins ``pool[0]`` in team A to eliminate symmetric partitions,
+        then iterates ``C(9, 4) = 126`` combinations. Each scored in O(10).
+        Total ~1.3k ops — well under a millisecond for any realistic input.
 
     Raises:
-        ValueError if len(players) != 10 or if there are duplicate IDs.
+        ValueError if ``len(players) != 10`` or if there are duplicate IDs.
     """
     pool = tuple(players)
     if len(pool) != TOTAL_PLAYERS:
@@ -92,7 +95,8 @@ def balance_teams(players: Iterable[Player]) -> BalancedTeams:
                 peak_diff=peak_diff,
             )
 
-    assert best is not None
+    if best is None:
+        raise RuntimeError("balance_teams: no valid combination found (need >= 10 players)")
     return best
 
 

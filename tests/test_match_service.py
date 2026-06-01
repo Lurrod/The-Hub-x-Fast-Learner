@@ -157,6 +157,7 @@ def _draft_result(team_a_ids: list, team_b_ids: list):
 
 def test_build_plan_from_draft_uses_provided_map_name():
     from services.match_service import build_plan_from_draft
+
     result = _draft_result([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
     plan = build_plan_from_draft(
         result,
@@ -172,8 +173,9 @@ def test_build_plan_from_draft_uses_provided_map_name():
 
 
 def test_build_plan_from_draft_falls_back_to_random_map_when_none():
-    from services.match_service import build_plan_from_draft
     from services.elo_calc import MAPS
+    from services.match_service import build_plan_from_draft
+
     result = _draft_result([1, 2, 3, 4, 5], [6, 7, 8, 9, 10])
     plan = build_plan_from_draft(
         result,
@@ -186,11 +188,10 @@ def test_build_plan_from_draft_falls_back_to_random_map_when_none():
 
 def test_build_plan_from_draft_computes_elo_diff_and_peak_diff():
     from services.match_service import build_plan_from_draft
+
     team_a = tuple(Player(id=i, name=f"A{i}", elo=3000) for i in range(1, 6))
     team_b = tuple(Player(id=i, name=f"B{i}", elo=2000) for i in range(6, 11))
-    result = SimpleNamespace(
-        cap_a=team_a[0], cap_b=team_b[0], team_a=team_a, team_b=team_b
-    )
+    result = SimpleNamespace(cap_a=team_a[0], cap_b=team_b[0], team_a=team_a, team_b=team_b)
     plan = build_plan_from_draft(
         result,
         free_category="Match #1",

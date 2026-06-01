@@ -17,7 +17,6 @@ from pymongo import ReturnDocument
 
 from services import elo_calc, repository
 
-
 VALIDATED_A: Final[str] = "validated_a"
 VALIDATED_B: Final[str] = "validated_b"
 

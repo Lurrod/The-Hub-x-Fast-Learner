@@ -194,9 +194,7 @@ class ModerationCog(commands.Cog):
             limit=WARN_LIST_PAGE_SIZE,
         )
 
-        title = (
-            f"📋 Warns for {member.display_name}" if member is not None else "📋 Server warns"
-        )
+        title = f"📋 Warns for {member.display_name}" if member is not None else "📋 Server warns"
 
         if not warns:
             empty_msg = (

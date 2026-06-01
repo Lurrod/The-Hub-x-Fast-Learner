@@ -4,10 +4,10 @@ import pytest
 
 from services.repository import (
     QUEUE_TYPES,
-    player_doc_id,
     active_queue_id,
-    leaderboard_state_id,
     is_valid_queue_type,
+    leaderboard_state_id,
+    player_doc_id,
 )
 
 
@@ -62,6 +62,7 @@ def test_active_queue_id_rejects_unknown_type():
 
 
 import mongomock
+
 from services.repository import get_or_create_player
 
 
@@ -90,13 +91,13 @@ def test_get_or_create_player_isolates_queue_types():
 
 
 from services.repository import (
-    setup_active_queue,
-    get_active_queue,
-    delete_active_queue,
     add_player_to_queue,
-    remove_player_from_queue,
     close_active_queue,
+    delete_active_queue,
     find_player_in_any_queue,
+    get_active_queue,
+    remove_player_from_queue,
+    setup_active_queue,
 )
 
 
@@ -160,9 +161,9 @@ def test_close_active_queue_per_type():
 
 
 from services.repository import (
+    clear_leaderboard_message_id,
     get_leaderboard_message_id,
     set_leaderboard_message_id,
-    clear_leaderboard_message_id,
 )
 
 
@@ -268,7 +269,7 @@ def test_to_int_id_raises_with_field_context_on_garbage():
     with pytest.raises(TypeError, match="user_id"):
         _to_int_id("Bob", field="user_id")
     with pytest.raises(TypeError, match="channel_id"):
-        _to_int_id(None, field="channel_id")  # type: ignore[arg-type]
+        _to_int_id(None, field="channel_id")
 
 
 def test_mark_match_cleanup_started_sets_delete_started_at(mongo_db):
@@ -288,12 +289,13 @@ def test_mark_match_cleanup_started_sets_delete_started_at(mongo_db):
 
 
 def test_find_category_ids_with_cleanup_started_filters_by_guild(mongo_db):
+    from datetime import UTC, datetime
+
     from services.repository import (
         find_category_ids_with_cleanup_started,
         get_matches_col,
         mark_match_cleanup_started,
     )
-    from datetime import UTC, datetime
 
     matches = get_matches_col(mongo_db)
     a = matches.insert_one(
@@ -522,9 +524,7 @@ def test_finalize_preparing_match_is_noop_when_already_promoted(mongo_db):
         player_ids=[],
     )
     # Manually flip to cancelled so the CAS guard rejects promotion.
-    get_matches_col(mongo_db).update_one(
-        {"_id": match_id}, {"$set": {"status": "cancelled"}}
-    )
+    get_matches_col(mongo_db).update_one({"_id": match_id}, {"$set": {"status": "cancelled"}})
 
     finalize_preparing_match(
         mongo_db,
@@ -621,9 +621,7 @@ def test_find_preparing_matches_returns_only_preparing(mongo_db):
         player_ids=[],
     )
     # Flip one to cancelled to ensure it's excluded.
-    get_matches_col(mongo_db).update_one(
-        {"_id": m2}, {"$set": {"status": "cancelled"}}
-    )
+    get_matches_col(mongo_db).update_one({"_id": m2}, {"$set": {"status": "cancelled"}})
 
     found = find_preparing_matches(mongo_db)
     found_ids = {d["_id"] for d in found}

@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from datetime import UTC
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -15,17 +16,35 @@ from services.leaderboard_refresh import (
 )
 from services.riot_api import HenrikDevClient
 
-# Global logging configuration: without this basicConfig, the root
-# logger stays at WARNING by default and Python's minimal format is
-# used (no timestamp, no level, no module name). In prod on PM2,
-# `logger.info(...)` logs were silently lost. Level driven by the
-# LOG_LEVEL env var (default INFO).
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    """Configure root logging. Idempotent — clears prior handlers.
+
+    Split stdout / stderr: DEBUG+INFO -> stdout, WARNING+ -> stderr.
+    PM2 captures stdout -> out.log and stderr -> error.log, so as long
+    as nothing is abnormal only out.log fills up.
+
+    Without this, the root logger stays at WARNING by default with
+    Python's minimal format (no timestamp/level/module). In prod on PM2,
+    `logger.info(...)` logs would be silently lost.
+    """
+    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.DEBUG)
+    stdout_handler.addFilter(lambda r: r.levelno < logging.WARNING)
+    stdout_handler.setFormatter(fmt)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(fmt)
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, log_level, logging.INFO))
+    root.handlers.clear()
+    root.addHandler(stdout_handler)
+    root.addHandler(stderr_handler)
+
 
 # ── Load .env if present (without crashing if python-dotenv missing) ──
 try:
@@ -61,7 +80,7 @@ LOSE_DELTAS_BY_SLOT: tuple[int, ...] = (10, 10, 12, 13, 15)
 # make them explicit for network-blip resilience. serverSelectionTimeoutMS=5000
 # avoids blocking >30s when Mongo is down -> Discord returns "The application
 # did not respond". connectTimeoutMS=5000 caps the initial handshake.
-client: MongoClient = MongoClient(
+client: "MongoClient[dict[str, Any]]" = MongoClient(
     MONGO_URL,
     tz_aware=True,
     tzinfo=UTC,
@@ -204,33 +223,12 @@ async def on_ready():
     else:
         synced = await tree.sync()
         logger.info("Bot connected: %s (ID: %s)", bot.user, bot.user.id)
-        logger.info(
-            "%d slash commands synced (global, propagation up to 1h).", len(synced)
-        )
+        logger.info("%d slash commands synced (global, propagation up to 1h).", len(synced))
     _synced_once = True
 
 
 if __name__ == "__main__":
-    # Logging configuration: INFO level + format with timestamp and
-    # logger name. Allows filtering in prod (e.g. -e LOG_LEVEL=DEBUG
-    # via supervisor).
-    log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    # Split stdout / stderr: DEBUG+INFO -> stdout, WARNING+ -> stderr.
-    # PM2 captures stdout -> out.log and stderr -> error.log, so as
-    # long as nothing is abnormal only out.log fills up.
-    fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(logging.DEBUG)
-    stdout_handler.addFilter(lambda r: r.levelno < logging.WARNING)
-    stdout_handler.setFormatter(fmt)
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setLevel(logging.WARNING)
-    stderr_handler.setFormatter(fmt)
-    root = logging.getLogger()
-    root.setLevel(getattr(logging, log_level, logging.INFO))
-    root.handlers.clear()
-    root.addHandler(stdout_handler)
-    root.addHandler(stderr_handler)
+    _configure_logging()
     if not TOKEN:
         raise RuntimeError("DISCORD_TOKEN environment variable not set")
     bot.run(TOKEN)

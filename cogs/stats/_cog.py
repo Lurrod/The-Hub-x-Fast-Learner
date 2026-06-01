@@ -10,13 +10,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from services import repository
 from cogs.stats._embeds import (
     QUEUE_LABELS,
     build_details_embed,
     build_overview_embed,
 )
 from cogs.stats._view import StatsPaginatorView
+from services import repository
 
 _QUEUE_CHOICES = [
     app_commands.Choice(name="Pro", value="pro"),
@@ -59,45 +59,52 @@ class StatsCog(commands.Cog):
             return
 
         rank = (
-            elo_col.count_documents({
-                "queue_type": queue,
-                "$or": [
-                    {"elo": {"$gt": elo_doc["elo"]}},
-                    {"elo": elo_doc["elo"], "wins": {"$gt": elo_doc.get("wins", 0)}},
-                    {
-                        "elo": elo_doc["elo"],
-                        "wins": elo_doc.get("wins", 0),
-                        "_id": {"$lt": doc_id},
-                    },
-                ],
-            })
+            elo_col.count_documents(
+                {
+                    "queue_type": queue,
+                    "$or": [
+                        {"elo": {"$gt": elo_doc["elo"]}},
+                        {"elo": elo_doc["elo"], "wins": {"$gt": elo_doc.get("wins", 0)}},
+                        {
+                            "elo": elo_doc["elo"],
+                            "wins": elo_doc.get("wins", 0),
+                            "_id": {"$lt": doc_id},
+                        },
+                    ],
+                }
+            )
             + 1
         )
 
-        agg = repository.get_rating_aggregate(
-            self.db, user_id=member.id, queue_type=queue
-        )
+        agg = repository.get_rating_aggregate(self.db, user_id=member.id, queue_type=queue)
 
         overview = build_overview_embed(
-            elo_doc=elo_doc, rank=rank, agg=agg,
-            member=member, queue_type=queue,
+            elo_doc=elo_doc,
+            rank=rank,
+            agg=agg,
+            member=member,
+            queue_type=queue,
         )
 
         if agg is None:
             # Pre-deployment data — single-page ELO embed.
-            await interaction.response.send_message(
-                embed=overview, ephemeral=True
-            )
+            await interaction.response.send_message(embed=overview, ephemeral=True)
             return
 
         details = build_details_embed(
-            agg=agg, member=member, queue_type=queue,
+            agg=agg,
+            member=member,
+            queue_type=queue,
         )
         view = StatsPaginatorView(
-            overview=overview, details=details, invoker_id=interaction.user.id,
+            overview=overview,
+            details=details,
+            invoker_id=interaction.user.id,
         )
         await interaction.response.send_message(
-            embed=overview, view=view, ephemeral=True,
+            embed=overview,
+            view=view,
+            ephemeral=True,
         )
 
 

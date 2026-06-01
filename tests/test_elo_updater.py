@@ -119,8 +119,9 @@ def test_winners_get_plus_gain_in_db():
 
 
 def test_apply_match_validation_stamps_last_played():
-    import bot as bot_module
     from datetime import datetime
+
+    import bot as bot_module
 
     _seed_baseline_elo(bot_module.db, 42, range(10), baseline=2000)
     match = _make_match(elo=2400)

@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -229,7 +230,9 @@ def test_cooldown_after_window_returns_allowed():
 
 # ── ApplicationReviewView.accept ──────────────────────────────────
 def _fake_member(member_id: int, name: str = "Alice", *, manage_guild: bool = True) -> MagicMock:
-    m = MagicMock()
+    # spec=discord.Member so isinstance(m, discord.Member) returns True
+    # (RankModal.on_submit narrows interaction.user to a Member at runtime).
+    m = MagicMock(spec=discord.Member)
     m.id = member_id
     m.display_name = name
     m.mention = f"<@{member_id}>"
@@ -272,7 +275,7 @@ def _fake_guild(guild_id: int, members: list[MagicMock] | None = None) -> MagicM
 async def test_accept_happy_path_grants_role_and_validates():
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     applicant = _fake_member(42, "Alice", manage_guild=False)
     guild = _fake_guild(99, members=[admin, applicant])
@@ -327,7 +330,7 @@ async def _run_accept_with_tier(
     fl_hub_role is None when include_fl_hub_in_guild=False."""
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     applicant = _fake_member(42, "Alice", manage_guild=False)
     guild = _fake_guild(99, members=[admin, applicant])
@@ -429,7 +432,7 @@ async def test_accept_does_not_crash_when_fl_role_missing_from_guild():
 async def test_accept_staff_application_does_not_add_any_fl_role():
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     applicant = _fake_member(42, "Bob", manage_guild=False)
     guild = _fake_guild(99, members=[admin, applicant])
@@ -471,7 +474,7 @@ async def test_accept_legacy_embed_without_tier_does_not_crash():
     and not attempt any FL X assignment."""
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     applicant = _fake_member(42, "Alice", manage_guild=False)
     guild = _fake_guild(99, members=[admin, applicant])
@@ -529,7 +532,7 @@ async def test_accept_bails_on_corrupted_embed_without_cas():
     consume the DB CAS."""
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     guild = _fake_guild(99, members=[admin])
 
@@ -562,7 +565,7 @@ async def test_accept_bails_on_missing_member_without_cas():
     """Same principle: if get_member returns None, no CAS consumed."""
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     # No member 42 in the guild -> applicant missing
     guild = _fake_guild(99, members=[admin])
@@ -637,7 +640,7 @@ async def test_refuse_modal_skips_dm_kick_when_member_gone():
     embed is still updated (DB state + message consistent)."""
     from services import repository
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     admin = _fake_member(1, "Admin", manage_guild=True)
     # No candidate 42 in the guild
     guild = _fake_guild(99, members=[admin])
@@ -973,7 +976,7 @@ def _welcome_interaction() -> MagicMock:
 async def _run_welcome_button(button_callback_name: str):
     from cogs.applications import ApplicationModal, WelcomeView
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     view = WelcomeView(db=db, review_view=review_view)
     inter = _welcome_interaction()
@@ -1005,7 +1008,7 @@ async def test_welcome_apply_gc_opens_modal_with_gc_tier():
 async def test_welcome_coach_button_opens_staff_modal():
     from cogs.applications import StaffModal, WelcomeView
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     view = WelcomeView(db=db, review_view=review_view)
     inter = _welcome_interaction()
@@ -1046,7 +1049,7 @@ async def test_welcome_application_modal_rejects_unknown_tier():
 
     from cogs.applications import ApplicationModal
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     with pytest.raises(ValueError):
         ApplicationModal(db=db, review_view=review_view, queue_tier="open")
@@ -1079,7 +1082,7 @@ async def test_welcome_apply_open_grants_fl_hub_role():
     confirmation, no modal."""
     from cogs.applications import WelcomeView
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     view = WelcomeView(db=db, review_view=review_view)
     inter = _welcome_interaction_with_guild(fl_hub_in_guild=True)
@@ -1097,12 +1100,10 @@ async def test_welcome_apply_open_idempotent_when_member_already_has_role():
     """User already has FL HUB: no re-grant, friendly message."""
     from cogs.applications import WelcomeView
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     view = WelcomeView(db=db, review_view=review_view)
-    inter = _welcome_interaction_with_guild(
-        fl_hub_in_guild=True, member_has_fl_hub=True
-    )
+    inter = _welcome_interaction_with_guild(fl_hub_in_guild=True, member_has_fl_hub=True)
 
     await view.apply_open.callback(inter)
 
@@ -1116,7 +1117,7 @@ async def test_welcome_apply_open_warns_when_role_missing_from_guild():
     """Server admin forgot to create FL HUB role: don't crash, tell the user."""
     from cogs.applications import WelcomeView
 
-    db = mongomock.MongoClient(tz_aware=True).db
+    db: Any = mongomock.MongoClient(tz_aware=True).db
     review_view = ApplicationReviewView(db=db)
     view = WelcomeView(db=db, review_view=review_view)
     inter = _welcome_interaction_with_guild(fl_hub_in_guild=False)

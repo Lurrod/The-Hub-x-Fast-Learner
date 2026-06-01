@@ -109,9 +109,7 @@ class AdminCog(commands.Cog):
                     await queue_cog.post_queue_message(chan, qt)  # type: ignore[attr-defined]
                     queue_status.append(f"🎯 {qt.upper()} queue posted in {chan.mention}")
                 except discord.Forbidden:
-                    queue_status.append(
-                        f"⚠️ Could not send in {chan.mention} (permissions)"
-                    )
+                    queue_status.append(f"⚠️ Could not send in {chan.mention} (permissions)")
 
         # 4) Pre-post the leaderboards (silently skip if 0 players)
         for qt in repository.QUEUE_TYPES:
@@ -140,9 +138,7 @@ class AdminCog(commands.Cog):
             )
 
     # ── /bypass ────────────────────────────────────────────────
-    @app_commands.command(
-        name="bypass", description="Grants access to all bot commands to a role"
-    )
+    @app_commands.command(name="bypass", description="Grants access to all bot commands to a role")
     @app_commands.describe(role="The role that will get access to all commands")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def bypass(self, interaction: discord.Interaction, role: discord.Role):

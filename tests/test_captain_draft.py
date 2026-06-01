@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import random
+from types import SimpleNamespace
 
 import pytest
 
-from types import SimpleNamespace
-
-from services.captain_draft import DraftState, PICK_SEQUENCE, pick_captains, DraftResult, _is_admin
+from services.captain_draft import PICK_SEQUENCE, DraftResult, DraftState, _is_admin, pick_captains
 from services.match_service import build_plan_from_draft
 from services.team_balancer import Player
 

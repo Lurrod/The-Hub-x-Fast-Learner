@@ -5,8 +5,9 @@ Discord interactions. Take dict-shaped DB rows + a Member and return
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Mapping
+from typing import Any
 
 import discord
 
@@ -34,14 +35,16 @@ def _rating_from_agg(agg: Mapping[str, Any]) -> float:
     rounds = int(agg.get("rounds_played", 0) or 0)
     if rounds <= 0:
         return 0.0
-    return compute_rating_2_0(RatingInputs(
-        rounds_played=rounds,
-        kills=int(agg.get("kills", 0)),
-        deaths=int(agg.get("deaths", 0)),
-        assists=int(agg.get("assists", 0)),
-        damage_made=int(agg.get("damage_made", 0)),
-        kast_rounds=int(agg.get("kast_rounds", 0)),
-    ))
+    return compute_rating_2_0(
+        RatingInputs(
+            rounds_played=rounds,
+            kills=int(agg.get("kills", 0)),
+            deaths=int(agg.get("deaths", 0)),
+            assists=int(agg.get("assists", 0)),
+            damage_made=int(agg.get("damage_made", 0)),
+            kast_rounds=int(agg.get("kast_rounds", 0)),
+        )
+    )
 
 
 def build_overview_embed(

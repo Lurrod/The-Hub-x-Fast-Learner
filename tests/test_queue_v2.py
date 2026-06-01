@@ -6,8 +6,8 @@ import discord
 import pytest
 
 from cogs.queue_v2 import (
-    QueueView,
     QueueCog,
+    QueueView,
     build_queue_embed,
 )
 from services import repository
@@ -26,8 +26,9 @@ def _fake_member(member_id: int, name: str = "User"):
     m.remove_roles = AsyncMock()
     m.move_to = AsyncMock()
     # Mark as discord.Member to pass the fail-safe isinstance check
-    # in _join_callback (role gate).
-    m.__class__ = discord.Member
+    # in _join_callback (role gate). cast to ignore the MagicMock vs
+    # Member type incompatibility from mypy's perspective.
+    m.__class__ = discord.Member  # type: ignore[assignment]
     return m
 
 
@@ -806,6 +807,7 @@ async def test_close_queue_tolerates_missing_message():
     /close-queue does not crash and still removes the queue from the
     DB."""
     import discord as _discord
+
     import bot as bot_module
 
     _seed_active_queue(bot_module.db)
@@ -856,6 +858,7 @@ async def test_button_custom_ids_per_queue_type():
 async def test_join_pro_queue_requires_role():
     """Without the 'FL PRO' role, joining Pro Queue is refused."""
     import discord
+
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -886,6 +889,7 @@ async def test_join_pro_queue_requires_role():
 async def test_join_semipro_queue_requires_role():
     """Without the 'FL SEMIPRO' role, joining Semi Pro Queue is refused."""
     import discord
+
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -917,6 +921,7 @@ async def test_join_open_queue_requires_fl_hub_role():
     """Open Queue is now gated by the 'FL HUB' role (was previously
     ungated)."""
     import discord
+
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -947,6 +952,7 @@ async def test_join_open_queue_requires_fl_hub_role():
 async def test_join_gc_queue_requires_role():
     """Without the 'FL GC' role, joining GC Queue is refused."""
     import discord
+
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -977,6 +983,7 @@ async def test_join_gc_queue_requires_role():
 async def test_cannot_join_two_queues_simultaneously():
     """If already in Pro Queue, joining Open Queue is refused."""
     import discord
+
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -1122,7 +1129,9 @@ async def test_join_open_queue_allowed_with_fl_hub_role():
     from cogs.queue_v2 import QueueView
 
     db = bot_module.db
-    repository.setup_active_queue(db, guild_id=42, queue_type="open", channel_id=100, message_id=999)
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="open", channel_id=100, message_id=999
+    )
     _seed_riot_link(db, 42, 1)
 
     member = _fake_member(1)
@@ -1164,7 +1173,9 @@ async def test_join_semipro_queue_allowed_with_fl_staff_semipro_role():
     from cogs.queue_v2 import QueueView
 
     db = bot_module.db
-    repository.setup_active_queue(db, guild_id=42, queue_type="semipro", channel_id=100, message_id=999)
+    repository.setup_active_queue(
+        db, guild_id=42, queue_type="semipro", channel_id=100, message_id=999
+    )
     _seed_riot_link(db, 42, 1)
 
     member = _fake_member(1)
@@ -1209,6 +1220,4 @@ def test_fl_cast_in_match_viewer_role_names_only():
 
     assert "FL CAST" in MATCH_VIEWER_ROLE_NAMES
     for queue_type, gate in QUEUE_ROLE_GATES.items():
-        assert "FL CAST" not in gate, (
-            f"FL CAST must not gate the {queue_type} queue"
-        )
+        assert "FL CAST" not in gate, f"FL CAST must not gate the {queue_type} queue"

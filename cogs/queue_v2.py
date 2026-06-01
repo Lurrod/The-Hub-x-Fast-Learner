@@ -40,7 +40,6 @@ from discord.ext import commands
 
 from services import repository
 
-
 # Roles "Match #1", "Match #2", "Match #3", "Match #4", "Match #5" are assigned to a
 # player currently in a match. As long as a player has one of these roles, they are in a match.
 logger = logging.getLogger(__name__)
@@ -308,10 +307,7 @@ class QueueView(discord.ui.View):
             return "❌ Invalid interaction (outside a server or unexpected user type)."
         ok, required = self._has_required_role(inter.user)
         if not ok:
-            return (
-                f"❌ This queue is restricted to players with the "
-                f"**{required}** role."
-            )
+            return f"❌ This queue is restricted to players with the **{required}** role."
         return None
 
     async def _acquire_slot_under_lock(self, inter: discord.Interaction) -> _JoinResult:

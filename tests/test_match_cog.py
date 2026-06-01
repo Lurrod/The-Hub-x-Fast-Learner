@@ -1,11 +1,11 @@
 """Integration tests for the match cog (formation + persistence + reset queue)."""
 
 import random
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
-from cogs.match import MatchCog, VoteView, build_match_embed, VOTE_A_BTN_ID, VOTE_B_BTN_ID
+from cogs.match import VOTE_A_BTN_ID, VOTE_B_BTN_ID, MatchCog, VoteView, build_match_embed
 from services import repository
 from services.team_balancer import Player
 
@@ -619,9 +619,7 @@ async def test_on_queue_full_passes_queue_type_to_create_match(monkeypatch):
         captured.update(kwargs)
         return real_create_preparing(*args, **kwargs)
 
-    monkeypatch.setattr(
-        "services.repository.create_preparing_match", spy_create_preparing
-    )
+    monkeypatch.setattr("services.repository.create_preparing_match", spy_create_preparing)
 
     members = [_fake_member(i, f"P{i}") for i in range(10)]
     channel = _fake_channel(100)
@@ -805,8 +803,8 @@ async def test_on_queue_full_open_queue_calls_plan_match_not_draft(monkeypatch):
     """Open queue: plan_match is called; CaptainDraftSession is NOT constructed."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
-    from services.team_balancer import Player, balance_teams
     from services.match_service import MatchPlan
+    from services.team_balancer import Player, balance_teams
 
     calls = {"plan_match": 0, "draft_ctor": 0, "ban_ctor": 0}
 
@@ -867,8 +865,8 @@ async def test_on_queue_full_pro_queue_runs_draft_then_ban_then_build(monkeypatc
     """Pro queue: draft -> ban -> build_plan_from_draft with map_name from ban."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
-    from services.team_balancer import Player, balance_teams
     from services.match_service import MatchPlan
+    from services.team_balancer import Player, balance_teams
 
     seq: list[str] = []
 
@@ -936,8 +934,8 @@ async def test_on_queue_full_semipro_queue_runs_draft_then_ban(monkeypatch):
     """Semi-Pro queue: same branching as Pro (verifies condition is 'in (pro, semipro)' not '== pro')."""
     import bot as bot_module
     import cogs.match._cog as match_cog_module
-    from services.team_balancer import Player, balance_teams
     from services.match_service import MatchPlan
+    from services.team_balancer import Player, balance_teams
 
     seq: list[str] = []
 
@@ -1011,27 +1009,44 @@ async def test_persist_extended_stats_inserts_and_updates_aggregate(monkeypatch)
 
     extended = (
         PlayerStatsExtended(
-            user_id="111", puuid="P-A", queue_type="pro",
-            map_name="Ascent", agent="Jett", team="Red", win=True,
-            rounds_played=24, acs=225.0,
-            kills=22, deaths=14, assists=5,
-            damage_made=4123, damage_received=3580,
-            headshots=18, bodyshots=50, legshots=4,
-            multikills_2k=3, multikills_3k=1,
-            multikills_4k=0, multikills_5k=0,
-            first_kills=4, first_deaths=2,
-            kast_rounds=19, rating_2_0=1.34,
+            user_id="111",
+            puuid="P-A",
+            queue_type="pro",
+            map_name="Ascent",
+            agent="Jett",
+            team="Red",
+            win=True,
+            rounds_played=24,
+            acs=225.0,
+            kills=22,
+            deaths=14,
+            assists=5,
+            damage_made=4123,
+            damage_received=3580,
+            headshots=18,
+            bodyshots=50,
+            legshots=4,
+            multikills_2k=3,
+            multikills_3k=1,
+            multikills_4k=0,
+            multikills_5k=0,
+            first_kills=4,
+            first_deaths=2,
+            kast_rounds=19,
+            rating_2_0=1.34,
         ),
     )
 
     insert_calls: list = []
     update_calls: list = []
     monkeypatch.setattr(
-        match_cog_module.repository, "insert_match_player_stats",
-        lambda db, docs: (insert_calls.append(list(docs)) or len(docs)),
+        match_cog_module.repository,
+        "insert_match_player_stats",
+        lambda db, docs: insert_calls.append(list(docs)) or len(docs),
     )
     monkeypatch.setattr(
-        match_cog_module.repository, "update_rating_aggregates",
+        match_cog_module.repository,
+        "update_rating_aggregates",
         lambda db, deltas: update_calls.append(list(deltas)),
     )
 
@@ -1069,26 +1084,43 @@ async def test_persist_extended_stats_skips_aggregate_on_duplicate_insert(monkey
 
     one = (
         PlayerStatsExtended(
-            user_id="111", puuid="P-A", queue_type="pro",
-            map_name="Ascent", agent="Jett", team="Red", win=True,
-            rounds_played=24, acs=200.0,
-            kills=0, deaths=0, assists=0,
-            damage_made=0, damage_received=0,
-            headshots=0, bodyshots=0, legshots=0,
-            multikills_2k=0, multikills_3k=0,
-            multikills_4k=0, multikills_5k=0,
-            first_kills=0, first_deaths=0,
-            kast_rounds=0, rating_2_0=0.0,
+            user_id="111",
+            puuid="P-A",
+            queue_type="pro",
+            map_name="Ascent",
+            agent="Jett",
+            team="Red",
+            win=True,
+            rounds_played=24,
+            acs=200.0,
+            kills=0,
+            deaths=0,
+            assists=0,
+            damage_made=0,
+            damage_received=0,
+            headshots=0,
+            bodyshots=0,
+            legshots=0,
+            multikills_2k=0,
+            multikills_3k=0,
+            multikills_4k=0,
+            multikills_5k=0,
+            first_kills=0,
+            first_deaths=0,
+            kast_rounds=0,
+            rating_2_0=0.0,
         ),
     )
 
     monkeypatch.setattr(
-        match_cog_module.repository, "insert_match_player_stats",
+        match_cog_module.repository,
+        "insert_match_player_stats",
         lambda db, docs: 0,
     )
     update_called: list = []
     monkeypatch.setattr(
-        match_cog_module.repository, "update_rating_aggregates",
+        match_cog_module.repository,
+        "update_rating_aggregates",
         lambda db, deltas: update_called.append(deltas),
     )
 
@@ -1110,16 +1142,31 @@ async def test_persist_extended_stats_swallows_insert_exception(monkeypatch):
 
     one = (
         PlayerStatsExtended(
-            user_id="111", puuid="P-A", queue_type="pro",
-            map_name="Ascent", agent="Jett", team="Red", win=True,
-            rounds_played=24, acs=200.0,
-            kills=0, deaths=0, assists=0,
-            damage_made=0, damage_received=0,
-            headshots=0, bodyshots=0, legshots=0,
-            multikills_2k=0, multikills_3k=0,
-            multikills_4k=0, multikills_5k=0,
-            first_kills=0, first_deaths=0,
-            kast_rounds=0, rating_2_0=0.0,
+            user_id="111",
+            puuid="P-A",
+            queue_type="pro",
+            map_name="Ascent",
+            agent="Jett",
+            team="Red",
+            win=True,
+            rounds_played=24,
+            acs=200.0,
+            kills=0,
+            deaths=0,
+            assists=0,
+            damage_made=0,
+            damage_received=0,
+            headshots=0,
+            bodyshots=0,
+            legshots=0,
+            multikills_2k=0,
+            multikills_3k=0,
+            multikills_4k=0,
+            multikills_5k=0,
+            first_kills=0,
+            first_deaths=0,
+            kast_rounds=0,
+            rating_2_0=0.0,
         ),
     )
 
@@ -1127,11 +1174,14 @@ async def test_persist_extended_stats_swallows_insert_exception(monkeypatch):
         raise RuntimeError("mongo down")
 
     monkeypatch.setattr(
-        match_cog_module.repository, "insert_match_player_stats", boom,
+        match_cog_module.repository,
+        "insert_match_player_stats",
+        boom,
     )
     update_called: list = []
     monkeypatch.setattr(
-        match_cog_module.repository, "update_rating_aggregates",
+        match_cog_module.repository,
+        "update_rating_aggregates",
         lambda db, deltas: update_called.append(deltas),
     )
 
@@ -1142,4 +1192,3 @@ async def test_persist_extended_stats_swallows_insert_exception(monkeypatch):
         extended=one,
     )
     assert update_called == []
-

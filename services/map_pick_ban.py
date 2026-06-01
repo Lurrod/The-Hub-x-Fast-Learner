@@ -18,9 +18,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
-from collections.abc import Sequence
 
 from services.team_balancer import Player
 
@@ -105,9 +105,7 @@ class MapBanResult:
         if state.status != "complete":
             raise ValueError(f"Ban state not complete (status={state.status}).")
         if len(state.remaining) != 1:
-            raise ValueError(
-                f"Expected exactly 1 map remaining, got {len(state.remaining)}."
-            )
+            raise ValueError(f"Expected exactly 1 map remaining, got {len(state.remaining)}.")
         return cls(
             selected_map=state.remaining[0],
             ban_history=state.banned,
@@ -134,9 +132,7 @@ def _is_admin(user: Any, role_names: tuple[str, ...]) -> bool:
 def _build_banned_lines(banned: tuple[tuple[Literal["A", "B"], str], ...]) -> str:
     if not banned:
         return "_(none yet)_"
-    return "\n".join(
-        f"{'🅰️' if side == 'A' else '🅱️'} ~~{m}~~" for side, m in banned
-    )
+    return "\n".join(f"{'🅰️' if side == 'A' else '🅱️'} ~~{m}~~" for side, m in banned)
 
 
 def _build_remaining_lines(remaining: tuple[str, ...]) -> str:
@@ -189,12 +185,9 @@ class MapBanSession:
         embed = self._build_embed()
         view = self._build_view()
         content = (
-            f"<@{self.state.cap_a.id}> <@{self.state.cap_b.id}> "
-            f"- map ban phase, your turn to ban!"
+            f"<@{self.state.cap_a.id}> <@{self.state.cap_b.id}> - map ban phase, your turn to ban!"
         )
-        self.message = await self.prep_channel.send(
-            content=content, embed=embed, view=view
-        )
+        self.message = await self.prep_channel.send(content=content, embed=embed, view=view)
         logger.info(
             "[map_ban] init cap_a=%s cap_b=%s maps=%d",
             self.state.cap_a.id,
@@ -251,17 +244,12 @@ class MapBanSession:
             def __init__(self) -> None:
                 super().__init__(timeout=None)
 
-            async def interaction_check(
-                self, interaction: discord.Interaction
-            ) -> bool:
+            async def interaction_check(self, interaction: discord.Interaction) -> bool:
                 return await session._interaction_check(interaction)
 
         view = _View()
         if not self.state.is_complete and self.state.status == "banning":
-            options = [
-                discord.SelectOption(label=m, value=m)
-                for m in self.state.remaining
-            ]
+            options = [discord.SelectOption(label=m, value=m) for m in self.state.remaining]
             select: discord.ui.Select[Any] = discord.ui.Select(
                 custom_id="map_ban_pick",
                 placeholder="Choose a map to ban",
@@ -293,18 +281,13 @@ class MapBanSession:
     async def _interaction_check(self, interaction: Any) -> bool:
         cid = interaction.data.get("custom_id", "")
         if cid == "map_ban_pick":
-            if (
-                self.state.is_complete
-                or interaction.user.id != self.state.current_captain.id
-            ):
+            if self.state.is_complete or interaction.user.id != self.state.current_captain.id:
                 await interaction.response.send_message(
                     "⏳ It's not your turn.",
                     ephemeral=True,
                 )
                 return False
-        elif cid == "map_ban_cancel" and not _is_admin(
-            interaction.user, self.admin_role_names
-        ):
+        elif cid == "map_ban_cancel" and not _is_admin(interaction.user, self.admin_role_names):
             await interaction.response.send_message(
                 "❌ Admins only.",
                 ephemeral=True,
@@ -343,11 +326,7 @@ class MapBanSession:
                 if self.message is not None:
                     with contextlib.suppress(Exception):
                         await self.message.edit(embed=embed, view=view)
-            if (
-                self.state.is_complete
-                and self._done is not None
-                and not self._done.done()
-            ):
+            if self.state.is_complete and self._done is not None and not self._done.done():
                 self._done.set_result(MapBanResult.from_state(self.state))
 
     async def _on_cancel(self, interaction: Any) -> None:

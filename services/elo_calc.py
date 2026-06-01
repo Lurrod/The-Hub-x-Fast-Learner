@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Final
 
-
 # -- Constants -----------------------------------------------------
 ELO_START: Final[int] = 2000
 MAPS: Final[tuple[str, ...]] = (

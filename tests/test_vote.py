@@ -1,15 +1,14 @@
 """Tests for the voting system (Phase 5)."""
 
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-
 from cogs.match import (
+    MAJORITY_THRESHOLD,
+    VOTE_TIMEOUT_MINUTES,
     MatchCog,
     VoteView,
     build_match_embed_from_doc,
-    MAJORITY_THRESHOLD,
-    VOTE_TIMEOUT_MINUTES,
 )
 from services import repository
 
@@ -598,7 +597,7 @@ async def _vote_and_verify(cog, guild, match_id, *, choice: str, db, guild_id: i
             await view.vote_b.callback(inter)
     match_doc = repository.get_match(db, match_id)
     # force_apply=True simulates passing the Henrik timeout (flat ELO)
-    await cog._verify_match(guild, match_doc, force_apply=True)
+    await cog._verify_match(guild, match_doc)
 
 
 async def test_validation_triggers_elo_update_in_db():
@@ -826,6 +825,7 @@ def test_claim_match_for_elo_rejects_non_validated_match():
     claim = repository.claim_match_for_elo(bot_module.db, match_id)
     assert claim is None
 
+
 def test_release_elo_claim_allows_retry():
     """If ELO application raises, we release the claim to retry."""
     import bot as bot_module
@@ -856,8 +856,9 @@ def test_find_validated_unverified_excludes_elo_applied():
 # -- Category deletion after vote --
 async def test_vote_validated_deletes_match_category(monkeypatch):
     """When a vote is validated, the dynamic category is deleted."""
-    import bot as bot_module
     from unittest.mock import AsyncMock
+
+    import bot as bot_module
     from cogs.match import _cog as match_cog_module
 
     delete_mock = AsyncMock()
@@ -889,8 +890,9 @@ async def test_vote_validated_deletes_match_category(monkeypatch):
 
 async def test_vote_disputed_does_not_delete_category(monkeypatch):
     """When a vote is disputed (contested), the category is preserved for admin review."""
-    import bot as bot_module
     from unittest.mock import AsyncMock
+
+    import bot as bot_module
     from cogs.match import _cog as match_cog_module
 
     delete_mock = AsyncMock()

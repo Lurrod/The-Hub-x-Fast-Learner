@@ -165,7 +165,9 @@ class ApplicationModal(discord.ui.Modal, title="10mans Application"):
     def __init__(self, db, review_view: ApplicationReviewView, queue_tier: str) -> None:
         super().__init__()
         if queue_tier not in QUEUE_TIERS:
-            raise ValueError(f"unknown queue_tier {queue_tier!r}; expected one of {list(QUEUE_TIERS)}")
+            raise ValueError(
+                f"unknown queue_tier {queue_tier!r}; expected one of {list(QUEUE_TIERS)}"
+            )
         self.db = db
         self.review_view = review_view
         self.queue_tier = queue_tier
@@ -354,16 +356,14 @@ class RefuseReasonModal(discord.ui.Modal, title="Decline reason"):
         except Exception:
             with contextlib.suppress(Exception):
                 await interaction.message.edit(view=None)
-        await interaction.followup.send(
-            "✅ Application declined and user kicked.", ephemeral=True
-        )
+        await interaction.followup.send("✅ Application declined and user kicked.", ephemeral=True)
 
 
 async def _open_ticket_channel(
     interaction: discord.Interaction,
     db,
     *,
-    member_access: discord.Member | discord.User | None = None,
+    member_access: discord.Member | None = None,
 ) -> discord.TextChannel | None:
     """Creates the `ticket-{N}` channel in the `Tickets` category.
 
@@ -549,9 +549,17 @@ class RankModal(discord.ui.Modal, title="Rank application"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        ticket_channel = await _open_ticket_channel(
-            interaction, self.db, member_access=interaction.user
-        )
+        # The Modal is only attached to interactions sent inside a guild,
+        # so `interaction.user` is a Member, not a User. Narrow explicitly
+        # for the typing layer and as a runtime safety net.
+        applicant = interaction.user
+        if not isinstance(applicant, discord.Member):
+            await interaction.followup.send(
+                "❌ This action must be used in a server.",
+                ephemeral=True,
+            )
+            return
+        ticket_channel = await _open_ticket_channel(interaction, self.db, member_access=applicant)
         if ticket_channel is None:
             return
 
@@ -606,19 +614,48 @@ class ApplicationReviewView(discord.ui.View):
             )
             return
         await interaction.response.defer(ephemeral=True)
-        # 1) Validate BEFORE the CAS (cf. audit: avoids stuck state).
-        applicant_id, pseudo, is_staff, queue_tier = _parse_application_embed(interaction.message)
+
+        member, pseudo, is_staff, queue_tier = await self._validate_accept(interaction)
+        if member is None:
+            return
+        if not await self._claim_accept(interaction):
+            return
+
+        await self._update_accept_embed(interaction, member, pseudo)
+        await self._assign_accepted_roles(
+            interaction, member, is_staff=is_staff, queue_tier=queue_tier
+        )
+        await self._notify_accepted_member(member, pseudo)
+        await interaction.followup.send("✅ Application accepted!", ephemeral=True)
+
+    async def _validate_accept(
+        self,
+        interaction: discord.Interaction,
+    ) -> tuple[discord.Member | None, str, bool, str | None]:
+        """Parse the embed and resolve the applicant.
+
+        Returns ``(member, pseudo, is_staff, queue_tier)``. ``member`` is
+        ``None`` when the embed is corrupted or the applicant has left the
+        guild — in both cases an error followup has already been sent.
+        """
+        applicant_id, pseudo, is_staff, queue_tier = _parse_application_embed(
+            interaction.message
+        )
         if applicant_id is None:
             await interaction.followup.send(
                 "❌ Application data unreadable (corrupted embed).",
                 ephemeral=True,
             )
-            return
+            return None, "", False, None
         member = interaction.guild.get_member(applicant_id)
         if not member:
             await interaction.followup.send("❌ Member not found.", ephemeral=True)
-            return
-        # 2) Atomic CAS
+            return None, "", False, None
+        return member, pseudo, is_staff, queue_tier
+
+    async def _claim_accept(self, interaction: discord.Interaction) -> bool:
+        """Atomic CAS preventing double-handling. Returns False (and sends
+        an error followup) if another admin already claimed this app."""
         claimed = repository.claim_application_decision(
             self.db,
             interaction.guild_id,
@@ -631,11 +668,22 @@ class ApplicationReviewView(discord.ui.View):
                 "❌ This application has already been handled by another admin.",
                 ephemeral=True,
             )
-            return
+            return False
+        return True
+
+    async def _update_accept_embed(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        pseudo: str,
+    ) -> None:
+        """Rewrite the application embed to its accepted form. Best-effort."""
         try:
             old_embed = interaction.message.embeds[0] if interaction.message.embeds else None
             new_embed = discord.Embed(
-                title="📋 Application accepted", color=0x2ECC71, timestamp=datetime.now(UTC)
+                title="📋 Application accepted",
+                color=0x2ECC71,
+                timestamp=datetime.now(UTC),
             )
             new_embed.set_thumbnail(url=member.display_avatar.url)
             new_embed.add_field(name="👤 Member", value=member.mention, inline=True)
@@ -654,52 +702,82 @@ class ApplicationReviewView(discord.ui.View):
                         "Experience",
                     ):
                         new_embed.add_field(name=field.name, value=field.value, inline=False)
-            new_embed.add_field(name="✅ Accepted by", value=interaction.user.mention, inline=False)
+            new_embed.add_field(
+                name="✅ Accepted by", value=interaction.user.mention, inline=False
+            )
             await interaction.message.edit(embed=new_embed, view=None)
         except Exception:
             logger.exception("[accept] Edit failed")
             with contextlib.suppress(Exception):
                 await interaction.message.edit(view=None)
-        role_name = STAFF_ROLE if is_staff else PLAYERS_ROLE
+
+    async def _assign_accepted_roles(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        *,
+        is_staff: bool,
+        queue_tier: str | None,
+    ) -> None:
+        """Apply STAFF/PLAYERS + queue-tier + FL HUB roles. All best-effort."""
+        roles = interaction.guild.roles
+        await self._add_role_safe(
+            member, discord.utils.get(roles, name=STAFF_ROLE if is_staff else PLAYERS_ROLE), "Role"
+        )
+        if is_staff:
+            await self._add_role_safe(
+                member, discord.utils.get(roles, name=PLAYERS_ROLE), "Members role"
+            )
+        if queue_tier and not is_staff:
+            _, fl_role_name = QUEUE_TIERS[queue_tier]
+            await self._add_named_role_or_warn(
+                interaction, member, fl_role_name, "FL queue role"
+            )
+            await self._add_named_role_or_warn(
+                interaction, member, OPEN_QUEUE_ROLE, "FL HUB role"
+            )
+
+    async def _add_role_safe(
+        self,
+        member: discord.Member,
+        role: discord.Role | None,
+        label: str,
+    ) -> None:
+        """Add ``role`` if non-None; swallow errors."""
+        if role is None:
+            return
+        try:
+            await member.add_roles(role)
+        except Exception:
+            logger.exception("[accept] %s assignment failed", label)
+
+    async def _add_named_role_or_warn(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        role_name: str,
+        label: str,
+    ) -> None:
+        """Like ``_add_role_safe`` but emits a warning if the role is missing
+        on the guild (configuration error worth flagging in logs)."""
         role = discord.utils.get(interaction.guild.roles, name=role_name)
         if role:
             try:
                 await member.add_roles(role)
             except Exception:
-                logger.exception("[accept] Role assignment failed")
-        if is_staff:
-            members_role = discord.utils.get(interaction.guild.roles, name=PLAYERS_ROLE)
-            if members_role:
-                try:
-                    await member.add_roles(members_role)
-                except Exception:
-                    logger.exception("[accept] Members role assignment failed")
-        if queue_tier and not is_staff:
-            _, fl_role_name = QUEUE_TIERS[queue_tier]
-            fl_role = discord.utils.get(interaction.guild.roles, name=fl_role_name)
-            if fl_role:
-                try:
-                    await member.add_roles(fl_role)
-                except Exception:
-                    logger.exception("[accept] FL queue role assignment failed")
-            else:
-                logger.warning(
-                    "[accept] Queue role %r not found on guild %s; skipping",
-                    fl_role_name,
-                    interaction.guild_id,
-                )
-            fl_hub_role = discord.utils.get(interaction.guild.roles, name=OPEN_QUEUE_ROLE)
-            if fl_hub_role:
-                try:
-                    await member.add_roles(fl_hub_role)
-                except Exception:
-                    logger.exception("[accept] FL HUB role assignment failed")
-            else:
-                logger.warning(
-                    "[accept] Open queue role %r not found on guild %s; skipping",
-                    OPEN_QUEUE_ROLE,
-                    interaction.guild_id,
-                )
+                logger.exception("[accept] %s assignment failed", label)
+            return
+        logger.warning(
+            "[accept] %s %r not found on guild %s; skipping",
+            label,
+            role_name,
+            interaction.guild_id,
+        )
+
+    async def _notify_accepted_member(
+        self, member: discord.Member, pseudo: str
+    ) -> None:
+        """Rename to their declared pseudo + DM them an acceptance card."""
         with contextlib.suppress(Exception):
             await member.edit(nick=pseudo)
         with contextlib.suppress(discord.Forbidden):
@@ -711,7 +789,6 @@ class ApplicationReviewView(discord.ui.View):
                     timestamp=datetime.now(UTC),
                 )
             )
-        await interaction.followup.send("✅ Application accepted!", ephemeral=True)
 
     @discord.ui.button(
         label="Decline",
@@ -725,7 +802,9 @@ class ApplicationReviewView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        applicant_id, _pseudo, _is_staff, _queue_tier = _parse_application_embed(interaction.message)
+        applicant_id, _pseudo, _is_staff, _queue_tier = _parse_application_embed(
+            interaction.message
+        )
         if applicant_id is None:
             await interaction.response.send_message(
                 "❌ Application data unreadable (corrupted embed).",
@@ -824,8 +903,7 @@ class WelcomeView(discord.ui.View):
         member = interaction.user
         if any(getattr(r, "name", None) == OPEN_QUEUE_ROLE for r in member.roles):
             await interaction.response.send_message(
-                f"✅ You already have access to the **Open queue** "
-                f"(`{OPEN_QUEUE_ROLE}` role).",
+                f"✅ You already have access to the **Open queue** (`{OPEN_QUEUE_ROLE}` role).",
                 ephemeral=True,
             )
             return
@@ -852,8 +930,7 @@ class WelcomeView(discord.ui.View):
             )
             return
         await interaction.response.send_message(
-            "✅ You can now play the **Open queue**! Head to "
-            "`#open-queue` to queue up.",
+            "✅ You can now play the **Open queue**! Head to `#open-queue` to queue up.",
             ephemeral=True,
         )
 
@@ -868,9 +945,7 @@ class WelcomeView(discord.ui.View):
         if remaining > 0:
             await interaction.response.send_message(_cooldown_message(remaining), ephemeral=True)
             return
-        await interaction.response.send_modal(
-            StaffModal(db=self.db, review_view=self.review_view)
-        )
+        await interaction.response.send_modal(StaffModal(db=self.db, review_view=self.review_view))
 
 
 class CloseTicketView(discord.ui.View):

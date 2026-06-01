@@ -10,9 +10,8 @@ Used by:
 
 from __future__ import annotations
 
-import logging
-
 import asyncio
+import logging
 import re
 from collections import OrderedDict
 from datetime import UTC, datetime
@@ -290,8 +289,7 @@ async def build_leaderboard_payload(
     queue_type: str,
     *,
     with_view: bool = True,
-    view_timeout: float
-    | None = None,  # kept for back-compat, ignored (view is always persistent)
+    view_timeout: float | None = None,  # kept for back-compat, ignored (view is always persistent)
     page: int = 0,
 ) -> tuple[discord.File | None, discord.ui.View | None]:
     """Generate file/view for the leaderboard of the given queue_type, page `page`.

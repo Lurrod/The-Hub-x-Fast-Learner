@@ -360,9 +360,7 @@ class ELOAdminCog(commands.Cog):
         await _refresh_leaderboard_safe(interaction.guild, self.db, queue)
 
     # ── /reset-queue ───────────────────────────────────────────
-    @app_commands.command(
-        name="reset-queue", description="Drop all data of a queue (admin)"
-    )
+    @app_commands.command(name="reset-queue", description="Drop all data of a queue (admin)")
     @app_commands.describe(queue="Queue type to reset")
     @app_commands.choices(queue=_QUEUE_CHOICES)
     @app_commands.checks.has_permissions(manage_guild=True)

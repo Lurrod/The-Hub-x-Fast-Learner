@@ -404,9 +404,10 @@ async def test_delete_match_category_category_not_found_is_silenced():
 @pytest.mark.asyncio
 async def test_cleanup_orphan_logs_on_delete_error_and_continues():
     """When delete_match_category logs an error, cleanup_orphan continues to next category."""
-    from services.match_category import cleanup_orphan_match_categories
-    import services.match_category as mc_module
     from unittest.mock import patch
+
+    import services.match_category as mc_module
+    from services.match_category import cleanup_orphan_match_categories
 
     orphan_a = MagicMock(spec=discord.CategoryChannel)
     orphan_a.id = 10

@@ -11,7 +11,6 @@ Usage:
 
 import pytest
 
-
 PAGE_SIZE = 15
 
 
@@ -303,9 +302,9 @@ async def test_page_cache_invalidation_clears_queue_entries():
     (guild, queue_type), whatever the page."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload,
-        _cache_invalidate,
         _PAGE_CACHE,
+        _cache_invalidate,
+        build_leaderboard_payload,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -330,9 +329,9 @@ async def test_page_cache_invalidation_is_per_queue():
     """Invalidating Pro must NOT affect Open or GC."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload,
-        _cache_invalidate,
         _PAGE_CACHE,
+        _cache_invalidate,
+        build_leaderboard_payload,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -357,9 +356,9 @@ async def test_page_cache_invalidation_is_per_guild():
     """Invalidating guild 99 must NOT affect guild 100."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        build_leaderboard_payload,
-        _cache_invalidate,
         _PAGE_CACHE,
+        _cache_invalidate,
+        build_leaderboard_payload,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -375,18 +374,16 @@ async def test_page_cache_invalidation_is_per_guild():
 
     _cache_invalidate(99, "pro")
     assert (99, "pro", 0) not in _PAGE_CACHE
-    assert (100, "pro", 0) in _PAGE_CACHE, (
-        "Another guild's cache must not be touched"
-    )
+    assert (100, "pro", 0) in _PAGE_CACHE, "Another guild's cache must not be touched"
 
 
 def test_page_cache_lru_eviction():
     """Beyond _PAGE_CACHE_MAXSIZE, the oldest (FIFO) entry is evicted."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        _cache_set,
         _PAGE_CACHE,
         _PAGE_CACHE_MAXSIZE,
+        _cache_set,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()
@@ -408,9 +405,9 @@ def test_page_cache_get_promotes_lru_order():
     """A cache hit must promote the key to most-recent (anti-eviction)."""
     from services import leaderboard_refresh
     from services.leaderboard_refresh import (
-        _cache_set,
-        _cache_get,
         _PAGE_CACHE,
+        _cache_get,
+        _cache_set,
     )
 
     leaderboard_refresh._clear_page_cache_for_tests()

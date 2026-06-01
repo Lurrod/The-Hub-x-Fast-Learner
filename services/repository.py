@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Any
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
-from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -851,9 +852,7 @@ def get_match_player_stats_col(db: Database) -> Collection:
     return col
 
 
-def insert_match_player_stats(
-    db: Database, docs: list[Mapping[str, Any]]
-) -> int:
+def insert_match_player_stats(db: Database, docs: list[Mapping[str, Any]]) -> int:
     """Bulk insert per-match player stat docs. Returns inserted count.
 
     Idempotent: duplicate _id errors are swallowed (the caller relies
@@ -878,19 +877,28 @@ def get_player_rating_aggregates_col(db: Database) -> Collection:
 
 
 _AGGREGATE_COUNTER_FIELDS: tuple[str, ...] = (
-    "games", "rounds_played",
-    "kills", "deaths", "assists",
-    "damage_made", "damage_received",
-    "headshots", "bodyshots", "legshots",
-    "multikills_2k", "multikills_3k", "multikills_4k", "multikills_5k",
-    "first_kills", "first_deaths",
-    "kast_rounds", "rating_2_0_sum",
+    "games",
+    "rounds_played",
+    "kills",
+    "deaths",
+    "assists",
+    "damage_made",
+    "damage_received",
+    "headshots",
+    "bodyshots",
+    "legshots",
+    "multikills_2k",
+    "multikills_3k",
+    "multikills_4k",
+    "multikills_5k",
+    "first_kills",
+    "first_deaths",
+    "kast_rounds",
+    "rating_2_0_sum",
 )
 
 
-def update_rating_aggregates(
-    db: Database, deltas: list[Mapping[str, Any]]
-) -> None:
+def update_rating_aggregates(db: Database, deltas: list[Mapping[str, Any]]) -> None:
     """For each delta, upsert the {user_id}:{queue_type} aggregate
     doc, incrementing the counter fields by the delta and stamping
     updated_at = now.
@@ -921,9 +929,7 @@ def update_rating_aggregates(
 def get_rating_aggregate(
     db: Database, *, user_id: int | str, queue_type: str
 ) -> Mapping[str, Any] | None:
-    return get_player_rating_aggregates_col(db).find_one(
-        {"_id": f"{user_id}:{queue_type}"}
-    )
+    return get_player_rating_aggregates_col(db).find_one({"_id": f"{user_id}:{queue_type}"})
 
 
 def get_leaderboard_state_col(db: Database, guild_id: int | str) -> Collection:
@@ -1136,7 +1142,9 @@ def reserve_match_number(db: Database, *, guild_id: int) -> int:
         return_document=ReturnDocument.AFTER,
     )
     # upsert=True + ReturnDocument.AFTER guarantees a non-None doc.
-    # The assert is here for mypy (pymongo typing: Any | None) and as a
-    # safety net if pymongo changes this contract in a future major version.
-    assert doc is not None, "find_one_and_update(upsert=True, AFTER) must return a doc"
+    # Explicit check (vs `assert`) so the guarantee survives `python -O`.
+    if doc is None:
+        raise RuntimeError(
+            "find_one_and_update(upsert=True, AFTER) returned None — pymongo contract changed"
+        )
     return int(doc["match_counter"])

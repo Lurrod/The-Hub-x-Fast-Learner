@@ -6,6 +6,7 @@ existing imports (`from cogs.match import setup`, `MatchCog`,
 `VoteView`, `build_match_embed`, etc.).
 """
 
+from cogs.match._cog import MatchCog, setup
 from cogs.match._constants import (
     ADMIN_ROLE_NAMES,
     HENRIK_CIRCUIT_FAIL_THRESHOLD,
@@ -22,14 +23,12 @@ from cogs.match._constants import (
     VOTE_B_BTN_ID,
     VOTE_TIMEOUT_MINUTES,
 )
-from cogs.match._cog import MatchCog, setup
 from cogs.match._embeds import (
     build_elo_changes_embed,
     build_match_embed,
     build_match_embed_from_doc,
 )
 from cogs.match._vote import VoteView
-
 
 __all__ = [
     "ADMIN_ROLE_NAMES",

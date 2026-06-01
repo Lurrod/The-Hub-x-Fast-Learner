@@ -13,8 +13,8 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
     category_ids and call cleanup_orphan_match_categories per guild.
     Uses the real status strings persisted by the bot (pending /
     validated_a / validated_b / contested), not synthetic ones."""
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     cleanup_mock = AsyncMock(return_value=2)
     monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
@@ -68,8 +68,8 @@ async def test_cog_load_deletes_orphan_categories(monkeypatch):
 @pytest.mark.asyncio
 async def test_cog_load_handles_empty_active_set(monkeypatch):
     """When no active matches exist, cleanup is called with empty set."""
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     cleanup_mock = AsyncMock(return_value=5)
     monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
@@ -89,8 +89,8 @@ async def test_cog_load_handles_empty_active_set(monkeypatch):
 @pytest.mark.asyncio
 async def test_cog_load_per_guild_error_does_not_block_others(monkeypatch):
     """A cleanup error in one guild must not stop processing of other guilds."""
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     cleanup_mock = AsyncMock(side_effect=[RuntimeError("boom"), 3])
     monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
@@ -114,8 +114,8 @@ async def test_cog_load_excludes_in_flight_cleanup_categories(monkeypatch):
     started (delete_started_at set) but whose status is still active
     must be removed from active_category_ids so orphan_cleanup can
     finish the job."""
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     cleanup_mock = AsyncMock(return_value=1)
     monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
@@ -162,8 +162,8 @@ async def test_cog_load_recovers_preparing_matches(monkeypatch):
     the doc and delete its Discord category (the in-memory session
     is dead, button views are not persistent).
     """
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     delete_mock = AsyncMock()
     monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
@@ -177,9 +177,7 @@ async def test_cog_load_recovers_preparing_matches(monkeypatch):
         cancelled_ids.append(match_id)
         return {"_id": match_id, "status": "preparing"}
 
-    monkeypatch.setattr(
-        match_cog_module.repository, "cancel_preparing_match", fake_cancel
-    )
+    monkeypatch.setattr(match_cog_module.repository, "cancel_preparing_match", fake_cancel)
 
     bot = MagicMock()
     guild = MagicMock()
@@ -225,8 +223,8 @@ async def test_cog_load_recovers_preparing_matches(monkeypatch):
 @pytest.mark.asyncio
 async def test_cog_load_preparing_recovery_continues_on_per_doc_error(monkeypatch):
     """One bad preparing doc must not block recovery of the others."""
-    from cogs.match._cog import MatchCog
     from cogs.match import _cog as match_cog_module
+    from cogs.match._cog import MatchCog
 
     delete_mock = AsyncMock()
     monkeypatch.setattr(match_cog_module, "delete_match_category", delete_mock)
@@ -242,9 +240,7 @@ async def test_cog_load_preparing_recovery_continues_on_per_doc_error(monkeypatc
             raise RuntimeError("DB blip")
         return {"_id": match_id, "status": "preparing"}
 
-    monkeypatch.setattr(
-        match_cog_module.repository, "cancel_preparing_match", fake_cancel
-    )
+    monkeypatch.setattr(match_cog_module.repository, "cancel_preparing_match", fake_cancel)
 
     bot = MagicMock()
     guild = MagicMock()
@@ -283,9 +279,9 @@ async def test_cog_load_with_real_bot_defers_cleanup_to_after_ready(monkeypatch)
     is empty. Cleanup is scheduled as a background task that awaits
     wait_until_ready first.
     """
-    from cogs.match._cog import MatchCog
-    from cogs.match import _cog as match_cog_module
     from discord.ext import commands
+
+    from cogs.match._cog import MatchCog
 
     run_cleanup_mock = AsyncMock()
     monkeypatch.setattr(MatchCog, "_run_startup_cleanup", run_cleanup_mock)
@@ -300,7 +296,7 @@ async def test_cog_load_with_real_bot_defers_cleanup_to_after_ready(monkeypatch)
             self._ready_waited = True
 
         class _Loop:
-            def __init__(self, outer: "_StubBot") -> None:
+            def __init__(self, outer: _StubBot) -> None:
                 self.outer = outer
 
             def create_task(self, coro):
@@ -308,11 +304,11 @@ async def test_cog_load_with_real_bot_defers_cleanup_to_after_ready(monkeypatch)
                 return coro
 
         @property
-        def loop(self):  # type: ignore[override]
+        def loop(self):
             return _StubBot._Loop(self)
 
         @property
-        def guilds(self):  # type: ignore[override]
+        def guilds(self):
             return []
 
     bot = _StubBot()

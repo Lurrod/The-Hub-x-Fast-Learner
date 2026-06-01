@@ -416,9 +416,7 @@ async def test_slash_elomodify_add():
     guild = _fake_guild(42, members=[admin, target])
     inter = _fake_interaction(admin, guild)
 
-    await bot_module.elomodify.callback(
-        inter, queue="open", player=target, action="add", amount=50
-    )
+    await bot_module.elomodify.callback(inter, queue="open", player=target, action="add", amount=50)
 
     col = bot_module.get_elo_col()
     doc = col.find_one({"_id": "2:open"})

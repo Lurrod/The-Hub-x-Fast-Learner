@@ -26,7 +26,6 @@ from typing import Any
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-
 # ── Layout ────────────────────────────────────────────────────────
 WIDTH = 1700
 TITLE_BAND = 100

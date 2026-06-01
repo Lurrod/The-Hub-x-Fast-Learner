@@ -14,11 +14,9 @@ import logging
 
 import discord
 
-from services import repository
-
 from cogs.match._constants import MAJORITY_THRESHOLD, VOTE_A_BTN_ID, VOTE_B_BTN_ID
 from cogs.match._embeds import build_match_embed_from_doc
-
+from services import repository
 
 logger = logging.getLogger(__name__)
 

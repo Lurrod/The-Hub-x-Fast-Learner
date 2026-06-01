@@ -11,10 +11,10 @@ Flow:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
-from collections.abc import Mapping
 
 from services.rating import RatingInputs, compute_rating_2_0
 from services.riot_api import (
@@ -23,7 +23,6 @@ from services.riot_api import (
     MatchSummary,
     RiotApiError,
 )
-
 
 CUSTOM_MODE_NAME: Final[str] = "Custom Game"
 DEFAULT_MULT_MIN: Final[float] = 0.7
@@ -196,29 +195,43 @@ def build_extended_stats(
         uid = puuid_to_user_id.get(p.puuid)
         if not uid:
             continue
-        rating = compute_rating_2_0(RatingInputs(
-            rounds_played=rounds,
-            kills=p.kills, deaths=p.deaths, assists=p.assists,
-            damage_made=p.damage_made,
-            kast_rounds=p.kast_rounds,
-        ))
-        out.append(PlayerStatsExtended(
-            user_id=str(uid),
-            puuid=p.puuid,
-            queue_type=queue_type,
-            map_name=summary.map_name,
-            agent=p.agent,
-            team=p.team,
-            win=(p.team == winning_team) if winning_team else False,
-            rounds_played=rounds,
-            acs=p.score / rounds if rounds else 0.0,
-            kills=p.kills, deaths=p.deaths, assists=p.assists,
-            damage_made=p.damage_made, damage_received=p.damage_received,
-            headshots=p.headshots, bodyshots=p.bodyshots, legshots=p.legshots,
-            multikills_2k=p.multikills_2k, multikills_3k=p.multikills_3k,
-            multikills_4k=p.multikills_4k, multikills_5k=p.multikills_5k,
-            first_kills=p.first_kills, first_deaths=p.first_deaths,
-            kast_rounds=p.kast_rounds,
-            rating_2_0=rating,
-        ))
+        rating = compute_rating_2_0(
+            RatingInputs(
+                rounds_played=rounds,
+                kills=p.kills,
+                deaths=p.deaths,
+                assists=p.assists,
+                damage_made=p.damage_made,
+                kast_rounds=p.kast_rounds,
+            )
+        )
+        out.append(
+            PlayerStatsExtended(
+                user_id=str(uid),
+                puuid=p.puuid,
+                queue_type=queue_type,
+                map_name=summary.map_name,
+                agent=p.agent,
+                team=p.team,
+                win=(p.team == winning_team) if winning_team else False,
+                rounds_played=rounds,
+                acs=p.score / rounds if rounds else 0.0,
+                kills=p.kills,
+                deaths=p.deaths,
+                assists=p.assists,
+                damage_made=p.damage_made,
+                damage_received=p.damage_received,
+                headshots=p.headshots,
+                bodyshots=p.bodyshots,
+                legshots=p.legshots,
+                multikills_2k=p.multikills_2k,
+                multikills_3k=p.multikills_3k,
+                multikills_4k=p.multikills_4k,
+                multikills_5k=p.multikills_5k,
+                first_kills=p.first_kills,
+                first_deaths=p.first_deaths,
+                kast_rounds=p.kast_rounds,
+                rating_2_0=rating,
+            )
+        )
     return tuple(out)

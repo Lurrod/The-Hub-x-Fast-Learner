@@ -191,8 +191,8 @@ def test_generate_scoreboard_omits_queue_label_when_empty():
 def test_load_agent_icon_returns_image_for_known_agent():
     """A committed agent asset should resolve to a PIL image."""
     from services.scoreboard_img import (
-        AGENT_ICON_SIZE,
         _AGENT_ICON_CACHE,
+        AGENT_ICON_SIZE,
         _load_agent_icon,
     )
 

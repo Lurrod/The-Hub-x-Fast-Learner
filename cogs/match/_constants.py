@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Final
 
-
 # Maximum ELO gap between the leaving player and the replacement. Beyond,
 # /match-replace is refused: the teams of the ongoing match would be too
 # unbalanced for the result to reflect real player performance.

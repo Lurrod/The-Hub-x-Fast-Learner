@@ -19,13 +19,33 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import discord
 from bson import ObjectId
 from bson.errors import InvalidId
-
-import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from cogs.match._constants import (
+    ADMIN_ROLE_NAMES,
+    CONTESTED_EXPIRY_HOURS,
+    HENRIK_CIRCUIT_FAIL_THRESHOLD,
+    HENRIK_CIRCUIT_OPEN_MINUTES,
+    HENRIK_VERIFY_DELAY_MINUTES,
+    HENRIK_VERIFY_TIMEOUT_MINUTES,
+    MAJORITY_THRESHOLD,
+    MATCH_HOST_ROLE_NAME,
+    MATCH_HUB_SPECTATOR_ROLE_NAMES,
+    MATCH_SPECTATOR_ROLE_NAMES,
+    MATCH_VIEWER_ROLE_NAMES,
+    MAX_REPLACE_ELO_DIFF,
+    RESULTS_CHANNELS,
+    VOTE_TIMEOUT_MINUTES,
+)
+from cogs.match._embeds import (
+    build_elo_changes_embed,
+    build_match_embed,
+)
+from cogs.match._vote import VoteView
 from cogs.queue_v2 import (
     QUEUE_CHANNEL_NAMES,
     QUEUE_ROLE_NAME,
@@ -39,15 +59,15 @@ from services.captain_draft import (
 from services.elo_updater import (
     apply_match_validation,
 )
+from services.leaderboard_refresh import refresh_leaderboard_channel
 from services.map_pick_ban import (
     MapBanCancelledError,
     MapBanSession,
 )
-from services.leaderboard_refresh import refresh_leaderboard_channel
 from services.match_category import (
+    cleanup_orphan_match_categories,
     create_match_category,
     delete_match_category,
-    cleanup_orphan_match_categories,
 )
 from services.match_service import (
     build_plan_from_draft,
@@ -55,37 +75,13 @@ from services.match_service import (
     plan_match,
     serialize_team,
 )
-from services.repository import reserve_match_number
 from services.match_verifier import (
     build_extended_stats,
     find_henrik_custom_match,
 )
+from services.repository import reserve_match_number
 from services.riot_api import HenrikDevClient
 from services.scoreboard_img import generate_scoreboard
-
-from cogs.match._constants import (
-    ADMIN_ROLE_NAMES,
-    MATCH_HUB_SPECTATOR_ROLE_NAMES,
-    MATCH_SPECTATOR_ROLE_NAMES,
-    MATCH_VIEWER_ROLE_NAMES,
-    CONTESTED_EXPIRY_HOURS,
-    HENRIK_CIRCUIT_FAIL_THRESHOLD,
-    HENRIK_CIRCUIT_OPEN_MINUTES,
-    HENRIK_VERIFY_DELAY_MINUTES,
-    HENRIK_VERIFY_TIMEOUT_MINUTES,
-    MAJORITY_THRESHOLD,
-    MATCH_HOST_ROLE_NAME,
-    MAX_REPLACE_ELO_DIFF,
-    RESULTS_CHANNELS,
-    VOTE_TIMEOUT_MINUTES,
-)
-
-from cogs.match._embeds import (
-    build_elo_changes_embed,
-    build_match_embed,
-)
-from cogs.match._vote import VoteView
-
 
 # Inlined to avoid cross-cog import (cogs.queue_v2 -> match), would
 # introduce a cycle. Kept in sync manually with cogs.queue_v2.QUEUE_LABELS.
@@ -659,8 +655,7 @@ class MatchCog(commands.Cog):
         waiting_match = discord.utils.get(category.voice_channels, name="Waiting Match")
         if waiting_match is None:
             logger.warning(
-                "[match] _move_players_to_waiting_match: 'Waiting Match' "
-                "not found in %s, no-op",
+                "[match] _move_players_to_waiting_match: 'Waiting Match' not found in %s, no-op",
                 category.name,
             )
             return
@@ -940,14 +935,10 @@ class MatchCog(commands.Cog):
         Returns the number of matches processed."""
         now = now or datetime.now(UTC)
         start_cutoff = now - timedelta(minutes=HENRIK_VERIFY_DELAY_MINUTES)
-        timeout_cutoff = now - timedelta(minutes=HENRIK_VERIFY_TIMEOUT_MINUTES)
 
         # Per-guild parallelization: same principle as check_vote_timeouts.
         results = await asyncio.gather(
-            *[
-                self._check_henrik_verifications_for_guild(g, start_cutoff, timeout_cutoff)
-                for g in self.bot.guilds
-            ],
+            *[self._check_henrik_verifications_for_guild(g, start_cutoff) for g in self.bot.guilds],
             return_exceptions=True,
         )
         processed = 0
@@ -962,7 +953,6 @@ class MatchCog(commands.Cog):
         self,
         guild,
         start_cutoff: datetime,
-        timeout_cutoff: datetime,
     ) -> int:
         processed = 0
         # Blocking scan -> thread to avoid freezing the event loop.
@@ -973,10 +963,8 @@ class MatchCog(commands.Cog):
             origin_guild_id=guild.id,
         )
         for match in stale:
-            validated_at = match.get("validated_at") or match.get("created_at")
-            timed_out = bool(validated_at is not None and validated_at <= timeout_cutoff)
             try:
-                await self._verify_match(guild, match, force_apply=timed_out)
+                await self._verify_match(guild, match)
             except Exception:
                 logger.exception("[match] verify_match raised")
             processed += 1
@@ -986,8 +974,6 @@ class MatchCog(commands.Cog):
         self,
         guild,
         match_doc: dict,
-        *,
-        force_apply: bool = False,
     ) -> None:
         """
         Apply the flat ±20 ELO for a validated match. ACS/Henrik
@@ -1104,50 +1090,60 @@ class MatchCog(commands.Cog):
         match_docs: list[dict] = []
         deltas: list[dict] = []
         for s in extended:
-            match_docs.append({
-                "_id": f"{match_id}:{s.user_id}",
-                "match_id": match_id,
-                "user_id": s.user_id,
-                "queue_type": s.queue_type,
-                "map": s.map_name,
-                "agent": s.agent,
-                "rounds_played": s.rounds_played,
-                "win": s.win,
-                "kills": s.kills, "deaths": s.deaths, "assists": s.assists,
-                "damage_made": s.damage_made,
-                "damage_received": s.damage_received,
-                "headshots": s.headshots, "bodyshots": s.bodyshots,
-                "legshots": s.legshots,
-                "multikills_2k": s.multikills_2k,
-                "multikills_3k": s.multikills_3k,
-                "multikills_4k": s.multikills_4k,
-                "multikills_5k": s.multikills_5k,
-                "first_kills": s.first_kills,
-                "first_deaths": s.first_deaths,
-                "kast_rounds": s.kast_rounds,
-                "acs": s.acs,
-                "rating_2_0": s.rating_2_0,
-                "created_at": now,
-            })
-            deltas.append({
-                "user_id": s.user_id,
-                "queue_type": s.queue_type,
-                "games": 1,
-                "rounds_played": s.rounds_played,
-                "kills": s.kills, "deaths": s.deaths, "assists": s.assists,
-                "damage_made": s.damage_made,
-                "damage_received": s.damage_received,
-                "headshots": s.headshots, "bodyshots": s.bodyshots,
-                "legshots": s.legshots,
-                "multikills_2k": s.multikills_2k,
-                "multikills_3k": s.multikills_3k,
-                "multikills_4k": s.multikills_4k,
-                "multikills_5k": s.multikills_5k,
-                "first_kills": s.first_kills,
-                "first_deaths": s.first_deaths,
-                "kast_rounds": s.kast_rounds,
-                "rating_2_0_sum": s.rating_2_0,
-            })
+            match_docs.append(
+                {
+                    "_id": f"{match_id}:{s.user_id}",
+                    "match_id": match_id,
+                    "user_id": s.user_id,
+                    "queue_type": s.queue_type,
+                    "map": s.map_name,
+                    "agent": s.agent,
+                    "rounds_played": s.rounds_played,
+                    "win": s.win,
+                    "kills": s.kills,
+                    "deaths": s.deaths,
+                    "assists": s.assists,
+                    "damage_made": s.damage_made,
+                    "damage_received": s.damage_received,
+                    "headshots": s.headshots,
+                    "bodyshots": s.bodyshots,
+                    "legshots": s.legshots,
+                    "multikills_2k": s.multikills_2k,
+                    "multikills_3k": s.multikills_3k,
+                    "multikills_4k": s.multikills_4k,
+                    "multikills_5k": s.multikills_5k,
+                    "first_kills": s.first_kills,
+                    "first_deaths": s.first_deaths,
+                    "kast_rounds": s.kast_rounds,
+                    "acs": s.acs,
+                    "rating_2_0": s.rating_2_0,
+                    "created_at": now,
+                }
+            )
+            deltas.append(
+                {
+                    "user_id": s.user_id,
+                    "queue_type": s.queue_type,
+                    "games": 1,
+                    "rounds_played": s.rounds_played,
+                    "kills": s.kills,
+                    "deaths": s.deaths,
+                    "assists": s.assists,
+                    "damage_made": s.damage_made,
+                    "damage_received": s.damage_received,
+                    "headshots": s.headshots,
+                    "bodyshots": s.bodyshots,
+                    "legshots": s.legshots,
+                    "multikills_2k": s.multikills_2k,
+                    "multikills_3k": s.multikills_3k,
+                    "multikills_4k": s.multikills_4k,
+                    "multikills_5k": s.multikills_5k,
+                    "first_kills": s.first_kills,
+                    "first_deaths": s.first_deaths,
+                    "kast_rounds": s.kast_rounds,
+                    "rating_2_0_sum": s.rating_2_0,
+                }
+            )
 
         try:
             inserted = await asyncio.to_thread(
@@ -1161,9 +1157,7 @@ class MatchCog(commands.Cog):
             return
 
         try:
-            await asyncio.to_thread(
-                repository.update_rating_aggregates, self.db, deltas
-            )
+            await asyncio.to_thread(repository.update_rating_aggregates, self.db, deltas)
         except Exception:
             logger.exception("[stats] update_rating_aggregates failed")
 
@@ -1344,9 +1338,7 @@ class MatchCog(commands.Cog):
                 if member is not None:
                     display_name = member.display_name
                 else:
-                    display_name = (
-                        f"{stats.name}#{stats.tag}" if stats.tag else stats.name
-                    )
+                    display_name = f"{stats.name}#{stats.tag}" if stats.tag else stats.name
                 rows.append(
                     {
                         "name": display_name,
@@ -1381,9 +1373,7 @@ class MatchCog(commands.Cog):
             return
 
         try:
-            await channel.send(
-                file=discord.File(buf, filename=f"scoreboard_{queue_type}.png")
-            )
+            await channel.send(file=discord.File(buf, filename=f"scoreboard_{queue_type}.png"))
         except Exception:
             logger.exception("[match] scoreboard send raised")
 
@@ -1542,6 +1532,66 @@ class MatchCog(commands.Cog):
             )
             return
 
+        match = await self._fetch_pending_match(interaction)
+        if match is None:
+            return
+
+        team_key = self._team_of_player(match, leaver.id)
+        if team_key is None:
+            await interaction.followup.send(
+                f"❌ {leaver.mention} is not in this match.",
+                ephemeral=True,
+            )
+            return
+
+        if self._is_player_in_match(match, replacement.id):
+            await interaction.followup.send(
+                f"❌ {replacement.mention} is already in this match.",
+                ephemeral=True,
+            )
+            return
+
+        new_elo = await self._resolve_replacement_elo(replacement, match)
+        if new_elo is None:
+            await interaction.followup.send(
+                f"❌ {replacement.mention} does not have a linked Riot account "
+                "(`/link-riot Name#TAG`).",
+                ephemeral=True,
+            )
+            return
+
+        leaver_elo = self._elo_of_player(match, team_key, leaver.id)
+        if not await self._replace_within_elo_band(
+            interaction, leaver, replacement, leaver_elo, new_elo
+        ):
+            return
+
+        leader_replaced, modified = await self._apply_replace_update(
+            match, team_key, leaver.id, replacement, new_elo
+        )
+        if not modified:
+            await interaction.followup.send(
+                "❌ The match was validated or cancelled in the meantime. Replace aborted.",
+                ephemeral=True,
+            )
+            return
+
+        if leader_replaced:
+            await self._transfer_match_host_role(interaction.guild, leaver, replacement)
+
+        suffix = " (lobby host)" if leader_replaced else ""
+        await interaction.followup.send(
+            f"✅ {leaver.mention} replaced by {replacement.mention} in `{team_key}`{suffix}.",
+            ephemeral=True,
+        )
+
+    async def _fetch_pending_match(
+        self, interaction: discord.Interaction
+    ) -> dict | None:
+        """Fetch the active ``pending`` match doc for the current channel.
+
+        Sends an error followup and returns ``None`` if no such match exists.
+        """
         matches_col = repository.get_matches_col(self.db)
         match = await asyncio.to_thread(
             matches_col.find_one,
@@ -1552,121 +1602,144 @@ class MatchCog(commands.Cog):
                 "❌ No match in progress (status pending) in this channel.",
                 ephemeral=True,
             )
-            return
+        return match
 
-        team_key: str | None = None
+    @staticmethod
+    def _team_of_player(match: dict, user_id: int) -> str | None:
+        """Return ``"team_a"`` / ``"team_b"`` for ``user_id`` or ``None``."""
         for tk in ("team_a", "team_b"):
-            if any(int(p.get("id", 0)) == leaver.id for p in match.get(tk, [])):
-                team_key = tk
-                break
-        if team_key is None:
-            await interaction.followup.send(
-                f"❌ {leaver.mention} is not in this match.",
-                ephemeral=True,
-            )
-            return
+            if any(int(p.get("id", 0)) == user_id for p in match.get(tk, [])):
+                return tk
+        return None
 
-        if any(
-            int(p.get("id", 0)) == replacement.id
+    @staticmethod
+    def _is_player_in_match(match: dict, user_id: int) -> bool:
+        return any(
+            int(p.get("id", 0)) == user_id
             for tk in ("team_a", "team_b")
             for p in match.get(tk, [])
-        ):
-            await interaction.followup.send(
-                f"❌ {replacement.mention} is already in this match.",
-                ephemeral=True,
-            )
-            return
+        )
 
+    @staticmethod
+    def _elo_of_player(match: dict, team_key: str, user_id: int) -> int:
+        player = next(
+            (p for p in match[team_key] if int(p.get("id", 0)) == user_id),
+            None,
+        )
+        return int(player.get("elo", 0)) if player else 0
+
+    async def _resolve_replacement_elo(
+        self,
+        replacement: discord.Member,
+        match: dict,
+    ) -> int | None:
+        """Look up the replacement's queue-typed ELO.
+
+        Returns ``None`` if the player has no linked Riot account; falls
+        back to ``ELO_START`` if they have no ELO doc yet for this queue.
+        """
         riot = await asyncio.to_thread(
             repository.get_riot_account,
             self.db,
             replacement.id,
         )
         if not riot:
-            await interaction.followup.send(
-                f"❌ {replacement.mention} does not have a linked Riot account (`/link-riot Name#TAG`).",
-                ephemeral=True,
-            )
-            return
-
-        # Look up the replacement's ELO in the queue_type of the current match.
-        # The player doc uses a compound _id `<uid>:<queue_type>`.
+            return None
         match_queue_type = match.get("queue_type", "open")
         elo_col = repository.get_elo_col(self.db)
         elo_doc = await asyncio.to_thread(
             elo_col.find_one,
             {"_id": repository.player_doc_id(replacement.id, match_queue_type)},
         )
-        new_elo = int(elo_doc.get("elo", elo_calc.ELO_START)) if elo_doc else elo_calc.ELO_START
+        if elo_doc:
+            return int(elo_doc.get("elo", elo_calc.ELO_START))
+        return elo_calc.ELO_START
 
-        # Refuse the replace if the gap is too large: the teams had been
-        # balanced at formation time, a swap with a gap > MAX_REPLACE_ELO_DIFF
-        # breaks that balance and the post-match ELO would not reflect
-        # the real performance.
-        leaver_player = next(
-            (p for p in match[team_key] if int(p.get("id", 0)) == leaver.id),
-            None,
-        )
-        leaver_elo = int(leaver_player.get("elo", 0)) if leaver_player else 0
+    async def _replace_within_elo_band(
+        self,
+        interaction: discord.Interaction,
+        leaver: discord.Member,
+        replacement: discord.Member,
+        leaver_elo: int,
+        new_elo: int,
+    ) -> bool:
+        """Reject the replace if |leaver - replacement| > MAX_REPLACE_ELO_DIFF.
+
+        Reasoning: teams were balanced at formation; a big gap breaks the
+        balance and the post-match ELO would not reflect real performance.
+        """
         elo_diff = abs(leaver_elo - new_elo)
-        if elo_diff > MAX_REPLACE_ELO_DIFF:
-            await interaction.followup.send(
-                f"❌ ELO gap too large: {leaver.mention} "
-                f"({leaver_elo}) vs {replacement.mention} ({new_elo}) "
-                f"-> diff={elo_diff} > {MAX_REPLACE_ELO_DIFF}. The teams "
-                "would be unbalanced. Cancel the match (`/match-cancel`) "
-                "and reform the queue.",
-                ephemeral=True,
-            )
-            return
+        if elo_diff <= MAX_REPLACE_ELO_DIFF:
+            return True
+        await interaction.followup.send(
+            f"❌ ELO gap too large: {leaver.mention} "
+            f"({leaver_elo}) vs {replacement.mention} ({new_elo}) "
+            f"-> diff={elo_diff} > {MAX_REPLACE_ELO_DIFF}. The teams "
+            "would be unbalanced. Cancel the match (`/match-cancel`) "
+            "and reform the queue.",
+            ephemeral=True,
+        )
+        return False
 
+    async def _apply_replace_update(
+        self,
+        match: dict,
+        team_key: str,
+        leaver_id: int,
+        replacement: discord.Member,
+        new_elo: int,
+    ) -> tuple[bool, bool]:
+        """Apply the team swap and (if applicable) lobby-leader transfer.
+
+        The transfer matters because ``_fetch_henrik_multipliers`` queries
+        the lobby leader's Riot history; leaving the old leader would make
+        Henrik miss the custom and fall back to flat ELO. Updates use a
+        CAS on ``status=pending`` to avoid clobbering a concurrent
+        vote/cancel.
+
+        Returns ``(leader_replaced, modified)``.
+        """
         new_player = {
             "id": replacement.id,
             "name": replacement.display_name,
             "elo": new_elo,
         }
-        new_team = [new_player if int(p.get("id", 0)) == leaver.id else p for p in match[team_key]]
-        # If the leaver was the lobby leader, transfer the role to the
-        # replacement: without this, `_fetch_henrik_multipliers` would
-        # query the original lobby leader's Riot history (who did not
-        # play the custom) -> match never found on Henrik's side -> flat
-        # ELO applied instead of the expected ACS weighting. The Discord
-        # "Match Host" role follows as well.
+        new_team = [
+            new_player if int(p.get("id", 0)) == leaver_id else p
+            for p in match[team_key]
+        ]
         update: dict[str, Any] = {team_key: new_team}
-        leader_replaced = int(match.get("lobby_leader_id", 0)) == int(leaver.id)
+        leader_replaced = int(match.get("lobby_leader_id", 0)) == int(leaver_id)
         if leader_replaced:
             update["lobby_leader_id"] = str(replacement.id)
-        # CAS on the status: if in the meantime a vote moved the match
-        # to validated_*/contested, we no longer touch the teams.
+
+        matches_col = repository.get_matches_col(self.db)
         result = await asyncio.to_thread(
             matches_col.update_one,
             {"_id": match["_id"], "status": "pending"},
             {"$set": update},
         )
-        if result.modified_count != 1:
-            await interaction.followup.send(
-                "❌ The match was validated or cancelled in the meantime. Replace aborted.",
-                ephemeral=True,
-            )
+        return leader_replaced, result.modified_count == 1
+
+    @staticmethod
+    async def _transfer_match_host_role(
+        guild: discord.Guild,
+        leaver: discord.Member,
+        replacement: discord.Member,
+    ) -> None:
+        """Move ``MATCH_HOST_ROLE_NAME`` from leaver to replacement. Best-effort."""
+        host_role = discord.utils.get(guild.roles, name=MATCH_HOST_ROLE_NAME)
+        if host_role is None:
             return
-
-        # Transfer the "Match Host" role if the leader is being replaced.
-        if leader_replaced:
-            host_role = discord.utils.get(interaction.guild.roles, name=MATCH_HOST_ROLE_NAME)
-            if host_role is not None:
-                if host_role in leaver.roles:
-                    with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-                        await leaver.remove_roles(
-                            host_role, reason="Match replace: host transferred"
-                        )
-                with contextlib.suppress(discord.Forbidden, discord.HTTPException):
-                    await replacement.add_roles(host_role, reason="Match replace: host transferred")
-
-        suffix = " (lobby host)" if leader_replaced else ""
-        await interaction.followup.send(
-            f"✅ {leaver.mention} replaced by {replacement.mention} in `{team_key}`{suffix}.",
-            ephemeral=True,
-        )
+        if host_role in leaver.roles:
+            with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+                await leaver.remove_roles(
+                    host_role, reason="Match replace: host transferred"
+                )
+        with contextlib.suppress(discord.Forbidden, discord.HTTPException):
+            await replacement.add_roles(
+                host_role, reason="Match replace: host transferred"
+            )
 
     @staticmethod
     def _resolve_match_id(match_id: str) -> ObjectId | str:
@@ -1859,9 +1932,7 @@ class MatchCog(commands.Cog):
         (since /match-cancel previously could not find the match).
         """
         try:
-            preparing = await asyncio.to_thread(
-                repository.find_preparing_matches, self.db
-            )
+            preparing = await asyncio.to_thread(repository.find_preparing_matches, self.db)
         except Exception:
             logger.exception("[match] find_preparing_matches raised")
             return
@@ -1871,9 +1942,7 @@ class MatchCog(commands.Cog):
             cat_id = m.get("category_id")
             guild_id = m.get("origin_guild_id")
             try:
-                await asyncio.to_thread(
-                    repository.cancel_preparing_match, self.db, match_id
-                )
+                await asyncio.to_thread(repository.cancel_preparing_match, self.db, match_id)
                 if cat_id and guild_id:
                     guild = self.bot.get_guild(int(guild_id))
                     if guild is not None:
@@ -1887,9 +1956,7 @@ class MatchCog(commands.Cog):
                     m.get("match_number"),
                 )
             except Exception:
-                logger.exception(
-                    "[match] failed to recover preparing match _id=%s", match_id
-                )
+                logger.exception("[match] failed to recover preparing match _id=%s", match_id)
 
     async def cog_unload(self):
         self._timeout_loop.cancel()

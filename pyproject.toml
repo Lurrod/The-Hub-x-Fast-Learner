@@ -18,7 +18,7 @@ extend-exclude = [
 # + builtins shadow + modernization + return-style + ruff-specific.
 # RUF001/RUF003 (ambiguous unicode) desactives : on garde nos emojis.
 # S101 desactive sur les tests (asserts pytest sont legitimes).
-select = ["E", "F", "W", "B", "C90", "SIM", "N", "A", "UP", "RET", "RUF"]
+select = ["E", "F", "W", "B", "C90", "SIM", "N", "A", "UP", "RET", "RUF", "I"]
 ignore = [
     "E501",      # line too long -- on a black/format
     "RUF001",    # ambiguous unicode in strings (emojis intentionnels)

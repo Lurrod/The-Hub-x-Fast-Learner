@@ -36,7 +36,6 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 # ── Layout ────────────────────────────────────────────────────────
 WIDTH = 1500
 TOP_STRIP_BAND = 38
@@ -54,7 +53,7 @@ COL_B_X0 = COL_W
 COL_PAD_LEFT = 22
 AGENT_ICON_SIZE = 50
 X_AGENT_REL = COL_PAD_LEFT
-X_NAME_REL = X_AGENT_REL + AGENT_ICON_SIZE + 14      # right of agent icon
+X_NAME_REL = X_AGENT_REL + AGENT_ICON_SIZE + 14  # right of agent icon
 X_K = 380
 X_D = 460
 X_A = 540
@@ -120,7 +119,7 @@ def _font(size: int, bold: bool = True):
         "C:/Windows/Fonts/arial.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
-    for path in (bold_paths if bold else regular_paths):
+    for path in bold_paths if bold else regular_paths:
         try:
             return ImageFont.truetype(path, size)
         except OSError:
@@ -263,9 +262,7 @@ def generate_scoreboard(
     score_a_w = _text_w(draw, a_score_str, score_font)
     score_b_w = _text_w(draw, b_score_str, score_font)
     dash_w = _text_w(draw, dash, dash_font)
-    group_w = (
-        label_a_w + pad + score_a_w + pad + dash_w + pad + score_b_w + pad + label_b_w
-    )
+    group_w = label_a_w + pad + score_a_w + pad + dash_w + pad + score_b_w + pad + label_b_w
     x = (WIDTH - group_w) // 2
 
     _draw_v_center(draw, team_a_label, x, score_y_center, label_font, team_a_color)
@@ -332,9 +329,12 @@ def _draw_column_header(draw: ImageDraw.ImageDraw, col_x0: int, y_top: int) -> N
 
     # Soft separator below the header
     draw.line(
-        [(col_x0, y_top + COLUMN_HEADER_BAND - 1),
-         (col_x0 + COL_W, y_top + COLUMN_HEADER_BAND - 1)],
-        fill=SEPARATOR, width=1,
+        [
+            (col_x0, y_top + COLUMN_HEADER_BAND - 1),
+            (col_x0 + COL_W, y_top + COLUMN_HEADER_BAND - 1),
+        ],
+        fill=SEPARATOR,
+        width=1,
     )
 
     _draw_v_center(draw, "PLAYER", col_x0 + X_NAME_REL, y_center, header_font, HEADER_GRAY)

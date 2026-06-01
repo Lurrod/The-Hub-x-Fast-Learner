@@ -31,29 +31,19 @@ class StatsPaginatorView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.invoker_id:
-            await interaction.response.send_message(
-                "❌ Not your stats panel.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Not your stats panel.", ephemeral=True)
             return False
         return True
 
     def _current_embed(self) -> discord.Embed:
         return self.overview if self.page == 0 else self.details
 
-    @discord.ui.button(
-        custom_id="stats_prev", emoji="◀", style=discord.ButtonStyle.secondary
-    )
+    @discord.ui.button(custom_id="stats_prev", emoji="◀", style=discord.ButtonStyle.secondary)
     async def prev(self, interaction: discord.Interaction, _button) -> None:
         self.page = 0
-        await interaction.response.edit_message(
-            embed=self._current_embed(), view=self
-        )
+        await interaction.response.edit_message(embed=self._current_embed(), view=self)
 
-    @discord.ui.button(
-        custom_id="stats_next", emoji="▶", style=discord.ButtonStyle.secondary
-    )
+    @discord.ui.button(custom_id="stats_next", emoji="▶", style=discord.ButtonStyle.secondary)
     async def next(self, interaction: discord.Interaction, _button) -> None:
         self.page = 1
-        await interaction.response.edit_message(
-            embed=self._current_embed(), view=self
-        )
+        await interaction.response.edit_message(embed=self._current_embed(), view=self)

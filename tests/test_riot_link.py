@@ -1,16 +1,15 @@
 """Tests for the riot_link cog: /link-riot, /unlink-riot, /refresh-elo."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
-
+from cogs.riot_link import RiotLinkCog
 from services.riot_api import (
     Account,
     CurrentMMR,
     PlayerNotFoundError,
     RateLimitedError,
 )
-from cogs.riot_link import RiotLinkCog
 
 
 def _fake_member(member_id: int, name: str = "TestUser"):

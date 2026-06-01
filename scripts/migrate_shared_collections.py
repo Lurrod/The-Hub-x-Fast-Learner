@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from pymongo import MongoClient
 

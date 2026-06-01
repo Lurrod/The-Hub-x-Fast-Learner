@@ -122,9 +122,7 @@ async def test_admin_cancel_raises_map_ban_cancelled_error():
     run_task = asyncio.create_task(session.run())
     await asyncio.sleep(0)
 
-    admin_inter = _mock_interaction(
-        user_id=99, custom_id="map_ban_cancel", is_admin=True
-    )
+    admin_inter = _mock_interaction(user_id=99, custom_id="map_ban_cancel", is_admin=True)
     await session._on_cancel(admin_inter)
 
     with pytest.raises(MapBanCancelledError):

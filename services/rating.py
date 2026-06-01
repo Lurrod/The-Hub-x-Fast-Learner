@@ -13,11 +13,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 _INTERCEPT = 0.1587
-_KAST_C    = 0.0073
-_KPR_C     = 0.3591
-_DPR_C     = -0.5329
-_IMPACT_C  = 0.2372
-_ADR_C     = 0.0032
+_KAST_C = 0.0073
+_KPR_C = 0.3591
+_DPR_C = -0.5329
+_IMPACT_C = 0.2372
+_ADR_C = 0.0032
 
 _IMPACT_KPR_C = 2.13
 _IMPACT_APR_C = 0.42

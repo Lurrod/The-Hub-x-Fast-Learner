@@ -30,9 +30,7 @@ RULES_LINES: tuple[str, ...] = (
     "No trolling in game, we are here to play seriously",
 )
 
-RULES_RECLAMATIONS = (
-    "For any complaints / claims you can open a ticket in #tickets-reports"
-)
+RULES_RECLAMATIONS = "For any complaints / claims you can open a ticket in #tickets-reports"
 
 
 def build_rules_embed() -> discord.Embed:

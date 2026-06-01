@@ -11,14 +11,24 @@ import pytest
 def _agg():
     return {
         "_id": "111:pro",
-        "user_id": "111", "queue_type": "pro",
-        "games": 47, "rounds_played": 1128,
-        "kills": 1034, "deaths": 891, "assists": 312,
-        "damage_made": 196443, "damage_received": 174022,
-        "headshots": 781, "bodyshots": 2150, "legshots": 188,
-        "multikills_2k": 142, "multikills_3k": 28,
-        "multikills_4k": 7,   "multikills_5k": 1,
-        "first_kills": 198, "first_deaths": 156,
+        "user_id": "111",
+        "queue_type": "pro",
+        "games": 47,
+        "rounds_played": 1128,
+        "kills": 1034,
+        "deaths": 891,
+        "assists": 312,
+        "damage_made": 196443,
+        "damage_received": 174022,
+        "headshots": 781,
+        "bodyshots": 2150,
+        "legshots": 188,
+        "multikills_2k": 142,
+        "multikills_3k": 28,
+        "multikills_4k": 7,
+        "multikills_5k": 1,
+        "first_kills": 198,
+        "first_deaths": 156,
         "kast_rounds": 856,
         "rating_2_0_sum": 62.9,
         "updated_at": datetime.now(UTC),
@@ -27,7 +37,9 @@ def _agg():
 
 def _elo():
     return {
-        "elo": 1547, "wins": 24, "losses": 13,
+        "elo": 1547,
+        "wins": 24,
+        "losses": 13,
     }
 
 
@@ -45,8 +57,11 @@ def test_overview_embed_contains_rating_and_kpr():
     from cogs.stats._embeds import build_overview_embed
 
     embed = build_overview_embed(
-        elo_doc=_elo(), rank=12, agg=_agg(),
-        member=_member(), queue_type="pro",
+        elo_doc=_elo(),
+        rank=12,
+        agg=_agg(),
+        member=_member(),
+        queue_type="pro",
     )
     text = repr(embed.to_dict())
     assert "Rating 2.0" in text
@@ -60,7 +75,9 @@ def test_details_embed_contains_multikills_and_opening():
     from cogs.stats._embeds import build_details_embed
 
     embed = build_details_embed(
-        agg=_agg(), member=_member(), queue_type="pro",
+        agg=_agg(),
+        member=_member(),
+        queue_type="pro",
     )
     text = repr(embed.to_dict())
     assert "2K" in text and "142" in text
@@ -72,8 +89,11 @@ def test_overview_embed_with_no_aggregate_shows_elo_only_hint():
     from cogs.stats._embeds import build_overview_embed
 
     embed = build_overview_embed(
-        elo_doc=_elo(), rank=12, agg=None,
-        member=_member(), queue_type="pro",
+        elo_doc=_elo(),
+        rank=12,
+        agg=None,
+        member=_member(),
+        queue_type="pro",
     )
     text = repr(embed.to_dict())
     assert "1547" in text
@@ -82,15 +102,18 @@ def test_overview_embed_with_no_aggregate_shows_elo_only_hint():
 
 @pytest.mark.asyncio
 async def test_paginator_flips_to_details_on_next():
-    import discord
     from unittest.mock import AsyncMock
+
+    import discord
 
     from cogs.stats._view import StatsPaginatorView
 
     overview = discord.Embed(title="overview")
     details = discord.Embed(title="details")
     view = StatsPaginatorView(
-        overview=overview, details=details, invoker_id=999,
+        overview=overview,
+        details=details,
+        invoker_id=999,
     )
     assert view.page == 0
 
@@ -98,9 +121,7 @@ async def test_paginator_flips_to_details_on_next():
     inter.user.id = 999
     inter.response.edit_message = AsyncMock()
 
-    next_button = next(
-        c for c in view.children if getattr(c, "custom_id", "") == "stats_next"
-    )
+    next_button = next(c for c in view.children if getattr(c, "custom_id", "") == "stats_next")
     await next_button.callback(inter)
 
     assert view.page == 1
@@ -110,15 +131,18 @@ async def test_paginator_flips_to_details_on_next():
 
 @pytest.mark.asyncio
 async def test_paginator_flips_back_to_overview_on_prev():
-    import discord
     from unittest.mock import AsyncMock
+
+    import discord
 
     from cogs.stats._view import StatsPaginatorView
 
     overview = discord.Embed(title="overview")
     details = discord.Embed(title="details")
     view = StatsPaginatorView(
-        overview=overview, details=details, invoker_id=999,
+        overview=overview,
+        details=details,
+        invoker_id=999,
     )
     view.page = 1  # start on details
 
@@ -126,9 +150,7 @@ async def test_paginator_flips_back_to_overview_on_prev():
     inter.user.id = 999
     inter.response.edit_message = AsyncMock()
 
-    prev_button = next(
-        c for c in view.children if getattr(c, "custom_id", "") == "stats_prev"
-    )
+    prev_button = next(c for c in view.children if getattr(c, "custom_id", "") == "stats_prev")
     await prev_button.callback(inter)
 
     assert view.page == 0
@@ -138,13 +160,16 @@ async def test_paginator_flips_back_to_overview_on_prev():
 
 @pytest.mark.asyncio
 async def test_paginator_rejects_non_invoker():
-    import discord
     from unittest.mock import AsyncMock
+
+    import discord
 
     from cogs.stats._view import StatsPaginatorView
 
     view = StatsPaginatorView(
-        overview=discord.Embed(), details=discord.Embed(), invoker_id=111,
+        overview=discord.Embed(),
+        details=discord.Embed(),
+        invoker_id=111,
     )
     inter = MagicMock()
     inter.user.id = 222
@@ -157,10 +182,13 @@ async def test_paginator_rejects_non_invoker():
 @pytest.mark.asyncio
 async def test_paginator_invoker_passes_interaction_check():
     import discord
+
     from cogs.stats._view import StatsPaginatorView
 
     view = StatsPaginatorView(
-        overview=discord.Embed(), details=discord.Embed(), invoker_id=111,
+        overview=discord.Embed(),
+        details=discord.Embed(),
+        invoker_id=111,
     )
     inter = MagicMock()
     inter.user.id = 111
@@ -170,19 +198,22 @@ async def test_paginator_invoker_passes_interaction_check():
 
 @pytest.mark.asyncio
 async def test_stats_command_sends_paginated_embed_when_agg_exists(monkeypatch):
-    import bot as bot_module
-    import cogs.stats._cog as stats_cog_module
     from unittest.mock import AsyncMock
 
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_elo_col",
+        stats_cog_module.repository,
+        "get_elo_col",
         lambda db: MagicMock(
             find_one=lambda *a, **k: _elo(),
             count_documents=lambda *a, **k: 11,
         ),
     )
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_rating_aggregate",
+        stats_cog_module.repository,
+        "get_rating_aggregate",
         lambda db, *, user_id, queue_type: _agg(),
     )
 
@@ -203,16 +234,19 @@ async def test_stats_command_sends_paginated_embed_when_agg_exists(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stats_command_empty_when_no_elo_doc(monkeypatch):
-    import bot as bot_module
-    import cogs.stats._cog as stats_cog_module
     from unittest.mock import AsyncMock
 
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_elo_col",
+        stats_cog_module.repository,
+        "get_elo_col",
         lambda db: MagicMock(find_one=lambda *a, **k: None),
     )
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_rating_aggregate",
+        stats_cog_module.repository,
+        "get_rating_aggregate",
         lambda db, *, user_id, queue_type: None,
     )
 
@@ -233,19 +267,22 @@ async def test_stats_command_no_aggregate_shows_single_page(monkeypatch):
     """ELO doc exists but no rating aggregate (pre-deployment match
     history): single-page embed, no view attached.
     """
-    import bot as bot_module
-    import cogs.stats._cog as stats_cog_module
     from unittest.mock import AsyncMock
 
+    import bot as bot_module
+    import cogs.stats._cog as stats_cog_module
+
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_elo_col",
+        stats_cog_module.repository,
+        "get_elo_col",
         lambda db: MagicMock(
             find_one=lambda *a, **k: _elo(),
             count_documents=lambda *a, **k: 5,
         ),
     )
     monkeypatch.setattr(
-        stats_cog_module.repository, "get_rating_aggregate",
+        stats_cog_module.repository,
+        "get_rating_aggregate",
         lambda db, *, user_id, queue_type: None,
     )
 

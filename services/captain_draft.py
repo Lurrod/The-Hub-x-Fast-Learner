@@ -16,9 +16,9 @@ import asyncio
 import contextlib
 import logging
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal
-from collections.abc import Sequence
 
 from services.team_balancer import Player
 

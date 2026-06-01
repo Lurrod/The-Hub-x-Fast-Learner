@@ -30,3 +30,26 @@ repos:
       # Empeche le retour du BOM UTF-8 introduit par PowerShell `Set-Content`
       # / `Out-File` par defaut sur PS 5.1. Cf. AUDIT.md (2026-05-21).
       - id: fix-byte-order-marker
+
+  # mypy: strict-ish type check on the source code (tests excluded to
+  # keep the hook fast and avoid duct-tape annotations on fixture mocks).
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        files: ^(bot\.py|cogs/|services/)
+        additional_dependencies:
+          - discord.py>=2.5,<3
+          - pymongo>=4.6,<5
+          - pillow>=12.1.1,<13
+          - requests>=2.31,<3
+          - python-dotenv>=1.0,<2
+
+  # pip-audit: fail the commit on HIGH-severity CVEs in dependencies.
+  # Reads requirements.txt directly; the lockfile is also covered by
+  # `pip-audit -r requirements.lock` when generated.
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.7.3
+    hooks:
+      - id: pip-audit
+        args: ["-r", "requirements.txt", "--strict"]

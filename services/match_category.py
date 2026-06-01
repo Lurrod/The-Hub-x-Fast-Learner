@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import discord
 
@@ -107,6 +107,62 @@ async def create_match_category(
     )
 
 
+_EVERYONE_OW = discord.PermissionOverwrite(view_channel=False, connect=False)
+_PRIVILEGED_OW = discord.PermissionOverwrite(
+    view_channel=True,
+    send_messages=True,
+    read_message_history=True,
+    connect=True,
+    speak=True,
+    manage_channels=True,
+)
+_PLAYER_OW = discord.PermissionOverwrite(
+    view_channel=True,
+    send_messages=True,
+    read_message_history=True,
+    connect=True,
+    speak=True,
+)
+_SPECTATOR_OW = discord.PermissionOverwrite(
+    view_channel=True,
+    read_message_history=True,
+    send_messages=False,
+    connect=False,
+    speak=False,
+)
+_HUB_SPECTATOR_OW = discord.PermissionOverwrite(
+    view_channel=True,
+    read_message_history=False,
+    send_messages=False,
+    connect=False,
+    speak=False,
+)
+
+
+def _apply_role_overwrites(
+    overwrites: dict,
+    guild: discord.Guild,
+    role_ids: list[int] | None,
+    ow: discord.PermissionOverwrite,
+    *,
+    override_existing: bool,
+) -> None:
+    """Resolve each role id and apply ``ow``.
+
+    Roles that are not found on the guild are silently skipped (admins can
+    add/remove roles between match formations). ``override_existing=False``
+    skips roles that already have an overwrite from a higher-priority layer
+    (e.g. an admin role also listed as a viewer keeps the privileged ow).
+    """
+    for role_id in role_ids or ():
+        role = guild.get_role(role_id)
+        if role is None:
+            continue
+        if not override_existing and role in overwrites:
+            continue
+        overwrites[role] = ow
+
+
 def _build_overwrites(
     *,
     guild: discord.Guild,
@@ -118,78 +174,40 @@ def _build_overwrites(
 ) -> dict:
     """Build the permission overwrite matrix for a match category.
 
-    - @everyone: deny view + connect (private category)
-    - Bot's top role: full privileged access + manage_channels
-    - Each admin role: full privileged access + manage_channels
-    - Each viewer role: view, send, connect, speak (no manage_channels)
-    - Each spectator role: view + read history, NO send / NO connect / NO speak
-    - Each hub-spectator role: view only (no history / send / connect / speak).
-      The prep text channel additionally gets an explicit view-deny override
-      posted on the channel itself (see _deny_prep_view_for_hub_spectators).
-    - Each player (by member ID): view, send, connect, speak
-    - Members/roles not found in the guild are silently skipped.
+    Layers (applied highest-priority first; later layers don't override):
+
+    - ``@everyone``: deny view + connect (private category).
+    - Bot's top role: full privileged access + ``manage_channels``.
+    - Admin roles: full privileged access + ``manage_channels``.
+    - Viewer roles: view, send, connect, speak (no ``manage_channels``).
+    - Spectator roles: view + read history, no send / connect / speak.
+    - Hub-spectator roles: view only (no history / send / connect / speak).
+      The prep text channel additionally posts an explicit view-deny
+      override (see ``_deny_prep_view_for_hub_spectators``).
+    - Players (by member ID): view, send, connect, speak.
+
+    Members and roles missing from the guild are silently skipped.
     """
-    everyone_ow = discord.PermissionOverwrite(view_channel=False, connect=False)
-    privileged_ow = discord.PermissionOverwrite(
-        view_channel=True,
-        send_messages=True,
-        read_message_history=True,
-        connect=True,
-        speak=True,
-        manage_channels=True,
-    )
-    player_ow = discord.PermissionOverwrite(
-        view_channel=True,
-        send_messages=True,
-        read_message_history=True,
-        connect=True,
-        speak=True,
-    )
-    spectator_ow = discord.PermissionOverwrite(
-        view_channel=True,
-        read_message_history=True,
-        send_messages=False,
-        connect=False,
-        speak=False,
-    )
-    hub_spectator_ow = discord.PermissionOverwrite(
-        view_channel=True,
-        read_message_history=False,
-        send_messages=False,
-        connect=False,
-        speak=False,
-    )
-
     overwrites: dict = {
-        guild.default_role: everyone_ow,
-        guild.me.top_role: privileged_ow,
+        guild.default_role: _EVERYONE_OW,
+        guild.me.top_role: _PRIVILEGED_OW,
     }
-
-    for role_id in admin_role_ids:
-        role = guild.get_role(role_id)
-        if role is not None:
-            overwrites[role] = privileged_ow
-
-    for role_id in viewer_role_ids or ():
-        role = guild.get_role(role_id)
-        if role is not None and role not in overwrites:
-            overwrites[role] = player_ow
-
-    for role_id in spectator_role_ids or ():
-        role = guild.get_role(role_id)
-        if role is not None and role not in overwrites:
-            overwrites[role] = spectator_ow
-
-    for role_id in hub_spectator_role_ids or ():
-        role = guild.get_role(role_id)
-        if role is not None and role not in overwrites:
-            overwrites[role] = hub_spectator_ow
-
+    _apply_role_overwrites(
+        overwrites, guild, admin_role_ids, _PRIVILEGED_OW, override_existing=True
+    )
+    _apply_role_overwrites(
+        overwrites, guild, viewer_role_ids, _PLAYER_OW, override_existing=False
+    )
+    _apply_role_overwrites(
+        overwrites, guild, spectator_role_ids, _SPECTATOR_OW, override_existing=False
+    )
+    _apply_role_overwrites(
+        overwrites, guild, hub_spectator_role_ids, _HUB_SPECTATOR_OW, override_existing=False
+    )
     for uid in player_ids:
         member = guild.get_member(uid)
         if member is not None:
-            overwrites[member] = player_ow
-
+            overwrites[member] = _PLAYER_OW
     return overwrites
 
 

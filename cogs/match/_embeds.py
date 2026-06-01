@@ -10,10 +10,9 @@ from datetime import UTC, datetime
 
 import discord
 
+from cogs.match._constants import MAJORITY_THRESHOLD
 from cogs.queue_v2 import QUEUE_LABELS
 from services.elo_updater import MatchEloOutcome
-
-from cogs.match._constants import MAJORITY_THRESHOLD
 
 
 # ── Embed: from MatchPlan (initial publication) ───────────────────
@@ -150,9 +149,7 @@ def build_elo_changes_embed(
         winner_label, color = "Team B", 0xE74C3C
 
     weighted = outcome.weighted
-    title = (
-        f"🏆 {winner_label} wins! ELO updated{' (ACS weighting)' if weighted else ''}"
-    )
+    title = f"🏆 {winner_label} wins! ELO updated{' (ACS weighting)' if weighted else ''}"
     desc_extra = (
         "\nACS weighting applied via HenrikDev stats."
         if weighted

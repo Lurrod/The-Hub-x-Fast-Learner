@@ -14,7 +14,6 @@ from services.captain_draft import (
 )
 from services.team_balancer import Player
 
-
 pytestmark = pytest.mark.integration
 
 ADMIN_ROLES = ("Admin", "Match Staff")

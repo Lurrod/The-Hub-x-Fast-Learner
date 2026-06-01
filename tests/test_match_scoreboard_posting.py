@@ -20,8 +20,17 @@ from cogs.match import MatchCog
 
 
 # ── Fixtures ─────────────────────────────────────────────────────
-def _fake_player_stats(*, puuid: str, name: str, team: str, kills: int, deaths: int,
-                       assists: int, score: int, tag: str = "EUW") -> MagicMock:
+def _fake_player_stats(
+    *,
+    puuid: str,
+    name: str,
+    team: str,
+    kills: int,
+    deaths: int,
+    assists: int,
+    score: int,
+    tag: str = "EUW",
+) -> MagicMock:
     p = MagicMock()
     p.puuid = puuid
     p.name = name
@@ -34,8 +43,9 @@ def _fake_player_stats(*, puuid: str, name: str, team: str, kills: int, deaths: 
     return p
 
 
-def _fake_summary(*, rounds_red: int = 13, rounds_blue: int = 7,
-                  rounds_played: int = 20, map_name: str = "Ascent") -> MagicMock:
+def _fake_summary(
+    *, rounds_red: int = 13, rounds_blue: int = 7, rounds_played: int = 20, map_name: str = "Ascent"
+) -> MagicMock:
     s = MagicMock()
     s.matchid = "henrik-match-1"
     s.map_name = map_name
@@ -92,8 +102,9 @@ def _fake_results_channel(name: str = "pro-results") -> MagicMock:
     return ch
 
 
-def _fake_guild_with_channels(*, members: list[MagicMock], results_channel: MagicMock | None,
-                              guild_id: int = 42) -> MagicMock:
+def _fake_guild_with_channels(
+    *, members: list[MagicMock], results_channel: MagicMock | None, guild_id: int = 42
+) -> MagicMock:
     g = MagicMock()
     g.id = guild_id
     g.members = members
@@ -121,7 +132,7 @@ async def test_post_scoreboard_uses_queue_specific_channel(queue_type, expected_
     team_a_uids = [str(i) for i in range(5)]
     team_b_uids = [str(i) for i in range(5, 10)]
     team_a_uid_by_puuid = {f"pu{i}": uid for i, uid in enumerate(team_a_uids)}
-    team_b_uid_by_puuid = {f"pu{i+5}": uid for i, uid in enumerate(team_b_uids)}
+    team_b_uid_by_puuid = {f"pu{i + 5}": uid for i, uid in enumerate(team_b_uids)}
     members = [_fake_member(int(uid)) for uid in team_a_uids + team_b_uids]
     channel = _fake_results_channel(expected_channel)
     guild = _fake_guild_with_channels(members=members, results_channel=channel)
@@ -131,7 +142,12 @@ async def test_post_scoreboard_uses_queue_specific_channel(queue_type, expected_
 
     cog = _make_cog()
     await cog._post_match_scoreboard(
-        guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+        guild,
+        summary,
+        team_a_uid_by_puuid,
+        team_b_uid_by_puuid,
+        match_doc,
+        outcome,
     )
 
     channel.send.assert_awaited_once()
@@ -146,7 +162,7 @@ async def test_post_scoreboard_silent_when_channel_missing():
     team_a_uids = [str(i) for i in range(5)]
     team_b_uids = [str(i) for i in range(5, 10)]
     team_a_uid_by_puuid = {f"pu{i}": uid for i, uid in enumerate(team_a_uids)}
-    team_b_uid_by_puuid = {f"pu{i+5}": uid for i, uid in enumerate(team_b_uids)}
+    team_b_uid_by_puuid = {f"pu{i + 5}": uid for i, uid in enumerate(team_b_uids)}
     members = [_fake_member(int(uid)) for uid in team_a_uids + team_b_uids]
     guild = _fake_guild_with_channels(members=members, results_channel=None)
     summary = _fake_summary()
@@ -156,7 +172,12 @@ async def test_post_scoreboard_silent_when_channel_missing():
     cog = _make_cog()
     # Must not raise even though the channel is absent.
     await cog._post_match_scoreboard(
-        guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+        guild,
+        summary,
+        team_a_uid_by_puuid,
+        team_b_uid_by_puuid,
+        match_doc,
+        outcome,
     )
 
 
@@ -165,7 +186,7 @@ async def test_post_scoreboard_silent_when_queue_type_unknown():
     team_a_uids = [str(i) for i in range(5)]
     team_b_uids = [str(i) for i in range(5, 10)]
     team_a_uid_by_puuid = {f"pu{i}": uid for i, uid in enumerate(team_a_uids)}
-    team_b_uid_by_puuid = {f"pu{i+5}": uid for i, uid in enumerate(team_b_uids)}
+    team_b_uid_by_puuid = {f"pu{i + 5}": uid for i, uid in enumerate(team_b_uids)}
     members = [_fake_member(int(uid)) for uid in team_a_uids + team_b_uids]
     channel = _fake_results_channel("pro-results")
     guild = _fake_guild_with_channels(members=members, results_channel=channel)
@@ -175,7 +196,12 @@ async def test_post_scoreboard_silent_when_queue_type_unknown():
 
     cog = _make_cog()
     await cog._post_match_scoreboard(
-        guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+        guild,
+        summary,
+        team_a_uid_by_puuid,
+        team_b_uid_by_puuid,
+        match_doc,
+        outcome,
     )
     channel.send.assert_not_awaited()
 
@@ -185,7 +211,7 @@ async def test_post_scoreboard_handles_image_generation_failure():
     team_a_uids = [str(i) for i in range(5)]
     team_b_uids = [str(i) for i in range(5, 10)]
     team_a_uid_by_puuid = {f"pu{i}": uid for i, uid in enumerate(team_a_uids)}
-    team_b_uid_by_puuid = {f"pu{i+5}": uid for i, uid in enumerate(team_b_uids)}
+    team_b_uid_by_puuid = {f"pu{i + 5}": uid for i, uid in enumerate(team_b_uids)}
     members = [_fake_member(int(uid)) for uid in team_a_uids + team_b_uids]
     channel = _fake_results_channel("pro-results")
     guild = _fake_guild_with_channels(members=members, results_channel=channel)
@@ -200,7 +226,12 @@ async def test_post_scoreboard_handles_image_generation_failure():
     ):
         # Should not propagate the exception.
         await cog._post_match_scoreboard(
-            guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+            guild,
+            summary,
+            team_a_uid_by_puuid,
+            team_b_uid_by_puuid,
+            match_doc,
+            outcome,
         )
     channel.send.assert_not_awaited()
 
@@ -210,7 +241,7 @@ async def test_post_scoreboard_renders_with_actual_image_generator():
     team_a_uids = [str(i) for i in range(5)]
     team_b_uids = [str(i) for i in range(5, 10)]
     team_a_uid_by_puuid = {f"pu{i}": uid for i, uid in enumerate(team_a_uids)}
-    team_b_uid_by_puuid = {f"pu{i+5}": uid for i, uid in enumerate(team_b_uids)}
+    team_b_uid_by_puuid = {f"pu{i + 5}": uid for i, uid in enumerate(team_b_uids)}
     members = [_fake_member(int(uid)) for uid in team_a_uids + team_b_uids]
     channel = _fake_results_channel("gc-results")
     guild = _fake_guild_with_channels(members=members, results_channel=channel)
@@ -220,7 +251,12 @@ async def test_post_scoreboard_renders_with_actual_image_generator():
 
     cog = _make_cog()
     await cog._post_match_scoreboard(
-        guild, summary, team_a_uid_by_puuid, team_b_uid_by_puuid, match_doc, outcome,
+        guild,
+        summary,
+        team_a_uid_by_puuid,
+        team_b_uid_by_puuid,
+        match_doc,
+        outcome,
     )
     channel.send.assert_awaited_once()
     sent_file = channel.send.call_args.kwargs["file"]

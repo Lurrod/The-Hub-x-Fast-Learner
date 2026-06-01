@@ -16,7 +16,6 @@ import pymongo
 import pytest
 import pytest_asyncio
 
-
 # -- 1. Dummy environment variables (before importing bot.py) --
 os.environ.setdefault("DISCORD_TOKEN", "test-token-not-real")
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
@@ -37,6 +36,7 @@ _mongo_patcher.start()
 # create_role itself).
 def _install_dpytest_make_role_shim() -> None:
     import inspect
+
     from discord.ext.test import backend as _dpytest_backend
 
     original_make_role = _dpytest_backend.make_role
@@ -75,6 +75,7 @@ async def discord_bot():
       - 3 members (TestUser0, TestUser1, TestUser2)
     """
     import discord.ext.test as dpytest
+
     import bot as bot_module
 
     # discord.py 2.x: the loop is not defined before setup_hook.
