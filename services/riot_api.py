@@ -83,6 +83,19 @@ class MatchPlayerStats:
     deaths: int
     assists: int
     agent: str = ""  # Valorant agent name, e.g. "Jett" / "KAY/O" / "Sage"
+    # Extended (Rating 2.0) — default to 0 so legacy parse paths still build.
+    damage_made: int = 0
+    damage_received: int = 0
+    headshots: int = 0
+    bodyshots: int = 0
+    legshots: int = 0
+    multikills_2k: int = 0
+    multikills_3k: int = 0
+    multikills_4k: int = 0
+    multikills_5k: int = 0
+    first_kills: int = 0
+    first_deaths: int = 0
+    kast_rounds: int = 0
 
 
 @dataclass(frozen=True)

@@ -293,3 +293,23 @@ def test_no_authorization_header_without_key(monkeypatch):
 
     _, kwargs = session.get.call_args
     assert "Authorization" not in kwargs["headers"]
+
+
+# ── MatchPlayerStats extended fields ───────────────────────────────
+def test_match_player_stats_dataclass_has_extended_fields():
+    from services.riot_api import MatchPlayerStats
+
+    s = MatchPlayerStats(
+        puuid="p", name="n", tag="t", team="Red",
+        score=0, kills=0, deaths=0, assists=0, agent="",
+        damage_made=0, damage_received=0,
+        headshots=0, bodyshots=0, legshots=0,
+        multikills_2k=0, multikills_3k=0,
+        multikills_4k=0, multikills_5k=0,
+        first_kills=0, first_deaths=0,
+        kast_rounds=0,
+    )
+    assert s.damage_made == 0
+    assert s.kast_rounds == 0
+    assert s.multikills_5k == 0
+    assert s.first_deaths == 0
