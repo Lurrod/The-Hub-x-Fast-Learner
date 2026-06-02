@@ -322,12 +322,12 @@ async def _run_accept_with_tier(
     queue_label: str,
     fl_role_name: str,
     include_fl_role_in_guild: bool = True,
-    include_fl_open_in_guild: bool = True,
+    include_fl_hub_in_guild: bool = True,
 ):
     """Helper: spin up a happy-path accept with a queue tier, the FL X
-    role and the FL OPEN role provisioned in the guild.
-    Returns (applicant, members_role, fl_role, fl_open_role).
-    fl_open_role is None when include_fl_open_in_guild=False."""
+    role and the FL HUB role provisioned in the guild.
+    Returns (applicant, members_role, fl_role, fl_hub_role).
+    fl_hub_role is None when include_fl_hub_in_guild=False."""
     from services import repository
 
     db: Any = mongomock.MongoClient(tz_aware=True).db
@@ -337,12 +337,12 @@ async def _run_accept_with_tier(
 
     members_role = _make_named_role("Members")
     fl_role = _make_named_role(fl_role_name)
-    fl_open_role = _make_named_role("FL OPEN") if include_fl_open_in_guild else None
+    fl_hub_role = _make_named_role("FL HUB") if include_fl_hub_in_guild else None
     guild.roles = [members_role]
     if include_fl_role_in_guild:
         guild.roles.append(fl_role)
-    if fl_open_role is not None:
-        guild.roles.append(fl_open_role)
+    if fl_hub_role is not None:
+        guild.roles.append(fl_hub_role)
 
     embed = _embed_with(
         title="📋 New application",
@@ -362,7 +362,7 @@ async def _run_accept_with_tier(
 
     view = ApplicationReviewView(db=db)
     await view.accept.callback(inter)
-    return applicant, members_role, fl_role, fl_open_role
+    return applicant, members_role, fl_role, fl_hub_role
 
 
 def _assert_role_added(applicant: MagicMock, role: MagicMock) -> None:
@@ -376,44 +376,50 @@ def _assert_role_added(applicant: MagicMock, role: MagicMock) -> None:
 
 
 async def test_accept_adds_fl_pro_role_for_pro_tier():
-    applicant, members_role, fl_role, fl_open_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="Pro Queue", fl_role_name="FL PRO"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
-    _assert_role_added(applicant, fl_open_role)
+    _assert_role_added(applicant, fl_hub_role)
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL OPEN" not in added_names
 
 
 async def test_accept_adds_fl_semipro_role_for_semipro_tier():
-    applicant, members_role, fl_role, fl_open_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="Semi Pro Queue", fl_role_name="FL SEMIPRO"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
-    _assert_role_added(applicant, fl_open_role)
+    _assert_role_added(applicant, fl_hub_role)
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL OPEN" not in added_names
 
 
 async def test_accept_adds_fl_gc_role_for_gc_tier():
-    applicant, members_role, fl_role, fl_open_role = await _run_accept_with_tier(
+    applicant, members_role, fl_role, fl_hub_role = await _run_accept_with_tier(
         queue_label="GC Queue", fl_role_name="FL GC"
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
-    _assert_role_added(applicant, fl_open_role)
+    _assert_role_added(applicant, fl_hub_role)
+    added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
+    assert "FL OPEN" not in added_names
 
 
-async def test_accept_does_not_crash_when_fl_open_missing_from_guild():
-    """If FL OPEN is not provisioned on the guild, accept must not crash —
-    Members and FL X still get added, a warning is logged for FL OPEN."""
+async def test_accept_does_not_crash_when_fl_hub_missing_from_guild():
+    """If FL HUB is not provisioned on the guild, accept must not crash —
+    Members and FL X still get added, a warning is logged for FL HUB."""
     applicant, members_role, fl_role, _ = await _run_accept_with_tier(
         queue_label="Pro Queue",
         fl_role_name="FL PRO",
-        include_fl_open_in_guild=False,
+        include_fl_hub_in_guild=False,
     )
     _assert_role_added(applicant, members_role)
     _assert_role_added(applicant, fl_role)
     added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
-    assert "FL OPEN" not in added_names
+    assert "FL HUB" not in added_names
 
 
 async def test_accept_does_not_crash_when_fl_role_missing_from_guild():
@@ -440,8 +446,9 @@ async def test_accept_staff_application_does_not_add_any_fl_role():
     members_role = _make_named_role("Members")
     staff_role = _make_named_role("Coach/Analyst/Manager")
     fl_pro = _make_named_role("FL PRO")
+    fl_hub = _make_named_role("FL HUB")
     fl_open = _make_named_role("FL OPEN")
-    guild.roles = [members_role, staff_role, fl_pro, fl_open]
+    guild.roles = [members_role, staff_role, fl_pro, fl_hub, fl_open]
 
     embed = _embed_with(
         title="📋 New Staff application",
@@ -461,8 +468,10 @@ async def test_accept_staff_application_does_not_add_any_fl_role():
 
     added_names = {r.name for call in applicant.add_roles.await_args_list for r in call.args}
     assert "FL PRO" not in added_names
-    # FL OPEN is queue-application-only; staff (Coach/Analyst/Manager) don't queue
-    # up as players, so they don't need the Open queue gate.
+    # FL HUB and FL OPEN are queue-application/welcome-only; staff
+    # (Coach/Analyst/Manager) don't queue up as players, so they don't
+    # need the hub or open queue gates.
+    assert "FL HUB" not in added_names
     assert "FL OPEN" not in added_names
     assert "Coach/Analyst/Manager" in added_names
     assert "Members" in added_names
@@ -1057,16 +1066,20 @@ async def test_welcome_application_modal_rejects_unknown_tier():
 
 # ── WelcomeView Open Queue instant-grant button ──────────────────
 def _welcome_interaction_with_guild(
-    *, fl_open_in_guild: bool, member_has_fl_open: bool = False
+    *,
+    fl_open_in_guild: bool,
+    fl_hub_in_guild: bool = True,
+    member_has_fl_open: bool = False,
 ) -> MagicMock:
     """Builds an interaction whose user is a Member and whose guild
-    has (or doesn't have) the FL OPEN role."""
+    has (or doesn't have) the FL HUB / FL OPEN roles."""
     member = _fake_member(7, "Candidate", manage_guild=False)
+    fl_hub = _make_named_role("FL HUB") if fl_hub_in_guild else None
     fl_open = _make_named_role("FL OPEN") if fl_open_in_guild else None
     if fl_open is not None and member_has_fl_open:
         member.roles = [fl_open]
     guild = _fake_guild(99, members=[member])
-    guild.roles = [fl_open] if fl_open is not None else []
+    guild.roles = [r for r in (fl_hub, fl_open) if r is not None]
     inter = MagicMock()
     inter.user = member
     inter.guild = guild
@@ -1077,9 +1090,9 @@ def _welcome_interaction_with_guild(
     return inter
 
 
-async def test_welcome_apply_open_grants_fl_open_role():
-    """Click on Open Queue button: FL OPEN role added, ephemeral
-    confirmation, no modal."""
+async def test_welcome_apply_open_grants_fl_hub_and_fl_open_roles():
+    """Click on Open Queue button: FL HUB + FL OPEN roles added,
+    ephemeral confirmation, no modal."""
     from cogs.applications import WelcomeView
 
     db: Any = mongomock.MongoClient(tz_aware=True).db
@@ -1092,6 +1105,7 @@ async def test_welcome_apply_open_grants_fl_open_role():
     inter.response.send_modal.assert_not_awaited()
     added = [r for call in inter.user.add_roles.await_args_list for r in call.args]
     added_names = {r.name for r in added}
+    assert "FL HUB" in added_names
     assert "FL OPEN" in added_names
     inter.response.send_message.assert_awaited_once()
 
@@ -1113,7 +1127,7 @@ async def test_welcome_apply_open_idempotent_when_member_already_has_role():
     assert "already" in msg.lower()
 
 
-async def test_welcome_apply_open_warns_when_role_missing_from_guild():
+async def test_welcome_apply_open_warns_when_fl_open_missing_from_guild():
     """Server admin forgot to create FL OPEN role: don't crash, tell the user."""
     from cogs.applications import WelcomeView
 
@@ -1128,4 +1142,23 @@ async def test_welcome_apply_open_warns_when_role_missing_from_guild():
     inter.response.send_message.assert_awaited_once()
     msg = inter.response.send_message.call_args.args[0]
     # Error message tells user something went wrong on the server side
+    assert "❌" in msg or "error" in msg.lower() or "contact" in msg.lower()
+
+
+async def test_welcome_apply_open_warns_when_fl_hub_missing_from_guild():
+    """Server admin forgot to create FL HUB role: don't crash, tell the user."""
+    from cogs.applications import WelcomeView
+
+    db: Any = mongomock.MongoClient(tz_aware=True).db
+    review_view = ApplicationReviewView(db=db)
+    view = WelcomeView(db=db, review_view=review_view)
+    inter = _welcome_interaction_with_guild(
+        fl_open_in_guild=True, fl_hub_in_guild=False
+    )
+
+    await view.apply_open.callback(inter)
+
+    inter.user.add_roles.assert_not_awaited()
+    inter.response.send_message.assert_awaited_once()
+    msg = inter.response.send_message.call_args.args[0]
     assert "❌" in msg or "error" in msg.lower() or "contact" in msg.lower()

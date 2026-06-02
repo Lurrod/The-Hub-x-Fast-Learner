@@ -38,9 +38,12 @@ CANDIDATURE_CHANNEL = "applications"
 WELCOME_CHANNEL = "verify"
 PLAYERS_ROLE = "Members"
 STAFF_ROLE = "Coach/Analyst/Manager"
-# Open queue gate: every accepted queue applicant gets it so they can
-# also play Open, regardless of which tier they applied for. Staff
-# applications don't get it (Coach/Analyst/Manager don't queue up).
+# Hub gate: every accepted queue applicant gets it as the common FL hub
+# role, regardless of which tier they applied for. Staff applications
+# don't get it (Coach/Analyst/Manager don't queue up).
+HUB_ROLE = "FL HUB"
+# Open queue role: granted only via the welcome "Apply Open Queue"
+# button to allow access to the Open queue specifically.
 OPEN_QUEUE_ROLE = "FL OPEN"
 TICKETS_CATEGORY_NAME = "Tickets"
 CANDIDATURE_COOLDOWN_SECONDS = 3600
@@ -55,6 +58,9 @@ QUEUE_TIERS: dict[str, tuple[str, str]] = {
     "semipro": ("Semi Pro Queue", "FL SEMIPRO"),
     "gc": ("GC Queue", "FL GC"),
 }
+# Roles tied to the OPEN queue welcome button (no application required).
+# Members granted access also receive HUB_ROLE so they appear in the FL hub.
+OPEN_QUEUE_GRANTED_ROLES: tuple[str, ...] = (HUB_ROLE, OPEN_QUEUE_ROLE)
 QUEUE_TIER_FIELD_NAME = "🎯 Target queue"
 
 
@@ -717,7 +723,7 @@ class ApplicationReviewView(discord.ui.View):
         is_staff: bool,
         queue_tier: str | None,
     ) -> None:
-        """Apply STAFF/PLAYERS + queue-tier + FL OPEN roles. All best-effort."""
+        """Apply STAFF/PLAYERS + queue-tier + FL HUB roles. All best-effort."""
         roles = interaction.guild.roles
         await self._add_role_safe(
             member, discord.utils.get(roles, name=STAFF_ROLE if is_staff else PLAYERS_ROLE), "Role"
@@ -732,7 +738,7 @@ class ApplicationReviewView(discord.ui.View):
                 interaction, member, fl_role_name, "FL queue role"
             )
             await self._add_named_role_or_warn(
-                interaction, member, OPEN_QUEUE_ROLE, "FL OPEN role"
+                interaction, member, HUB_ROLE, "FL HUB role"
             )
 
     async def _add_role_safe(
@@ -894,10 +900,10 @@ class WelcomeView(discord.ui.View):
         row=0,
     )
     async def apply_open(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Open queue has no staff review: clicking the button grants
-        the FL OPEN role immediately so the user can join the Open queue.
-        Idempotent — clicking again when the user already has FL OPEN
-        just acknowledges."""
+        """Open queue has no staff review: clicking the button grants the
+        FL HUB + FL OPEN roles immediately so the user can join the Open
+        queue. Idempotent — clicking again when the user already has FL
+        OPEN just acknowledges."""
         member = interaction.user
         if any(getattr(r, "name", None) == OPEN_QUEUE_ROLE for r in member.roles):
             await interaction.response.send_message(
@@ -905,21 +911,25 @@ class WelcomeView(discord.ui.View):
                 ephemeral=True,
             )
             return
-        fl_hub = discord.utils.get(interaction.guild.roles, name=OPEN_QUEUE_ROLE)
-        if fl_hub is None:
-            logger.warning(
-                "[welcome] Open queue role %r missing from guild %s; cannot grant",
-                OPEN_QUEUE_ROLE,
-                interaction.guild_id,
-            )
-            await interaction.response.send_message(
-                f"❌ Open queue role `{OPEN_QUEUE_ROLE}` is missing from this "
-                f"server. Contact an admin.",
-                ephemeral=True,
-            )
-            return
+        guild_roles = interaction.guild.roles
+        resolved: list[discord.Role] = []
+        for role_name in OPEN_QUEUE_GRANTED_ROLES:
+            role = discord.utils.get(guild_roles, name=role_name)
+            if role is None:
+                logger.warning(
+                    "[welcome] Open queue role %r missing from guild %s; cannot grant",
+                    role_name,
+                    interaction.guild_id,
+                )
+                await interaction.response.send_message(
+                    f"❌ Open queue role `{role_name}` is missing from this "
+                    f"server. Contact an admin.",
+                    ephemeral=True,
+                )
+                return
+            resolved.append(role)
         try:
-            await member.add_roles(fl_hub)
+            await member.add_roles(*resolved)
         except Exception:
             logger.exception("[welcome] FL OPEN grant failed")
             await interaction.response.send_message(
