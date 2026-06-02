@@ -41,14 +41,14 @@ STAFF_ROLE = "Coach/Analyst/Manager"
 # Open queue gate: every accepted queue applicant gets it so they can
 # also play Open, regardless of which tier they applied for. Staff
 # applications don't get it (Coach/Analyst/Manager don't queue up).
-OPEN_QUEUE_ROLE = "FL HUB"
+OPEN_QUEUE_ROLE = "FL OPEN"
 TICKETS_CATEGORY_NAME = "Tickets"
 CANDIDATURE_COOLDOWN_SECONDS = 3600
 
 # Player application tiers: each Apply button on /welcome targets one
 # tier, the modal carries the tier through the embed, and the FL X role
 # is auto-assigned when an admin clicks Accept.
-# Open queue is intentionally absent: FL HUB is granted on server join,
+# Open queue is intentionally absent: FL OPEN is granted via the welcome button,
 # no application required.
 QUEUE_TIERS: dict[str, tuple[str, str]] = {
     "pro": ("Pro Queue", "FL PRO"),
@@ -345,8 +345,6 @@ class RefuseReasonModal(discord.ui.Modal, title="Decline reason"):
                 await member.send(embed=embed_dm)
             except discord.Forbidden:
                 pass
-            with contextlib.suppress(discord.Forbidden):
-                await member.kick(reason=f"Application declined: {reason_text}")
         try:
             embed = interaction.message.embeds[0]
             embed.color = 0xE74C3C
@@ -356,7 +354,7 @@ class RefuseReasonModal(discord.ui.Modal, title="Decline reason"):
         except Exception:
             with contextlib.suppress(Exception):
                 await interaction.message.edit(view=None)
-        await interaction.followup.send("✅ Application declined and user kicked.", ephemeral=True)
+        await interaction.followup.send("✅ Application declined.", ephemeral=True)
 
 
 async def _open_ticket_channel(
@@ -719,7 +717,7 @@ class ApplicationReviewView(discord.ui.View):
         is_staff: bool,
         queue_tier: str | None,
     ) -> None:
-        """Apply STAFF/PLAYERS + queue-tier + FL HUB roles. All best-effort."""
+        """Apply STAFF/PLAYERS + queue-tier + FL OPEN roles. All best-effort."""
         roles = interaction.guild.roles
         await self._add_role_safe(
             member, discord.utils.get(roles, name=STAFF_ROLE if is_staff else PLAYERS_ROLE), "Role"
@@ -734,7 +732,7 @@ class ApplicationReviewView(discord.ui.View):
                 interaction, member, fl_role_name, "FL queue role"
             )
             await self._add_named_role_or_warn(
-                interaction, member, OPEN_QUEUE_ROLE, "FL HUB role"
+                interaction, member, OPEN_QUEUE_ROLE, "FL OPEN role"
             )
 
     async def _add_role_safe(
@@ -897,8 +895,8 @@ class WelcomeView(discord.ui.View):
     )
     async def apply_open(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open queue has no staff review: clicking the button grants
-        the FL HUB role immediately so the user can join the Open queue.
-        Idempotent — clicking again when the user already has FL HUB
+        the FL OPEN role immediately so the user can join the Open queue.
+        Idempotent — clicking again when the user already has FL OPEN
         just acknowledges."""
         member = interaction.user
         if any(getattr(r, "name", None) == OPEN_QUEUE_ROLE for r in member.roles):
@@ -923,7 +921,7 @@ class WelcomeView(discord.ui.View):
         try:
             await member.add_roles(fl_hub)
         except Exception:
-            logger.exception("[welcome] FL HUB grant failed")
+            logger.exception("[welcome] FL OPEN grant failed")
             await interaction.response.send_message(
                 "❌ Something went wrong while granting the role. Try again later.",
                 ephemeral=True,

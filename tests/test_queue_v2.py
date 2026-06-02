@@ -81,7 +81,7 @@ def _give_queue_access(member, queue_type: str) -> None:
     role_map = {
         "pro": "FL PRO",
         "semipro": "FL SEMIPRO",
-        "open": "FL HUB",
+        "open": "FL OPEN",
         "gc": "FL GC",
     }
     role_name = role_map[queue_type]
@@ -917,9 +917,8 @@ async def test_join_semipro_queue_requires_role():
     assert "FL SEMIPRO" in msg
 
 
-async def test_join_open_queue_requires_fl_hub_role():
-    """Open Queue is now gated by the 'FL HUB' role (was previously
-    ungated)."""
+async def test_join_open_queue_requires_fl_open_role():
+    """Open Queue is gated by the 'FL OPEN' role."""
     import discord
 
     import bot as bot_module
@@ -936,7 +935,7 @@ async def test_join_open_queue_requires_fl_hub_role():
     _seed_riot_link(db, 42, 1)
 
     member = _fake_member(1)
-    member.roles = []  # no FL HUB role
+    member.roles = []  # no FL OPEN role
     member.__class__ = discord.Member
     inter = _fake_interaction(member)
     inter.user = member
@@ -946,7 +945,7 @@ async def test_join_open_queue_requires_fl_hub_role():
 
     inter.followup.send.assert_called()
     msg = inter.followup.send.call_args[0][0]
-    assert "FL HUB" in msg
+    assert "FL OPEN" in msg
 
 
 async def test_join_gc_queue_requires_role():
@@ -1067,15 +1066,15 @@ def test_waiting_room_name_per_queue_type():
 
 
 def test_queue_role_gates_per_queue_type():
-    """Snapshot of QUEUE_ROLE_GATES: each queue accepts its player role
-    and the matching staff role (where applicable). FL CAST is NOT a
-    queue gate — casters access match channels via MATCH_VIEWER_ROLE_NAMES."""
+    """Snapshot of QUEUE_ROLE_GATES: each queue accepts only its player
+    role. FL STAFF and FL CAST are NOT queue gates — staff and casters
+    access match channels via MATCH_VIEWER_ROLE_NAMES."""
     from cogs.queue_v2 import QUEUE_ROLE_GATES
 
-    assert QUEUE_ROLE_GATES["pro"] == ("FL PRO", "FL STAFF PRO")
-    assert QUEUE_ROLE_GATES["semipro"] == ("FL SEMIPRO", "FL STAFF SEMIPRO")
-    assert QUEUE_ROLE_GATES["open"] == ("FL HUB",)
-    assert QUEUE_ROLE_GATES["gc"] == ("FL GC", "FL STAFF GC")
+    assert QUEUE_ROLE_GATES["pro"] == ("FL PRO",)
+    assert QUEUE_ROLE_GATES["semipro"] == ("FL SEMIPRO",)
+    assert QUEUE_ROLE_GATES["open"] == ("FL OPEN",)
+    assert QUEUE_ROLE_GATES["gc"] == ("FL GC",)
 
 
 def test_queue_channel_names_per_queue_type():
@@ -1123,8 +1122,8 @@ async def test_join_pro_queue_allowed_with_fl_pro_role():
     assert "1" in doc["players"]
 
 
-async def test_join_open_queue_allowed_with_fl_hub_role():
-    """Open Queue: join OK with the FL HUB role (new gate)."""
+async def test_join_open_queue_allowed_with_fl_open_role():
+    """Open Queue: join OK with the FL OPEN role."""
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -1135,7 +1134,7 @@ async def test_join_open_queue_allowed_with_fl_hub_role():
     _seed_riot_link(db, 42, 1)
 
     member = _fake_member(1)
-    member.roles = [_make_rank_role("FL HUB")]
+    member.roles = [_make_rank_role("FL OPEN")]
     inter = _fake_interaction(member, channel_name="open-queue")
     inter.user = member
 
@@ -1146,8 +1145,8 @@ async def test_join_open_queue_allowed_with_fl_hub_role():
     assert "1" in doc["players"]
 
 
-async def test_join_pro_queue_allowed_with_fl_staff_pro_role():
-    """Pro Queue: join OK with the FL STAFF PRO role."""
+async def test_join_pro_queue_refused_with_fl_staff_pro_role():
+    """Pro Queue: FL STAFF PRO alone is no longer a queue gate."""
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -1164,11 +1163,11 @@ async def test_join_pro_queue_allowed_with_fl_staff_pro_role():
     await view._join_callback(inter)
 
     doc = repository.get_active_queue(db, 42, "pro")
-    assert "1" in doc["players"]
+    assert "1" not in doc["players"]
 
 
-async def test_join_semipro_queue_allowed_with_fl_staff_semipro_role():
-    """Semi Pro Queue: join OK with the FL STAFF SEMIPRO role."""
+async def test_join_semipro_queue_refused_with_fl_staff_semipro_role():
+    """Semi Pro Queue: FL STAFF SEMIPRO alone is no longer a queue gate."""
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -1187,11 +1186,11 @@ async def test_join_semipro_queue_allowed_with_fl_staff_semipro_role():
     await view._join_callback(inter)
 
     doc = repository.get_active_queue(db, 42, "semipro")
-    assert "1" in doc["players"]
+    assert "1" not in doc["players"]
 
 
-async def test_join_gc_queue_allowed_with_fl_staff_gc_role():
-    """GC Queue: join OK with the FL STAFF GC role."""
+async def test_join_gc_queue_refused_with_fl_staff_gc_role():
+    """GC Queue: FL STAFF GC alone is no longer a queue gate."""
     import bot as bot_module
     from cogs.queue_v2 import QueueView
 
@@ -1208,7 +1207,7 @@ async def test_join_gc_queue_allowed_with_fl_staff_gc_role():
     await view._join_callback(inter)
 
     doc = repository.get_active_queue(db, 42, "gc")
-    assert "1" in doc["players"]
+    assert "1" not in doc["players"]
 
 
 def test_fl_cast_in_match_viewer_role_names_only():

@@ -4,7 +4,7 @@ Cog V2: 10mans queues with persistent buttons (Join / Leave).
 4 simultaneous queues per guild:
   - Pro Queue: restricted to players with the "FL PRO" role.
   - Semi Pro Queue: restricted to players with the "FL SEMIPRO" role.
-  - Open Queue: restricted to players with the "FL HUB" role.
+  - Open Queue: restricted to players with the "FL OPEN" role.
   - GC Queue: restricted to players with the "FL GC" role.
 
 Invariants:
@@ -57,10 +57,10 @@ WAITING_ROOM_NAMES: dict[str, str] = {
 # Allowed roles to join a gated queue (any one of them is enough).
 # None = no gate.
 QUEUE_ROLE_GATES: dict[str, tuple[str, ...] | None] = {
-    "pro": ("FL PRO", "FL STAFF PRO"),
-    "semipro": ("FL SEMIPRO", "FL STAFF SEMIPRO"),
-    "open": ("FL HUB",),
-    "gc": ("FL GC", "FL STAFF GC"),
+    "pro": ("FL PRO",),
+    "semipro": ("FL SEMIPRO",),
+    "open": ("FL OPEN",),
+    "gc": ("FL GC",),
 }
 
 # Expected text channel name for each queue (used by /setup to
