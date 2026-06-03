@@ -75,8 +75,8 @@ def test_pick_captains_raises_if_empty():
         pick_captains([], rng=random.Random(0))
 
 
-def test_pick_sequence_is_alternating_ABABABAB():
-    assert PICK_SEQUENCE == ("A", "B", "A", "B", "A", "B", "A", "B")
+def test_pick_sequence_is_snake_ABBABABA():
+    assert PICK_SEQUENCE == ("A", "B", "B", "A", "B", "A", "B", "A")
 
 
 def test_draft_state_initial():
@@ -113,9 +113,9 @@ def test_draft_state_apply_pick_is_immutable():
     assert state2.turn_index == 1
 
 
-def test_draft_state_apply_pick_follows_ABABABAB():
+def test_draft_state_apply_pick_follows_ABBABABA():
     state, pool = _make_state_with_8_pool()
-    expected_sides = ["A", "B", "A", "B", "A", "B", "A", "B"]
+    expected_sides = ["A", "B", "B", "A", "B", "A", "B", "A"]
     for i, side in enumerate(expected_sides):
         assert state.current_captain.id == (state.cap_a.id if side == "A" else state.cap_b.id), (
             f"turn {i}: expected side {side}"

@@ -47,18 +47,18 @@ def pick_captains(
     return cap_a, cap_b
 
 
-# Alternating order ABABABAB. Across 8 picks, capA picks at indices
-# 0, 2, 4, 6 and capB at indices 1, 3, 5, 7. With the 2 captains already
+# Snake order ABBABABA. Across 8 picks, capA picks at indices
+# 0, 3, 5, 7 and capB at indices 1, 2, 4, 6. With the 2 captains already
 # on their team, each side ends up with 5 players (1 cap + 4 picks).
 PICK_SEQUENCE: tuple[Literal["A", "B"], ...] = (
     "A",
     "B",
-    "A",
     "B",
     "A",
     "B",
     "A",
     "B",
+    "A",
 )
 
 DraftStatus = Literal["picking", "complete", "cancelled"]
@@ -189,7 +189,7 @@ def _build_pool_lines(pool: tuple[Player, ...]) -> str:
 
 
 def _build_sequence_marker(turn_index: int) -> str:
-    """Show the ABABABAB sequence with a cursor on the current pick."""
+    """Show the ABBABABA sequence with a cursor on the current pick."""
     parts = []
     for i, side in enumerate(PICK_SEQUENCE):
         if i == turn_index:
