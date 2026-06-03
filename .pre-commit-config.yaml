@@ -1,20 +1,20 @@
-# Hooks pre-commit pour empecher les commits non-formates / linte's.
+# Pre-commit hooks to prevent unformatted / unlinted commits.
 #
-# Installation (1 fois) :
+# Installation (once):
 #   pip install pre-commit
 #   pre-commit install
 #
-# Apres installation, chaque `git commit` declenche ruff + format check.
-# Bypass volontaire : `git commit --no-verify` (a eviter).
+# After installation, each `git commit` triggers ruff + format check.
+# Intentional bypass: `git commit --no-verify` (to be avoided).
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
-      # Linting : echoue si une erreur ruff bloque (cf. ignore-list dans pyproject.toml).
+      # Linting: fails if a ruff error blocks (cf. ignore-list in pyproject.toml).
       - id: ruff
         args: ["--fix"]
-      # Format check : refuse les fichiers non formates (auto-fix avec --fix-only).
+      # Format check: rejects unformatted files (auto-fix with --fix-only).
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -27,8 +27,8 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=500"]
-      # Empeche le retour du BOM UTF-8 introduit par PowerShell `Set-Content`
-      # / `Out-File` par defaut sur PS 5.1. Cf. AUDIT.md (2026-05-21).
+      # Prevents the UTF-8 BOM reappearing, introduced by PowerShell `Set-Content`
+      # / `Out-File` by default on PS 5.1. Cf. AUDIT.md (2026-05-21).
       - id: fix-byte-order-marker
 
   # mypy: strict-ish type check on the source code (tests excluded to

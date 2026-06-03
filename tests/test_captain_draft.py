@@ -19,7 +19,7 @@ def _p(uid: int, elo: int) -> Player:
 
 
 def test_pick_captains_returns_two_distinct_players_from_pool():
-    """Les capitaines sont 2 joueurs distincts tires de la liste, peu importe l'ELO."""
+    """The captains are 2 distinct players drawn from the list, regardless of ELO."""
     players = [
         _p(1, 1000),
         _p(2, 1100),
@@ -41,7 +41,7 @@ def test_pick_captains_returns_two_distinct_players_from_pool():
 
 
 def test_pick_captains_is_reproducible_with_same_seed():
-    """Meme seed -> meme paire de capitaines."""
+    """Same seed -> same captain pair."""
     players = [_p(i, 1000 + i * 50) for i in range(1, 11)]
     cap_a_1, cap_b_1 = pick_captains(players, rng=random.Random(1))
     cap_a_2, cap_b_2 = pick_captains(players, rng=random.Random(1))
@@ -49,10 +49,10 @@ def test_pick_captains_is_reproducible_with_same_seed():
 
 
 def test_pick_captains_ignores_elo():
-    """Le top ELO n'est PAS garanti d'etre capitaine (selection purement aleatoire).
+    """The top ELO player is NOT guaranteed to be a captain (purely random selection).
 
-    On verifie qu'au moins sur quelques seeds, le joueur top ELO n'est pas pris
-    comme capitaine - preuve que l'ELO n'influence plus la selection.
+    We verify that on at least some seeds, the top ELO player is not picked
+    as a captain - proof that ELO no longer influences the selection.
     """
     players = [_p(1, 5000)] + [_p(i, 1000) for i in range(2, 11)]
     top_elo_id = 1
@@ -62,16 +62,16 @@ def test_pick_captains_ignores_elo():
         if top_elo_id not in (cap_a.id, cap_b.id):
             seen_without_top = True
             break
-    assert seen_without_top, "Le top ELO devrait pouvoir ne pas etre capitaine"
+    assert seen_without_top, "The top ELO player should be able to not be a captain"
 
 
 def test_pick_captains_raises_if_too_few_players():
-    with pytest.raises(ValueError, match="au moins 2 joueurs"):
+    with pytest.raises(ValueError, match="At least 2 players"):
         pick_captains([_p(1, 1500)], rng=random.Random(0))
 
 
 def test_pick_captains_raises_if_empty():
-    with pytest.raises(ValueError, match="au moins 2 joueurs"):
+    with pytest.raises(ValueError, match="At least 2 players"):
         pick_captains([], rng=random.Random(0))
 
 
@@ -96,7 +96,7 @@ def test_draft_state_initial():
 def _make_state_with_8_pool() -> tuple[DraftState, list[Player]]:
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
-    pool = [_p(i, 1500 - i) for i in range(3, 11)]  # 8 joueurs
+    pool = [_p(i, 1500 - i) for i in range(3, 11)]  # 8 players
     return DraftState.initial(cap_a=cap_a, cap_b=cap_b, pool=tuple(pool)), pool
 
 
@@ -107,7 +107,7 @@ def test_draft_state_apply_pick_is_immutable():
     assert state.team_a == (state.cap_a,)
     assert state.pool == tuple(pool)
     assert state.turn_index == 0
-    # nouvel etat decale
+    # new shifted state
     assert state2.team_a == (state.cap_a, pool[0])
     assert pool[0] not in state2.pool
     assert state2.turn_index == 1
@@ -137,7 +137,7 @@ def test_draft_state_complete_has_5_each_team():
 def test_draft_state_apply_pick_rejects_player_not_in_pool():
     state, _ = _make_state_with_8_pool()
     stranger = _p(99, 1500)
-    with pytest.raises(ValueError, match="pas dans le pool"):
+    with pytest.raises(ValueError, match="not in the pool"):
         state.apply_pick(stranger)
 
 
@@ -162,7 +162,7 @@ def test_draft_result_from_state_when_complete():
 
 def test_draft_result_rejects_incomplete_state():
     state, _ = _make_state_with_8_pool()
-    with pytest.raises(ValueError, match="non termine"):
+    with pytest.raises(ValueError, match="not complete"):
         DraftResult.from_state(state)
 
 
@@ -170,7 +170,7 @@ ADMIN_ROLE_NAMES = ("Admin", "Match Staff", "Administrateur")
 
 
 def _fake_user(*, role_names: tuple[str, ...] = (), manage_guild: bool = False):
-    """Mime un discord.Member pour `_is_admin` : `roles` + `guild_permissions`."""
+    """Mock a discord.Member for `_is_admin`: `roles` + `guild_permissions`."""
     return SimpleNamespace(
         roles=[SimpleNamespace(name=n) for n in role_names],
         guild_permissions=SimpleNamespace(manage_guild=manage_guild),
@@ -197,7 +197,7 @@ def test_is_admin_rejects_regular_user():
 
 
 def test_is_admin_handles_missing_attributes():
-    """Robustesse : un objet sans `guild_permissions` ni `roles` ne crashe pas."""
+    """Robustness: an object without `guild_permissions` or `roles` does not crash."""
     bare = SimpleNamespace()
     assert _is_admin(bare, ADMIN_ROLE_NAMES) is False
 
@@ -216,5 +216,5 @@ def test_build_plan_from_draft_uses_capA_as_leader():
     assert plan.lobby_leader is state.cap_a
     assert plan.teams.team_a == result.team_a
     assert plan.teams.team_b == result.team_b
-    # map_name est choisi par rng parmi elo_calc.MAPS, non vide
+    # map_name is chosen by rng from elo_calc.MAPS, non-empty
     assert plan.map_name

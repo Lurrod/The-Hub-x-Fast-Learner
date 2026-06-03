@@ -1,13 +1,13 @@
 """
 Pro Queue Captain Draft Service.
 
-Module isole pour la pro queue uniquement. Contient :
-  - pick_captains : selection des 2 capitaines (tirage aleatoire)
-  - DraftState    : etat immutable du draft
-  - CaptainDraftSession : orchestration Discord (UI + machine d'etat)
+Isolated module for the pro queue only. Contains:
+  - pick_captains : selection of the 2 captains (random draw)
+  - DraftState    : immutable draft state
+  - CaptainDraftSession : Discord orchestration (UI + state machine)
 
-Open et GC queues n'utilisent PAS ce module : elles continuent
-de passer par plan_match (auto-balance).
+Open and GC queues do NOT use this module: they keep
+going through plan_match (auto-balance).
 """
 
 from __future__ import annotations
@@ -30,18 +30,18 @@ def pick_captains(
     *,
     rng: random.Random,
 ) -> tuple[Player, Player]:
-    """Designe 2 capitaines par tirage aleatoire uniforme.
+    """Pick 2 captains by uniform random draw.
 
     Args:
-        players: liste de Player (typiquement 10).
-        rng: random.Random seede (pour reproductibilite des tests).
+        players: list of Player (typically 10).
+        rng: seeded random.Random (for test reproducibility).
 
     Returns:
-        (cap_a, cap_b) : deux joueurs distincts tires au hasard
-        dans la liste. L'ELO n'intervient pas dans la selection.
+        (cap_a, cap_b) : two distinct players drawn at random
+        from the list. ELO plays no part in the selection.
     """
     if len(players) < 2:
-        raise ValueError(f"Il faut au moins 2 joueurs, recu {len(players)}")
+        raise ValueError(f"At least 2 players are required, got {len(players)}")
 
     cap_a, cap_b = rng.sample(list(players), 2)
     return cap_a, cap_b
@@ -99,21 +99,21 @@ class DraftState:
     @property
     def current_captain(self) -> Player:
         if self.is_complete:
-            raise RuntimeError("Draft complet : pas de capitaine courant.")
+            raise RuntimeError("Draft complete: no current captain.")
         side = PICK_SEQUENCE[self.turn_index]
         return self.cap_a if side == "A" else self.cap_b
 
     def apply_pick(self, player: Player) -> DraftState:
-        """Retourne un nouvel etat avec `player` ajoute a l'equipe du cap courant.
+        """Return a new state with `player` added to the current captain's team.
 
         Raises:
-            ValueError si player n'est pas dans pool.
-            RuntimeError si draft deja complet ou cancelled.
+            ValueError if player is not in pool.
+            RuntimeError if draft is already complete or cancelled.
         """
         if self.status != "picking":
-            raise RuntimeError(f"Draft status={self.status}, impossible de pick.")
+            raise RuntimeError(f"Draft status={self.status}, cannot pick.")
         if player not in self.pool:
-            raise ValueError(f"Joueur {player.id} pas dans le pool.")
+            raise ValueError(f"Player {player.id} not in the pool.")
         side = PICK_SEQUENCE[self.turn_index]
         new_pool = tuple(p for p in self.pool if p.id != player.id)
         if side == "A":
@@ -138,13 +138,13 @@ class DraftState:
 class DraftResult:
     cap_a: Player
     cap_b: Player
-    team_a: tuple[Player, ...]  # 5 joueurs incl. cap_a
-    team_b: tuple[Player, ...]  # 5 joueurs incl. cap_b
+    team_a: tuple[Player, ...]  # 5 players incl. cap_a
+    team_b: tuple[Player, ...]  # 5 players incl. cap_b
 
     @classmethod
     def from_state(cls, state: DraftState) -> DraftResult:
         if state.status != "complete":
-            raise ValueError(f"Draft non termine (status={state.status}).")
+            raise ValueError(f"Draft not complete (status={state.status}).")
         return cls(
             cap_a=state.cap_a,
             cap_b=state.cap_b,
@@ -154,7 +154,7 @@ class DraftResult:
 
 
 class DraftCancelledError(Exception):
-    """Leve quand un admin annule le draft via le bouton."""
+    """Raised when an admin cancels the draft via the button."""
 
     def __init__(self, reason: str, actor: Any | None = None):
         super().__init__(reason)
@@ -163,11 +163,11 @@ class DraftCancelledError(Exception):
 
 
 def _is_admin(user: Any, role_names: tuple[str, ...]) -> bool:
-    """Admin = permission Discord `manage_guild` OU role dont le nom est
-    dans `role_names`. Aligne le check du bouton "Annuler le draft" sur
-    le reste du codebase (`/match-cancel` etc.) ou seul `manage_guild`
-    compte. Le fallback par nom de role est garde pour les serveurs
-    ayant un role "Match Staff" sans permission elevee.
+    """Admin = Discord `manage_guild` permission OR a role whose name is
+    in `role_names`. Aligns the "Cancel draft" button check with
+    the rest of the codebase (`/match-cancel` etc.) where only `manage_guild`
+    counts. The role-name fallback is kept for servers
+    that have a "Match Staff" role without the elevated permission.
     """
     perms = getattr(user, "guild_permissions", None)
     if perms is not None and getattr(perms, "manage_guild", False):
@@ -189,7 +189,7 @@ def _build_pool_lines(pool: tuple[Player, ...]) -> str:
 
 
 def _build_sequence_marker(turn_index: int) -> str:
-    """Affiche la sequence ABABABAB avec un curseur sur le pick courant."""
+    """Show the ABABABAB sequence with a cursor on the current pick."""
     parts = []
     for i, side in enumerate(PICK_SEQUENCE):
         if i == turn_index:
@@ -200,9 +200,9 @@ def _build_sequence_marker(turn_index: int) -> str:
 
 
 class CaptainDraftSession:
-    """Orchestration du draft : poste le message, gere les interactions,
-    retourne un DraftResult quand les 8 picks sont termines (ou leve
-    DraftCancelledError si annule par un admin).
+    """Draft orchestration: posts the message, handles interactions,
+    returns a DraftResult when the 8 picks are done (or raises
+    DraftCancelledError if cancelled by an admin).
     """
 
     def __init__(
@@ -224,10 +224,10 @@ class CaptainDraftSession:
         self._done: asyncio.Future[DraftResult] | None = None
 
     async def run(self) -> DraftResult:
-        """Bloque jusqu'a la fin du draft (complete OU cancelled).
+        """Block until the draft ends (complete OR cancelled).
 
         Returns: DraftResult si complete.
-        Raises: DraftCancelledError si annule.
+        Raises: DraftCancelledError if cancelled.
         """
         loop = asyncio.get_running_loop()
         self._done = loop.create_future()
@@ -236,7 +236,7 @@ class CaptainDraftSession:
         view = self._build_view()
         content = (
             f"<@{self.state.cap_a.id}> <@{self.state.cap_b.id}> "
-            f"- vous etes capitaines, a vous de drafter !"
+            f"- you are the captains, time to draft!"
         )
         self.message = await self.prep_channel.send(content=content, embed=embed, view=view)
         logger.info(
@@ -265,18 +265,18 @@ class CaptainDraftSession:
             inline=False,
         )
         e.add_field(
-            name="🎲 Pool disponible",
+            name="🎲 Available pool",
             value=_build_pool_lines(self.state.pool),
             inline=False,
         )
         if self.state.is_complete:
-            e.set_footer(text="✅ Draft termine")
+            e.set_footer(text="✅ Draft complete")
         elif self.state.status == "picking":
             cur = self.state.current_captain
             seq = _build_sequence_marker(self.state.turn_index)
             e.add_field(
-                name=f"⏳ Au tour de <@{cur.id}> - pick #{self.state.turn_index + 1}",
-                value=f"Sequence : {seq}",
+                name=f"⏳ <@{cur.id}>'s turn - pick #{self.state.turn_index + 1}",
+                value=f"Sequence: {seq}",
                 inline=False,
             )
         return e
@@ -284,7 +284,7 @@ class CaptainDraftSession:
     def _build_view(self) -> Any:
         import discord
 
-        session = self  # capture pour les callbacks
+        session = self  # capture for the callbacks
 
         class _View(discord.ui.View):
             def __init__(self) -> None:
@@ -305,7 +305,7 @@ class CaptainDraftSession:
             ]
             select: discord.ui.Select[Any] = discord.ui.Select(
                 custom_id="pro_draft_pick",
-                placeholder="Choisis ton joueur",
+                placeholder="Pick your player",
                 min_values=1,
                 max_values=1,
                 options=options,
@@ -320,7 +320,7 @@ class CaptainDraftSession:
         cancel_btn: discord.ui.Button[Any] = discord.ui.Button(
             custom_id="pro_draft_cancel",
             style=discord.ButtonStyle.danger,
-            label="❌ Annuler le draft",
+            label="❌ Cancel draft",
             disabled=self.state.status != "picking",
         )
 
@@ -334,12 +334,12 @@ class CaptainDraftSession:
     async def _interaction_check(self, interaction: Any) -> bool:
         cid = interaction.data.get("custom_id", "")
         if cid == "pro_draft_pick":
-            # Guard : si le draft est complet (interaction tardive cote Discord),
-            # on rejette proprement plutot que de laisser current_captain
-            # lever un RuntimeError.
+            # Guard: if the draft is complete (late interaction on Discord's side),
+            # reject cleanly rather than letting current_captain
+            # raise a RuntimeError.
             if self.state.is_complete or interaction.user.id != self.state.current_captain.id:
                 await interaction.response.send_message(
-                    "⏳ Ce n'est pas ton tour.",
+                    "⏳ It's not your turn.",
                     ephemeral=True,
                 )
                 return False
@@ -370,7 +370,7 @@ class CaptainDraftSession:
             )
             if picked is None:
                 await interaction.response.send_message(
-                    "❌ Joueur deja drafte.",
+                    "❌ Player already drafted.",
                     ephemeral=True,
                 )
                 return
@@ -383,17 +383,17 @@ class CaptainDraftSession:
             )
             embed = self._build_embed()
             view = self._build_view()
-            # `interaction.response.edit_message` acknowledge ET edite en un
-            # seul appel API : evite le "This interaction failed" rouge que
-            # voyaient les capitaines quand `message.edit` + defer tardif
-            # depassait les 3s d'ACK.
+            # `interaction.response.edit_message` acknowledges AND edits in a
+            # single API call: avoids the red "This interaction failed" that
+            # captains saw when `message.edit` + a late defer
+            # exceeded the 3s ACK window.
             try:
                 await interaction.response.edit_message(embed=embed, view=view)
             except Exception:
-                # Fallback si la response a deja ete consommee (cas extreme
-                # de double-click). On force l'etat correct via message.edit.
+                # Fallback if the response was already consumed (extreme
+                # double-click case). Force the correct state via message.edit.
                 logger.exception(
-                    "[draft] edit_message via interaction a leve, fallback message.edit"
+                    "[draft] edit_message via interaction raised, fallback message.edit"
                 )
                 if self.message is not None:
                     with contextlib.suppress(Exception):
@@ -410,17 +410,17 @@ class CaptainDraftSession:
             self.state = replace(self.state, status="cancelled")
             actor = interaction.user
             embed = self._build_embed()
-            embed.title = "❌ Draft annule"
-            embed.description = f"Annule par <@{actor.id}>"
+            embed.title = "❌ Draft cancelled"
+            embed.description = f"Cancelled by <@{actor.id}>"
             view = self._build_view()
-            # Meme pattern que `_on_pick` : edit_message acknowledge dans le
-            # meme appel API. Sans ca le bouton "Annuler" affichait
-            # "Interaction failed" a l'admin alors que l'annulation passait.
+            # Same pattern as `_on_pick`: edit_message acknowledges in the
+            # same API call. Without it the "Cancel" button showed
+            # "Interaction failed" to the admin even though the cancel went through.
             try:
                 await interaction.response.edit_message(embed=embed, view=view)
             except Exception:
                 logger.exception(
-                    "[draft] edit_message via interaction a leve, fallback message.edit"
+                    "[draft] edit_message via interaction raised, fallback message.edit"
                 )
                 if self.message is not None:
                     with contextlib.suppress(Exception):

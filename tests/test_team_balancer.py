@@ -15,7 +15,7 @@ def _players(elos: list[int]) -> list[Player]:
     return [Player(id=i, name=f"P{i}", elo=e) for i, e in enumerate(elos)]
 
 
-# ── Validation des entrees ────────────────────────────────────────
+# ── Input validation ──────────────────────────────────────────────
 def test_rejects_less_than_10_players():
     with pytest.raises(ValueError, match="10"):
         balance_teams(_players([1500] * 9))

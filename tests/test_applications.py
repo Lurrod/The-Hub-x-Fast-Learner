@@ -286,7 +286,7 @@ async def test_accept_happy_path_grants_role_and_validates():
     guild.roles = [members_role]
 
     embed = _embed_with(
-        title="📋 Nouvelle candidature",
+        title="📋 New application",
         footer_id=42,
         fields=[("🎮 In-game username", "Alice")],
     )

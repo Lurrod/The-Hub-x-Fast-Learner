@@ -34,8 +34,8 @@ def _fake_user(user_id: int, role_names: tuple[str, ...] = (), *, manage_guild: 
     u.id = user_id
     u.mention = f"<@{user_id}>"
     u.roles = [_fake_role(n) for n in role_names]
-    # Forcer la valeur (sinon MagicMock auto-cree un truthy qui fait
-    # passer le check `_is_admin` par accident).
+    # Force the value (otherwise MagicMock auto-creates a truthy that
+    # passes the `_is_admin` check by accident).
     u.guild_permissions = MagicMock()
     u.guild_permissions.manage_guild = manage_guild
     return u
@@ -66,7 +66,7 @@ def _fake_prep_channel():
 
 
 async def test_session_happy_path_8_picks_complete():
-    """Simule 8 picks consecutifs : session.run() termine avec un DraftResult."""
+    """Simulate 8 consecutive picks: session.run() completes with a DraftResult."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))
@@ -82,12 +82,12 @@ async def test_session_happy_path_8_picks_complete():
 
     run_task = asyncio.create_task(session.run())
 
-    # Attend que le message soit poste (initialisation)
+    # Wait until the message is posted (initialization)
     for _ in range(50):
         if session.message is not None:
             break
         await asyncio.sleep(0.01)
-    assert session.message is not None, "Le message draft doit etre poste au demarrage"
+    assert session.message is not None, "The draft message must be posted at startup"
 
     # Ordre alterne : A, B, A, B, A, B, A, B
     pick_users = [cap_a, cap_b, cap_a, cap_b, cap_a, cap_b, cap_a, cap_b]
@@ -132,8 +132,8 @@ async def test_session_admin_cancel_raises():
 
 
 async def test_session_admin_with_manage_guild_can_cancel_without_named_role():
-    """Regression : un admin Discord avec permission `manage_guild` mais
-    sans role nomme 'Admin'/'Match Staff'/'Administrateur' doit pouvoir
+    """Regression: a Discord admin with `manage_guild` permission but
+    without a role named 'Admin'/'Match Staff'/'Administrateur'
     must be able to cancel. Before the fix, only the role name was
     checked -> admins could no longer cancel the draft (user report 2026-05-16)."""
     cap_a = _p(1, 1900)
@@ -153,8 +153,8 @@ async def test_session_admin_with_manage_guild_can_cancel_without_named_role():
             break
         await asyncio.sleep(0.01)
 
-    # Admin avec un role nomme "Administrator" (pas dans ADMIN_ROLES)
-    # mais avec la permission Discord manage_guild = True.
+    # Admin with a role named "Administrator" (not in ADMIN_ROLES)
+    # but with the Discord manage_guild permission = True.
     admin = _fake_user(99, role_names=("Administrator",), manage_guild=True)
     inter = _fake_interaction(admin, "pro_draft_cancel")
     ok = await session._interaction_check(inter)
@@ -184,14 +184,14 @@ async def test_session_non_admin_cancel_rejected_by_interaction_check():
             break
         await asyncio.sleep(0.01)
 
-    rando = _fake_user(500, role_names=())  # pas de role admin
+    rando = _fake_user(500, role_names=())  # no admin role
     inter = _fake_interaction(rando, "pro_draft_cancel")
     ok = await session._interaction_check(inter)
     assert ok is False
     inter.response.send_message.assert_awaited_once()
     args, kwargs = inter.response.send_message.call_args
     assert kwargs.get("ephemeral") is True
-    # Le draft est toujours en picking
+    # The draft is still in picking
     assert session.state.status == "picking"
 
     # Cleanup: cancel the task before it finishes on its own (otherwise warning).
@@ -219,7 +219,7 @@ async def test_session_pick_by_wrong_captain_rejected_by_interaction_check():
             break
         await asyncio.sleep(0.01)
 
-    # Tour 0 == cap_a, cap_b ne doit pas pouvoir pick
+    # Turn 0 == cap_a, cap_b must not be able to pick
     inter = _fake_interaction(cap_b, "pro_draft_pick", values=[str(pool[0].id)])
     ok = await session._interaction_check(inter)
     assert ok is False
@@ -233,7 +233,7 @@ async def test_session_pick_by_wrong_captain_rejected_by_interaction_check():
 
 
 async def test_session_double_pick_same_player_is_idempotent():
-    """2 _on_pick concurrents sur le meme player -> 1 pick applique."""
+    """2 concurrent _on_pick on the same player -> 1 pick applied."""
     cap_a = _p(1, 1900)
     cap_b = _p(2, 1800)
     pool = tuple(_p(i, 1500 - i) for i in range(3, 11))
@@ -254,13 +254,13 @@ async def test_session_double_pick_same_player_is_idempotent():
     target = pool[0]
     inter1 = _fake_interaction(cap_a, "pro_draft_pick", values=[str(target.id)])
     inter2 = _fake_interaction(cap_a, "pro_draft_pick", values=[str(target.id)])
-    # Lance les deux callbacks en parallele
+    # Launch both callbacks in parallel
     await asyncio.gather(session._on_pick(inter1), session._on_pick(inter2))
     # Apres : 1 seul pick applique
     assert session.state.turn_index == 1
     assert target in session.state.team_a
     assert target not in session.state.pool
-    # Un des 2 a recu un ephemeral "deja drafte"
+    # One of the 2 received an ephemeral "already drafted"
     n_ephemeral = sum(1 for i in (inter1, inter2) if i.response.send_message.await_count > 0)
     assert n_ephemeral == 1
 

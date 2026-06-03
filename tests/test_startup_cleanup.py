@@ -119,8 +119,8 @@ async def test_cog_load_excludes_in_flight_cleanup_categories(monkeypatch):
 
     cleanup_mock = AsyncMock(return_value=1)
     monkeypatch.setattr(match_cog_module, "cleanup_orphan_match_categories", cleanup_mock)
-    # 200 est marquee in-flight cleanup -> doit etre retiree malgre
-    # son status actif.
+    # 200 is marked in-flight cleanup -> must be removed despite
+    # its active status.
     monkeypatch.setattr(
         match_cog_module.repository,
         "find_category_ids_with_cleanup_started",
