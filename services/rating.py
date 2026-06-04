@@ -1,9 +1,20 @@
 """HLTV 2.0-equivalent Rating formula adapted for Valorant.
 
-The formula is identical to CSGO/CS2 Rating 2.0 (the constants are
-calibration parameters from the original article); the only
-adaptation is that the per-round inputs are sourced from Henrik's
-Valorant match data instead of HLTV's CS data.
+The formula keeps the CSGO/CS2 Rating 2.0 structure and most of its
+calibration parameters from the original article. Two constants are
+adapted to the Valorant damage scale so that an average player lands
+near 1.00 (instead of the inflated ~1.38 the raw CS constants produce
+on Valorant data):
+
+  * ``_ADR_C`` is rescaled by the CS/Valorant average-ADR ratio
+    (~78 / ~146 ≈ 0.534). Valorant players have 100 HP + up to 50
+    shield, so per-round damage runs roughly twice CS; the raw CS
+    coefficient over-rewards damage on Valorant inputs.
+  * ``_INTERCEPT`` is then recentred so the average statline maps to
+    1.00 on the same scale the scoreboard colours already assume
+    (green >= 1.10, red < 0.85).
+
+All other inputs are sourced from Henrik's Valorant match data.
 
 Reference: https://www.hltv.org/news/20695/introducing-rating-20
 """
@@ -12,12 +23,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-_INTERCEPT = 0.1587
+_INTERCEPT = -0.001  # recentred for Valorant so an average statline ~= 1.00
 _KAST_C = 0.0073
 _KPR_C = 0.3591
 _DPR_C = -0.5329
 _IMPACT_C = 0.2372
-_ADR_C = 0.0032
+_ADR_C = 0.00171  # CS 0.0032 rescaled by ~78/146 for Valorant's higher ADR
 
 _IMPACT_KPR_C = 2.13
 _IMPACT_APR_C = 0.42

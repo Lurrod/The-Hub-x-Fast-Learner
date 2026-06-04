@@ -30,8 +30,8 @@ def test_rating_perfect_zero_input():
     )
     # All-zero inputs: KAST/KPR/DPR/APR/ADR all zero. The Impact
     # term evaluates to -0.41, contributing 0.2372 * (-0.41) on top
-    # of the intercept 0.1587.
-    expected = 0.1587 + 0.2372 * (-0.41)
+    # of the recentred intercept -0.001.
+    expected = -0.001 + 0.2372 * (-0.41)
     assert math.isclose(compute_rating_2_0(inputs), expected, abs_tol=1e-6)
 
 
@@ -77,8 +77,9 @@ def test_rating_average_player_near_one():
         kast_rounds=17,
     )
     r = compute_rating_2_0(inputs)
-    # Solid frag profile (KPR 0.75, DPR 0.625, KAST 71%, ADR ~146)
-    # produces a rating well above 1.0 with the canonical HLTV 2.0
-    # coefficients. The wider band leaves headroom for minor
-    # rounding without ever falsifying the formula direction.
-    assert 1.30 < r < 1.45
+    # Solid frag profile (KPR 0.75, DPR 0.625, KAST 71%, ADR ~146).
+    # After the Valorant recalibration (ADR coefficient rescaled and
+    # intercept recentred) this average statline maps to ~1.00, the
+    # scale the scoreboard colours already assume. The band leaves
+    # headroom for minor rounding without falsifying the direction.
+    assert 0.95 < r < 1.05
