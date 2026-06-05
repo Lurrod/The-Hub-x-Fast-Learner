@@ -1080,6 +1080,43 @@ def cancel_match_atomically(
     )
 
 
+def force_match_result_atomically(
+    db: Database,
+    *,
+    channel_id: int | str,
+    winner: str,
+) -> Mapping[str, Any] | None:
+    """Atomic CAS: force the winner of the match in `channel_id`.
+
+    Transitions a `pending` or `contested` match (whose ELO has not yet
+    been applied) to `validated_a`/`validated_b`, stamping `validated_at`
+    with the current time. Returns the doc AFTER the update, or None if no
+    eligible match exists (already validated/cancelled/cleaned_up, ELO
+    already applied, or no match in this channel).
+
+    Used by /match-force-result so an admin can settle a vote that timed
+    out (`contested`) — or pre-empt a still-open `pending` vote — without
+    waiting for the 7/10 majority. The downstream HenrikDev verification +
+    ELO application then run exactly as for a normal vote validation.
+
+    The CAS on `status`/`elo_applied` mirrors `cancel_match_atomically`:
+    if a concurrent vote validates the match or `_verify_match` claims the
+    ELO between read and write, the force fails cleanly instead of
+    overwriting an already-settled result."""
+    if winner not in ("a", "b"):
+        raise ValueError(f"winner must be 'a' or 'b', received {winner!r}")
+    to_status = "validated_a" if winner == "a" else "validated_b"
+    return get_matches_col(db).find_one_and_update(
+        {
+            "channel_id": channel_id,
+            "status": {"$in": ["pending", "contested"]},
+            "elo_applied": {"$ne": True},
+        },
+        {"$set": {"status": to_status, "validated_at": datetime.now(UTC)}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 # -- Warns (moderation) --------------------------------------------
 # Per-guild storage: every server has its own warn history.
 

@@ -1887,8 +1887,63 @@ class MatchCog(commands.Cog):
         )
         await interaction.response.send_message(f"Match `{match_id}` cleaned up.", ephemeral=True)
 
+    @app_commands.command(
+        name="match-force-result",
+        description="Force the winner of a timed-out / stuck vote in this channel (admin)",
+    )
+    @app_commands.describe(winner="Team that won the match")
+    @app_commands.choices(
+        winner=[
+            app_commands.Choice(name="Team A", value="a"),
+            app_commands.Choice(name="Team B", value="b"),
+        ]
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def match_force_result(
+        self,
+        interaction: discord.Interaction,
+        winner: app_commands.Choice[str],
+    ) -> None:
+        """Settle a `contested` (vote timed out) or `pending` match by hand.
+
+        Atomic CAS on status pending/contested + elo_applied != True: a
+        concurrent vote reaching the majority, /match-cancel or the Henrik
+        ELO claim all make this fail cleanly rather than overwriting an
+        already-settled result. On success we fire the exact same
+        post-validation hook as a normal vote (category teardown + Henrik
+        verification scheduling), so the ELO is applied downstream."""
+        await interaction.response.defer(ephemeral=True)
+        forced = await asyncio.to_thread(
+            repository.force_match_result_atomically,
+            self.db,
+            channel_id=interaction.channel_id,
+            winner=winner.value,
+        )
+        if not forced:
+            await interaction.followup.send(
+                "❌ No forceable match in this channel "
+                "(must be pending/contested with ELO not yet applied).",
+                ephemeral=True,
+            )
+            return
+
+        team_label = "Team A" if winner.value == "a" else "Team B"
+        await interaction.followup.send(
+            f"✅ Result forced: **{team_label} won**. "
+            f"ELO will be applied after HenrikDev verification.",
+            ephemeral=True,
+        )
+
+        # Same hook as a vote reaching the majority: deletes the match
+        # category and schedules the Henrik verification / ELO pass.
+        try:
+            await self._on_match_validated(interaction, forced)
+        except Exception:
+            logger.exception("[match-force-result] _on_match_validated raised")
+
     @match_cancel.error
     @match_replace.error
+    @match_force_result.error
     async def _admin_perm_error(self, inter: discord.Interaction, error):
         if isinstance(error, app_commands.MissingPermissions):
             try:
