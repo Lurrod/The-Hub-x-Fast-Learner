@@ -113,3 +113,53 @@ def test_build_extended_stats_acs_uses_rounds_played():
     )
     # Combat score 5400 / 24 rounds = 225 ACS
     assert extended[0].acs == pytest.approx(225.0)
+
+
+# ── ratings_by_uid (feeds pro-queue ELO weighting) ────────────────
+def test_ratings_by_uid_maps_and_computes():
+    from services.match_verifier import build_extended_stats, ratings_by_uid
+
+    summary = _summary_with_two_players()
+    puuid_map = {"P-A": "uid-A", "P-B": "uid-B"}
+    ratings = ratings_by_uid(summary, puuid_map)
+
+    # Same Rating 2.0 values as build_extended_stats, keyed by user_id.
+    extended = {x.user_id: x for x in build_extended_stats(
+        summary, puuid_to_user_id=puuid_map, queue_type="pro")}
+    assert ratings["uid-A"] == pytest.approx(extended["uid-A"].rating_2_0)
+    assert ratings["uid-B"] == pytest.approx(extended["uid-B"].rating_2_0)
+
+
+def test_ratings_by_uid_skips_unmapped():
+    from services.match_verifier import ratings_by_uid
+
+    summary = _summary_with_two_players()
+    ratings = ratings_by_uid(summary, {"P-A": "uid-A"})
+    assert set(ratings) == {"uid-A"}
+
+
+def test_ratings_by_uid_short_match_returns_empty():
+    """Below the min-rounds guard (forfeits), no weighting -> {} (flat)."""
+    from services.match_verifier import ratings_by_uid
+    from services.riot_api import MatchPlayerStats, MatchSummary
+
+    short = MatchSummary(
+        matchid="m-short",
+        mode="Custom Game",
+        map_name="Ascent",
+        started_at=datetime(2026, 6, 1, tzinfo=UTC),
+        rounds_played=4,  # < ELO_MIN_ROUNDS_FOR_WEIGHT (6)
+        players=(
+            MatchPlayerStats(
+                puuid="P-A", name="A", tag="1", team="Red", score=900,
+                kills=4, deaths=1, assists=1, agent="Jett",
+                damage_made=600, damage_received=200,
+                headshots=3, bodyshots=8, legshots=1,
+                multikills_2k=0, multikills_3k=0, multikills_4k=0,
+                multikills_5k=0, first_kills=1, first_deaths=0, kast_rounds=4,
+            ),
+        ),
+        rounds_red=4,
+        rounds_blue=0,
+    )
+    assert ratings_by_uid(short, {"P-A": "uid-A"}) == {}

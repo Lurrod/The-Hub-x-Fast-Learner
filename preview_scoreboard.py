@@ -59,6 +59,14 @@ team_b = [
     _player("Davizao",    agent="Killjoy",rating=0.43, acs=114, kills=8,  deaths=18, assists=5, kast=48, adr=76,  hs=29, fk=1, fd=3),
 ]
 
+# ELO gained/lost per player: team A wins (13-8), weighted by Rating 2.0.
+from services.elo_calc import compute_weighted_delta  # noqa: E402
+
+for _p in team_a:
+    _p["elo_delta"] = compute_weighted_delta(_p["rating_2_0"], win=True)
+for _p in team_b:
+    _p["elo_delta"] = compute_weighted_delta(_p["rating_2_0"], win=False)
+
 # Henrik convention: winning_team is "Red" or "Blue" per round.
 round_winners = [
     "Red", "Red", "Blue", "Blue", "Blue", "Blue",

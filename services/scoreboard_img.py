@@ -71,16 +71,17 @@ AGENT_X = NAME_X + 220                 # agent icon sits AFTER the name, like VL
 NAME_MAX_W = AGENT_X - NAME_X - 16
 
 # Stat column centers (absolute X).
-X_R     = 660
-X_ACS   = 760
-X_KDA   = 905
-X_KD    = 1030
-X_KAST  = 1115
-X_ADR   = 1205
-X_HS    = 1290
-X_FK    = 1360
-X_FD    = 1420
-X_FKFD  = 1475
+X_R     = 520            # Rating 2.0 (shifted left into the empty name gap)
+X_ELO   = 610            # ELO +/- — 90px after R
+X_ACS   = 700            # 90px after ELO (right block pulled left to match)
+X_KDA   = 845
+X_KD    = 970
+X_KAST  = 1055
+X_ADR   = 1145
+X_HS    = 1230
+X_FK    = 1300
+X_FD    = 1360
+X_FKFD  = 1415
 
 # ── Colors ────────────────────────────────────────────────────────
 BG = (16, 22, 31)
@@ -570,6 +571,7 @@ def _draw_block_header(draw: ImageDraw.ImageDraw, y_top: int) -> None:
     _draw_v_center(draw, "PLAYER", NAME_X, y_center, font, HEADER_GRAY)
     for x, label in (
         (X_R, "R"),
+        (X_ELO, "ELO +/-"),
         (X_ACS, "ACS"),
         (X_KDA, "K / D / A"),
         (X_KD, "+/-"),
@@ -621,6 +623,10 @@ def _draw_player_row(
     # Rating 2.0 — two decimals, colored by performance band.
     rating_color = _rating_color(rating)
     _draw_centered(draw, f"{rating:.2f}", X_R, y_center, stats_font, rating_color)
+
+    # ELO gained/lost this match — green/red delta, right after the rating.
+    elo_delta = int(player.get("elo_delta", 0) or 0)
+    _draw_delta(draw, elo_delta, X_ELO, y_center, stats_font)
 
     # ACS — flat integer.
     _draw_centered(draw, str(acs), X_ACS, y_center, stats_font, WHITE)

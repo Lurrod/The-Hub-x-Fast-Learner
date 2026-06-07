@@ -78,6 +78,7 @@ from services.match_service import (
 from services.match_verifier import (
     build_extended_stats,
     find_henrik_custom_match,
+    ratings_by_uid,
 )
 from services.repository import reserve_match_number
 from services.riot_api import HenrikDevClient
@@ -1041,11 +1042,22 @@ class MatchCog(commands.Cog):
         if claimed is None:
             return  # Already applied by a previous tick.
 
+        # Pro-queue ELO is weighted by Rating 2.0. Build the per-player
+        # ratings from the Henrik summary (already fetched above); other
+        # queues — or matches without Henrik data — stay flat ±20.
+        ratings = None
+        if fetched is not None and match_doc.get("queue_type") == "pro":
+            summary_for_ratings, ta_map, tb_map = fetched
+            ratings = ratings_by_uid(
+                summary_for_ratings, {**(ta_map or {}), **(tb_map or {})}
+            )
+
         try:
             outcome = await asyncio.to_thread(
                 apply_match_validation,
                 self.db,
                 match_doc,
+                ratings=ratings,
             )
         except Exception:
             logger.exception("[match] apply_match_validation raised")
@@ -1346,6 +1358,7 @@ class MatchCog(commands.Cog):
 
         rounds = max(int(getattr(summary, "rounds_played", 0)) or 1, 1)
         elo_by_uid = {c.user_id: c.new_elo for c in outcome.changes}
+        elo_delta_by_uid = {c.user_id: c.delta for c in outcome.changes}
 
         # Resolve which Henrik side (Red/Blue) corresponds to each bot team.
         # Use majority vote — in the edge case of "mixed teams in the Valorant
@@ -1408,6 +1421,7 @@ class MatchCog(commands.Cog):
                         "assists": stats.assists,
                         "acs": round(stats.score / rounds),
                         "elo": elo_by_uid.get(uid, 0),
+                        "elo_delta": elo_delta_by_uid.get(uid, 0),
                         "agent": getattr(stats, "agent", ""),
                         "rating_2_0": rating_2_0,
                         "kast_pct": kast_pct,

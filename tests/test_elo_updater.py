@@ -331,3 +331,87 @@ def test_apply_match_validation_uses_compound_doc_id():
     assert col.find_one({"_id": "1:gc"}) is not None
     assert col.find_one({"_id": "2:gc"}) is not None
     assert col.find_one({"_id": "1"}) is None
+
+
+# ── Pondération Rating 2.0 (pro queue uniquement) ─────────────────
+def _pro_match(status="validated_a"):
+    return {
+        "_id": "match-pro-1",
+        "team_a": [{"id": str(i), "name": f"A{i}", "elo": 2000} for i in range(5)],
+        "team_b": [{"id": str(5 + i), "name": f"B{i}", "elo": 2000} for i in range(5)],
+        "status": status,
+        "queue_type": "pro",
+    }
+
+
+def test_pro_queue_weighted_deltas_applied():
+    import bot as bot_module
+
+    match = _pro_match()
+    # Winners 0..4, losers 5..9.
+    ratings = {
+        "0": 1.40,  # carry winner  -> +26
+        "1": 1.00,  # avg winner    -> +20
+        "5": 1.40,  # carry loser   -> -14
+        "6": 0.50,  # feeding loser -> -26
+    }
+    outcome = apply_match_validation(bot_module.db, match, ratings=ratings)
+    assert outcome.weighted is True
+
+    col = repository.get_elo_col(bot_module.db)
+    assert col.find_one({"_id": "0:pro"})["elo"] == 2026
+    assert col.find_one({"_id": "1:pro"})["elo"] == 2020
+    assert col.find_one({"_id": "5:pro"})["elo"] == 1986  # 2000 - 14
+    assert col.find_one({"_id": "6:pro"})["elo"] == 1974  # 2000 - 26
+
+
+def test_pro_queue_missing_rating_falls_back_flat():
+    import bot as bot_module
+
+    match = _pro_match()
+    # Player "2" has no rating -> flat ±20.
+    ratings = {"0": 1.40}
+    apply_match_validation(bot_module.db, match, ratings=ratings)
+
+    col = repository.get_elo_col(bot_module.db)
+    assert col.find_one({"_id": "0:pro"})["elo"] == 2026  # weighted
+    assert col.find_one({"_id": "2:pro"})["elo"] == 2020  # flat +20
+
+
+def test_pro_queue_zero_rating_falls_back_flat():
+    import bot as bot_module
+
+    match = _pro_match()
+    ratings = {"5": 0.0}  # invalid rating -> flat loss
+    apply_match_validation(bot_module.db, match, ratings=ratings)
+
+    col = repository.get_elo_col(bot_module.db)
+    assert col.find_one({"_id": "5:pro"})["elo"] == 1980  # flat -20
+
+
+def test_non_pro_queue_ignores_ratings():
+    """Le gate est strict : hors pro queue, ±20 plat même avec ratings."""
+    import bot as bot_module
+
+    match = _make_match(status="validated_a", elo=2400)  # queue_type=open
+    ratings = {"0": 1.40, "5": 0.50}
+    outcome = apply_match_validation(bot_module.db, match, ratings=ratings)
+    assert outcome.weighted is False
+
+    col = repository.get_elo_col(bot_module.db)
+    # DB seeds new players at ELO_START=2000 (match_doc elo is avg-only).
+    assert col.find_one({"_id": "0:open"})["elo"] == 2020  # flat +20
+    assert col.find_one({"_id": "5:open"})["elo"] == 1980  # flat -20
+
+
+def test_pro_queue_no_ratings_is_flat():
+    """Pas de ratings (Henrik absent) -> ±20 plat, weighted False."""
+    import bot as bot_module
+
+    match = _pro_match()
+    outcome = apply_match_validation(bot_module.db, match, ratings=None)
+    assert outcome.weighted is False
+
+    col = repository.get_elo_col(bot_module.db)
+    assert col.find_one({"_id": "0:pro"})["elo"] == 2020
+    assert col.find_one({"_id": "5:pro"})["elo"] == 1980

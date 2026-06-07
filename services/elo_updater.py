@@ -46,13 +46,37 @@ class MatchEloOutcome:
     weighted: bool = False  # True if called with Henrik multipliers
 
 
+def _player_delta(
+    player: dict,
+    *,
+    win: bool,
+    ratings: dict[str, float] | None,
+) -> int:
+    """Weighted delta for a pro-queue player, or flat ±20 fallback.
+
+    Falls back to the flat change when the player's Rating 2.0 is absent
+    or invalid (<= 0), e.g. forfeits or missing Henrik data.
+    """
+    rating = (ratings or {}).get(str(player["id"]))
+    if rating is None or rating <= 0:
+        return FLAT_ELO_CHANGE if win else -FLAT_ELO_CHANGE
+    return elo_calc.compute_weighted_delta(rating, win=win)
+
+
 def apply_match_validation(
     db,
     match_doc: dict,
     multipliers: dict[str, float] | None = None,
+    ratings: dict[str, float] | None = None,
 ) -> MatchEloOutcome:
     """
-    Distribute ELO in a single pass, flat ±20 for every player.
+    Distribute ELO in a single pass.
+
+    Default: flat ±20 for every player (all queues). For the **pro queue**
+    only, when per-player Rating 2.0 scores are provided via `ratings`,
+    each delta is weighted by performance (see
+    `elo_calc.compute_weighted_delta`). Players whose rating is missing or
+    invalid (<= 0) fall back to the flat ±20.
 
     Floor at 0: if a loser has less ELO than the loss, their delta is
     clamped to -old_elo (does not go below 0).
@@ -61,6 +85,7 @@ def apply_match_validation(
         db:          mongomock/pymongo Database (shared ELO collection)
         match_doc:   match doc with `team_a`, `team_b`, `status`, `queue_type`
         multipliers: kept for backward compatibility; ignored.
+        ratings:     {user_id(str) -> Rating 2.0}. Only used in pro queue.
 
     Raises:
         ValueError if status != validated_a/b
@@ -79,15 +104,22 @@ def apply_match_validation(
     avg_elo = elo_calc.compute_team_avg_elo(winners + losers)
 
     base_gain = base_loss = FLAT_ELO_CHANGE
-    weighted = False
+
+    # Performance weighting is pro-queue-only and requires per-player
+    # Rating 2.0 scores. Anything else stays on the flat ±20 path.
+    weighted = queue_type == "pro" and bool(ratings)
 
     elo_col = repository.get_elo_col(db)
 
     winner_mults = [1.0 for _ in winners]
     loser_mults = [1.0 for _ in losers]
 
-    winner_deltas = [+base_gain for _ in winners]
-    loser_deltas = [-base_loss for _ in losers]
+    if weighted:
+        winner_deltas = [_player_delta(p, win=True, ratings=ratings) for p in winners]
+        loser_deltas = [_player_delta(p, win=False, ratings=ratings) for p in losers]
+    else:
+        winner_deltas = [+base_gain for _ in winners]
+        loser_deltas = [-base_loss for _ in losers]
 
     # Clamp to 0 ELO for losers (compound _id for the lookup).
     loser_old_elos: list[int] = []

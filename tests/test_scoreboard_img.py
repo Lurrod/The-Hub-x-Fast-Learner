@@ -359,3 +359,76 @@ def test_scoreboard_renders_with_agent_field_present():
     )
     img = Image.open(buf)
     assert img.width == WIDTH
+
+
+# ── ELO gain/loss column (right after the Rating column) ──────────
+def test_player_row_renders_elo_delta_after_rating():
+    """The ELO delta is drawn via _draw_delta at X_ELO, positioned
+    between the Rating (X_R) and ACS (X_ACS) columns."""
+    from PIL import Image as _Img
+    from PIL import ImageDraw as _Draw
+
+    import services.scoreboard_img as sb
+
+    calls: list[tuple[int, int]] = []
+    orig = sb._draw_delta
+
+    def _spy(draw, value, x_center, y_center, font):
+        calls.append((value, x_center))
+        return orig(draw, value, x_center, y_center, font)
+
+    sb._draw_delta = _spy
+    try:
+        img = _Img.new("RGB", (sb.WIDTH, 120), (0, 0, 0))
+        draw = _Draw.Draw(img)
+        player = _player(rating_2_0=1.40)
+        player["elo_delta"] = 26
+        sb._draw_player_row(
+            img,
+            draw,
+            player,
+            y_center=60,
+            name_font=sb._font(18),
+            stats_font=sb._font(19),
+            kda_font=sb._font(17),
+        )
+    finally:
+        sb._draw_delta = orig
+
+    # ELO column rendered with the delta value at X_ELO.
+    assert (26, sb.X_ELO) in calls
+    # And it sits just after the rating, before ACS.
+    assert sb.X_R < sb.X_ELO < sb.X_ACS
+
+
+def test_player_row_missing_elo_delta_defaults_to_zero():
+    """Missing elo_delta must not crash — renders a neutral 0."""
+    from PIL import Image as _Img
+    from PIL import ImageDraw as _Draw
+
+    import services.scoreboard_img as sb
+
+    calls: list[tuple[int, int]] = []
+    orig = sb._draw_delta
+
+    def _spy(draw, value, x_center, y_center, font):
+        calls.append((value, x_center))
+        return orig(draw, value, x_center, y_center, font)
+
+    sb._draw_delta = _spy
+    try:
+        img = _Img.new("RGB", (sb.WIDTH, 120), (0, 0, 0))
+        draw = _Draw.Draw(img)
+        sb._draw_player_row(
+            img,
+            draw,
+            _player(),  # no elo_delta key
+            y_center=60,
+            name_font=sb._font(18),
+            stats_font=sb._font(19),
+            kda_font=sb._font(17),
+        )
+    finally:
+        sb._draw_delta = orig
+
+    assert (0, sb.X_ELO) in calls

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 
+from services import elo_calc
 from services.rating import RatingInputs, compute_rating_2_0
 from services.riot_api import (
     HenrikDevClient,
@@ -235,3 +236,39 @@ def build_extended_stats(
             )
         )
     return tuple(out)
+
+
+def ratings_by_uid(
+    summary,
+    puuid_to_user_id: Mapping[str, str],
+    *,
+    min_rounds: int = elo_calc.ELO_MIN_ROUNDS_FOR_WEIGHT,
+) -> dict[str, float]:
+    """Per-player Rating 2.0 keyed by Discord user_id, for ELO weighting.
+
+    Returns an empty dict for matches shorter than `min_rounds` (forfeits,
+    remakes) — those fall back to the flat ±20. Players whose puuid is not
+    in `puuid_to_user_id`, or whose rating is non-positive, are skipped.
+    """
+    rounds = int(getattr(summary, "rounds_played", 0) or 0)
+    if rounds < min_rounds:
+        return {}
+
+    out: dict[str, float] = {}
+    for p in summary.players:
+        uid = puuid_to_user_id.get(p.puuid)
+        if uid is None:
+            continue
+        rating = compute_rating_2_0(
+            RatingInputs(
+                rounds_played=rounds,
+                kills=int(p.kills or 0),
+                deaths=int(p.deaths or 0),
+                assists=int(p.assists or 0),
+                damage_made=int(getattr(p, "damage_made", 0) or 0),
+                kast_rounds=int(getattr(p, "kast_rounds", 0) or 0),
+            )
+        )
+        if rating > 0:
+            out[str(uid)] = rating
+    return out
