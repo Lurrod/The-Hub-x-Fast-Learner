@@ -699,3 +699,64 @@ async def test_create_match_category_hub_spectator_skipped_when_role_missing():
     )
 
     prep_channel.set_permissions.assert_not_awaited()
+
+
+# ── Team channel naming with a queue prefix ───────────────────────
+def _category_recording_vc_names(captured: list[str]):
+    cat = MagicMock()
+    cat.create_text_channel = AsyncMock(return_value=MagicMock())
+
+    async def _vc(name, **kwargs):
+        captured.append(name)
+        return MagicMock()
+
+    cat.create_voice_channel = AsyncMock(side_effect=_vc)
+    return cat
+
+
+@pytest.mark.asyncio
+async def test_team_prefix_prepended_to_team_voice_channels():
+    from services.match_category import create_match_category
+
+    names: list[str] = []
+    cat = _category_recording_vc_names(names)
+    guild = MagicMock()
+    guild.create_category = AsyncMock(return_value=cat)
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=1,
+        player_ids=[],
+        admin_role_ids=[],
+        team_prefix="Pro",
+    )
+
+    # All created channels carry the prefix: prep text + the 3 voice rooms.
+    assert cat.create_text_channel.call_args.args[0] == "Pro - match-preparation"
+    assert names[0] == "Pro - Team 1"
+    assert names[1] == "Pro - Team 2"
+    assert names[2] == "Pro - Waiting Match"
+
+
+@pytest.mark.asyncio
+async def test_no_prefix_keeps_plain_team_names():
+    from services.match_category import create_match_category
+
+    names: list[str] = []
+    cat = _category_recording_vc_names(names)
+    guild = MagicMock()
+    guild.create_category = AsyncMock(return_value=cat)
+    guild.get_member = MagicMock(return_value=None)
+
+    await create_match_category(
+        guild=guild,
+        match_number=1,
+        player_ids=[],
+        admin_role_ids=[],
+    )
+
+    assert cat.create_text_channel.call_args.args[0] == "match-preparation"
+    assert names[0] == "Team 1"
+    assert names[1] == "Team 2"
+    assert names[2] == "Waiting Match"

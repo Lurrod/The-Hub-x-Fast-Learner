@@ -94,6 +94,15 @@ _QUEUE_LABEL_BY_TYPE: dict[str, str] = {
     "gc": "GC Queue",
 }
 
+# Short prefix used to name the per-match team voice channels, e.g.
+# "Pro - Team 1", "Semi Pro - Team 2".
+_QUEUE_PREFIX_BY_TYPE: dict[str, str] = {
+    "pro": "Pro",
+    "semipro": "Semi Pro",
+    "open": "Open",
+    "gc": "GC",
+}
+
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +210,7 @@ class MatchCog(commands.Cog):
                 viewer_role_ids=self._viewer_role_ids(guild),
                 spectator_role_ids=self._spectator_role_ids(guild),
                 hub_spectator_role_ids=self._hub_spectator_role_ids(guild),
+                team_prefix=_QUEUE_PREFIX_BY_TYPE.get(queue_type, ""),
             )
         except Exception:
             logger.exception("[match] create_match_category failed for #%d", match_number)

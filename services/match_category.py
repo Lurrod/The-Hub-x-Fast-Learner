@@ -40,6 +40,7 @@ async def create_match_category(
     viewer_role_ids: Iterable[int] = (),
     spectator_role_ids: Iterable[int] = (),
     hub_spectator_role_ids: Iterable[int] = (),
+    team_prefix: str = "",
 ) -> MatchChannels:
     """Create a 'Match #N' category with 4 channels and proper overwrites.
 
@@ -64,12 +65,15 @@ async def create_match_category(
         hub_spectator_role_ids=hub_spectator_role_ids,
     )
     reason = f"Match #{match_number} created"
+    prefix = f"{team_prefix} - " if team_prefix else ""
     category = await guild.create_category(
         f"Match #{match_number}", overwrites=overwrites, reason=reason
     )
     created: list = []
     try:
-        prep = await category.create_text_channel("match-preparation", reason=reason)
+        prep = await category.create_text_channel(
+            f"{prefix}match-preparation", reason=reason
+        )
         created.append(prep)
         await _deny_prep_view_for_hub_spectators(
             prep_channel=prep,
@@ -77,11 +81,13 @@ async def create_match_category(
             hub_spectator_role_ids=hub_spectator_role_ids,
             reason=reason,
         )
-        team1 = await category.create_voice_channel("Team 1", reason=reason)
+        team1 = await category.create_voice_channel(f"{prefix}Team 1", reason=reason)
         created.append(team1)
-        team2 = await category.create_voice_channel("Team 2", reason=reason)
+        team2 = await category.create_voice_channel(f"{prefix}Team 2", reason=reason)
         created.append(team2)
-        waiting = await category.create_voice_channel("Waiting Match", reason=reason)
+        waiting = await category.create_voice_channel(
+            f"{prefix}Waiting Match", reason=reason
+        )
         created.append(waiting)
     except Exception:
         logger.exception(
