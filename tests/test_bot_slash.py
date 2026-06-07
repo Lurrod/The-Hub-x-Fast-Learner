@@ -9,6 +9,7 @@ To run:
     pytest tests/test_bot_slash.py -v
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 # After refactor: the slash commands live in cogs/elo_admin.py and
@@ -296,6 +297,7 @@ async def test_slash_leaderboard_creates_view_with_pagination():
                 "elo": 100 + i,
                 "wins": i,
                 "losses": 0,
+                "last_played": datetime.now(UTC),
             }
         )
 
@@ -341,6 +343,7 @@ async def test_slash_leaderboard_next_button_navigates_to_page_2():
                 "elo": 100 + i,
                 "wins": 0,
                 "losses": 0,
+                "last_played": datetime.now(UTC),
             }
         )
 
@@ -389,6 +392,7 @@ async def test_slash_leaderboard_clicking_next_past_last_page_is_noop():
                 "elo": 100 + i,
                 "wins": 0,
                 "losses": 0,
+                "last_played": datetime.now(UTC),
             }
         )
 

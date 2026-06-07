@@ -9,7 +9,9 @@ import mongomock
 
 from services.inactivity import (
     DEFAULT_INACTIVITY_LIMIT,
+    LEADERBOARD_ACTIVE_DAYS,
     format_inactivity,
+    is_active,
     rank_by_inactivity,
 )
 from services.repository import get_elo_col, player_doc_id
@@ -80,6 +82,41 @@ def test_naive_last_played_treated_as_utc():
 
 
 # ── format_inactivity ────────────────────────────────────────
+
+
+# ── is_active (leaderboard inactivity filter) ────────────────
+def test_leaderboard_active_days_is_7():
+    assert LEADERBOARD_ACTIVE_DAYS == 7
+
+
+def test_is_active_recent_player():
+    last = NOW - timedelta(days=2)
+    assert is_active(last, NOW) is True
+
+
+def test_is_active_exactly_at_threshold_is_active():
+    last = NOW - timedelta(days=7)
+    assert is_active(last, NOW) is True
+
+
+def test_is_active_just_past_threshold_is_inactive():
+    last = NOW - timedelta(days=7, minutes=1)
+    assert is_active(last, NOW) is False
+
+
+def test_is_active_never_played_is_inactive():
+    assert is_active(None, NOW) is False
+
+
+def test_is_active_naive_last_played_treated_as_utc():
+    naive = datetime(2026, 5, 23, 12, 0, 0)  # 2 days before NOW, no tzinfo
+    assert is_active(naive, NOW) is True
+
+
+def test_is_active_custom_window():
+    last = NOW - timedelta(days=10)
+    assert is_active(last, NOW) is False
+    assert is_active(last, NOW, max_idle_days=14) is True
 
 
 def test_format_never_played():

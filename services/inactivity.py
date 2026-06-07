@@ -12,10 +12,14 @@ considered the most inactive.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 DEFAULT_INACTIVITY_LIMIT = 25
+
+# A player who has not played within this many days is hidden from the
+# leaderboard.
+LEADERBOARD_ACTIVE_DAYS = 7
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -23,6 +27,23 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value
+
+
+def is_active(
+    last_played: datetime | None,
+    now: datetime,
+    *,
+    max_idle_days: int = LEADERBOARD_ACTIVE_DAYS,
+) -> bool:
+    """True if the player played within `max_idle_days`.
+
+    A player without `last_played` (never played) is considered inactive.
+    The threshold is inclusive: exactly `max_idle_days` ago still counts
+    as active.
+    """
+    if last_played is None:
+        return False
+    return _as_utc(now) - _as_utc(last_played) <= timedelta(days=max_idle_days)
 
 
 def rank_by_inactivity(

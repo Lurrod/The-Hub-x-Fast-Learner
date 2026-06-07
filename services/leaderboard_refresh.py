@@ -21,6 +21,7 @@ import discord
 
 from leaderboard_img import generate_leaderboard
 from services import repository
+from services.inactivity import is_active
 
 logger = logging.getLogger(__name__)
 
@@ -327,9 +328,13 @@ async def build_leaderboard_payload(
     if not docs:
         return None, None
 
+    now = datetime.now(UTC)
     all_players = []
     rank = 1
     for doc in docs:
+        # Hide players inactive for more than 7 days (never-played too).
+        if not is_active(doc.get("last_played"), now):
+            continue
         uid = doc.get("user_id") or doc["_id"].split(":")[0]
         try:
             member = guild.get_member(int(uid))

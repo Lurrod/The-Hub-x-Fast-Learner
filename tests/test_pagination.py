@@ -129,7 +129,7 @@ def test_chunk_empty_when_out_of_bounds():
     assert chunk == []
 
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import mongomock
@@ -162,6 +162,7 @@ async def test_build_leaderboard_payload_filters_by_queue_type():
                 "wins": 1,
                 "losses": 5,
                 "queue_type": "open",
+                "last_played": datetime.now(UTC),
             },
         ]
     )
@@ -183,6 +184,67 @@ async def test_build_leaderboard_payload_filters_by_queue_type():
     assert file_open is not None
     assert file_semipro is None  # 0 players in Semi Pro
     assert file_gc is None  # 0 players in GC
+
+
+@pytest.mark.asyncio
+async def test_build_leaderboard_payload_hides_inactive_players():
+    """A player inactive > 7 days (or never played) is excluded; if all
+    players in a queue are inactive, the leaderboard is empty (None)."""
+    from services import leaderboard_refresh
+    from services.leaderboard_refresh import build_leaderboard_payload
+    from services.repository import get_elo_col, player_doc_id
+
+    leaderboard_refresh._clear_page_cache_for_tests()
+    db = mongomock.MongoClient(tz_aware=True).db
+    col = get_elo_col(db)
+    now = datetime.now(UTC)
+    col.insert_many(
+        [
+            {  # active: played 2 days ago
+                "_id": player_doc_id(1, "pro"),
+                "user_id": "1", "name": "Active", "elo": 2300,
+                "wins": 4, "losses": 1, "queue_type": "pro",
+                "last_played": now - timedelta(days=2),
+            },
+            {  # inactive: played 8 days ago
+                "_id": player_doc_id(2, "pro"),
+                "user_id": "2", "name": "Stale", "elo": 2600,
+                "wins": 9, "losses": 0, "queue_type": "pro",
+                "last_played": now - timedelta(days=8),
+            },
+            {  # never played: no last_played
+                "_id": player_doc_id(3, "pro"),
+                "user_id": "3", "name": "Newbie", "elo": 2000,
+                "wins": 0, "losses": 0, "queue_type": "pro",
+            },
+        ]
+    )
+
+    captured: list[list[dict]] = []
+    real_gen = leaderboard_refresh.generate_leaderboard
+
+    def spy_gen(players, **kwargs):
+        captured.append(list(players))
+        return real_gen(players, **kwargs)
+
+    guild = MagicMock()
+    guild.id = 7
+    guild.name = "TestGuild"
+    fake_member = MagicMock()
+    fake_member.display_name = "X"
+    fake_member.display_avatar.replace.return_value.url = "http://av/x.png"
+    guild.get_member.return_value = fake_member
+
+    leaderboard_refresh.generate_leaderboard = spy_gen
+    try:
+        file_pro, _ = await build_leaderboard_payload(guild, db, queue_type="pro")
+    finally:
+        leaderboard_refresh.generate_leaderboard = real_gen
+
+    assert file_pro is not None
+    # Only the active player is rendered (Stale @8d and Newbie/never excluded).
+    assert len(captured[0]) == 1
+    assert captured[0][0]["elo"] == 2300  # the active player's ELO
 
 
 # -- Rendered page cache --
@@ -234,6 +296,7 @@ def _seed_pro_open(db, guild_id: int, n: int = 1) -> None:
                 "wins": 1,
                 "losses": 0,
                 "queue_type": "open",
+                "last_played": datetime.now(UTC),
             }
         )
     col.insert_many(docs)
