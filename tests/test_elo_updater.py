@@ -359,10 +359,10 @@ def test_pro_queue_weighted_deltas_applied():
     assert outcome.weighted is True
 
     col = repository.get_elo_col(bot_module.db)
-    assert col.find_one({"_id": "0:pro"})["elo"] == 2026
-    assert col.find_one({"_id": "1:pro"})["elo"] == 2020
-    assert col.find_one({"_id": "5:pro"})["elo"] == 1986  # 2000 - 14
-    assert col.find_one({"_id": "6:pro"})["elo"] == 1974  # 2000 - 26
+    assert col.find_one({"_id": "0:pro"})["elo"] == 2026  # carry win +26
+    assert col.find_one({"_id": "1:pro"})["elo"] == 2020  # avg win +20
+    assert col.find_one({"_id": "5:pro"})["elo"] == 1985  # carry loss -15 (clamped)
+    assert col.find_one({"_id": "6:pro"})["elo"] == 1978  # feed loss -22 (clamped)
 
 
 def test_pro_queue_missing_rating_falls_back_flat():

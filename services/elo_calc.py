@@ -29,13 +29,18 @@ ELO_BASE_LOSS: Final[int] = ELO_BASE_CHANGE
 
 # -- Pro-queue performance weighting -------------------------------
 # Pondère le ±20 par le Rating 2.0 du joueur (pro queue uniquement).
-# Modèle additif : delta = base*signe + clamp(C*(rating - baseline), ±P_MAX).
-# Comme P_MAX < ELO_BASE_CHANGE, le signe est garanti (un gagnant gagne
-# toujours, un perdant perd toujours).
+# Modèle additif : delta = base*signe + C*(rating - baseline), puis le
+# résultat est clampé dans des bornes asymétriques par issue. Les bornes
+# étant toutes du bon signe, un gagnant gagne toujours, un perdant perd
+# toujours.
 ELO_WEIGHT_C: Final[int] = 15            # sensibilité (pente)
-ELO_WEIGHT_P_MAX: Final[int] = 6         # plafond du terme perf
 ELO_RATING_BASELINE: Final[float] = 1.0  # ancre absolue (ajustable anti-inflation)
 ELO_MIN_ROUNDS_FOR_WEIGHT: Final[int] = 6  # sous ce seuil: fallback plat (forfaits)
+# Bornes du delta final (pro queue).
+ELO_WIN_MIN: Final[int] = 17             # gain minimum (gagnant en difficulté)
+ELO_WIN_MAX: Final[int] = 26             # gain maximum (carry)
+ELO_LOSS_MIN: Final[int] = -15           # perte minimale (meilleur perdant)
+ELO_LOSS_MAX: Final[int] = -22           # perte maximale (pire perdant)
 
 
 def compute_team_avg_elo(players: list[dict]) -> int:
@@ -64,22 +69,24 @@ def compute_weighted_delta(
     baseline: float = ELO_RATING_BASELINE,
     base: int = ELO_BASE_CHANGE,
     c: float = ELO_WEIGHT_C,
-    p_max: int = ELO_WEIGHT_P_MAX,
 ) -> int:
     """ELO delta pondéré par le Rating 2.0 (pro queue).
 
-        delta = base*signe + clamp(c*(rating - baseline), ±p_max)
+        raw   = base*signe + c*(rating - baseline)
+        delta = clamp(raw, [ELO_WIN_MIN, ELO_WIN_MAX])    si victoire
+              = clamp(raw, [ELO_LOSS_MAX, ELO_LOSS_MIN])  si défaite
 
     Le terme performance s'ajoute avec le même signe quel que soit le
-    résultat : un rating élevé fait gagner plus / perdre moins. Comme
-    `p_max < base`, le signe du résultat est toujours préservé.
+    résultat : un rating élevé fait gagner plus / perdre moins. Les
+    bornes étant du bon signe, le signe du résultat est préservé.
 
-    Exemples (base=20, c=15, p_max=6, baseline=1.0) :
-        rating 1.40 -> +26 (win) / -14 (loss)   # perf clampée à +6
-        rating 1.00 -> +20 / -20                 # ±20 plat
-        rating 0.50 -> +14 / -26                 # perf clampée à -6
+    Exemples (base=20, c=15, baseline=1.0) :
+        rating 1.40 -> +26 (win) / -15 (loss)
+        rating 1.00 -> +20 / -20
+        rating 0.50 -> +17 / -22
     """
     sign = 1 if win else -1
-    perf = c * (rating - baseline)
-    perf = max(-p_max, min(p_max, perf))
-    return round(base * sign + perf)
+    raw = base * sign + c * (rating - baseline)
+    if win:
+        return round(max(ELO_WIN_MIN, min(ELO_WIN_MAX, raw)))
+    return round(max(ELO_LOSS_MAX, min(ELO_LOSS_MIN, raw)))
