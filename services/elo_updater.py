@@ -245,3 +245,21 @@ def _apply_player(
         win=win,
         multiplier=multiplier,
     )
+
+
+def build_elo_results(outcome: MatchEloOutcome) -> dict[str, dict[str, Any]]:
+    """Serialize a `MatchEloOutcome` into a per-player map for persistence.
+
+    Shape: ``{ "<user_id>": {"delta": int, "old": int, "new": int,
+    "win": bool} }``. Stored on the match doc so consumers (e.g. the stats
+    website) can show each player's ELO change for that match.
+    """
+    return {
+        str(c.user_id): {
+            "delta": int(c.delta),
+            "old": int(c.old_elo),
+            "new": int(c.new_elo),
+            "win": bool(c.win),
+        }
+        for c in outcome.changes
+    }

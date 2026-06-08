@@ -272,3 +272,31 @@ def ratings_by_uid(
         if rating > 0:
             out[str(uid)] = rating
     return out
+
+
+def compute_team_scores(
+    summary,
+    team_a_uid_by_puuid: Mapping[str, str],
+    team_b_uid_by_puuid: Mapping[str, str],
+) -> tuple[int | None, int | None]:
+    """Map the Henrik Red/Blue round scores onto the bot's team_a / team_b.
+
+    `summary` is a `MatchSummary` (`rounds_red`, `rounds_blue`, `players`
+    each with a `.team` of "Red"/"Blue"). Returns `(score_a, score_b)`,
+    or `(None, None)` when team_a's Henrik side cannot be unambiguously
+    determined (no matched players, or players split across both sides).
+    Mirrors the side-detection used by `compute_acs_multipliers`.
+    """
+    by_puuid = {p.puuid: p for p in summary.players}
+
+    def _side(uid_by_puuid: Mapping[str, str]) -> str | None:
+        labels = {by_puuid[pu].team for pu in uid_by_puuid if pu in by_puuid}
+        return next(iter(labels)) if len(labels) == 1 else None
+
+    side_a = _side(team_a_uid_by_puuid)
+    if side_a not in ("Red", "Blue"):
+        return (None, None)
+
+    red = int(summary.rounds_red)
+    blue = int(summary.rounds_blue)
+    return (red, blue) if side_a == "Red" else (blue, red)
