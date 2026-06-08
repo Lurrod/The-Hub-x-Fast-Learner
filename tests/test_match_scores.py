@@ -18,7 +18,7 @@ from services.elo_updater import (
     PlayerEloChange,
     build_elo_results,
 )
-from services.match_verifier import compute_team_scores
+from services.match_verifier import compute_round_breakdown, compute_team_scores
 
 
 def _summary(red: int, blue: int, players: list[SimpleNamespace]) -> SimpleNamespace:
@@ -102,3 +102,51 @@ def test_set_match_score_persists_on_match_doc(mongo_db):
     doc = col.find_one({"_id": "m2"})
     assert doc["score_a"] == 11
     assert doc["score_b"] == 13
+
+
+# -- compute_round_breakdown --------------------------------------------
+
+
+def _round_summary(round_winners, round_end_types, players):
+    return SimpleNamespace(
+        round_winners=tuple(round_winners),
+        round_end_types=tuple(round_end_types),
+        players=players,
+    )
+
+
+def test_round_breakdown_maps_red_blue_to_team_a_b():
+    # team_a on Red side: Red rounds -> "a", Blue rounds -> "b".
+    summary = _round_summary(
+        ["Red", "Blue", "Red"],
+        ["Eliminated", "Bomb defused", "Bomb detonated"],
+        [_p("a1", "Red"), _p("b1", "Blue")],
+    )
+    rounds = compute_round_breakdown(summary, {"a1": "1"}, {"b1": "2"})
+    assert rounds == [
+        {"winner": "a", "end": "Eliminated"},
+        {"winner": "b", "end": "Bomb defused"},
+        {"winner": "a", "end": "Bomb detonated"},
+    ]
+
+
+def test_round_breakdown_team_a_on_blue_inverts():
+    summary = _round_summary(["Red", "Blue"], ["", ""], [_p("a1", "Blue"), _p("b1", "Red")])
+    rounds = compute_round_breakdown(summary, {"a1": "1"}, {"b1": "2"})
+    assert [r["winner"] for r in rounds] == ["b", "a"]
+
+
+def test_round_breakdown_blank_when_side_ambiguous():
+    summary = _round_summary(["Red", "Blue"], ["", ""], [_p("a1", "Red"), _p("a2", "Blue")])
+    rounds = compute_round_breakdown(summary, {"a1": "1", "a2": "2"}, {})
+    assert [r["winner"] for r in rounds] == ["", ""]
+
+
+def test_set_match_rounds_persists_on_match_doc(mongo_db):
+    col = repository.get_matches_col(mongo_db)
+    col.insert_one({"_id": "m3", "status": "validated_a"})
+    rounds = [{"winner": "a", "end": "Eliminated"}, {"winner": "b", "end": "Bomb defused"}]
+    repository.set_match_rounds(mongo_db, "m3", rounds)
+    doc = col.find_one({"_id": "m3"})
+    assert doc["rounds"] == rounds
+    assert len(doc["rounds"]) == 2

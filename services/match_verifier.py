@@ -300,3 +300,38 @@ def compute_team_scores(
     red = int(summary.rounds_red)
     blue = int(summary.rounds_blue)
     return (red, blue) if side_a == "Red" else (blue, red)
+
+
+def compute_round_breakdown(
+    summary,
+    team_a_uid_by_puuid: Mapping[str, str],
+    team_b_uid_by_puuid: Mapping[str, str],
+) -> list[dict[str, str]]:
+    """Per-round outcome mapped onto team_a / team_b for the website round bar.
+
+    Returns an ordered list, one entry per round:
+    ``{"winner": "a" | "b" | "", "end": "<Henrik end_type>"}``.
+    `winner` is "a"/"b" relative to the bot's teams (resolved from team_a's
+    Henrik Red/Blue side, like `compute_team_scores`), or "" when the side
+    is ambiguous or the round winner is unknown. `end` is the raw Henrik
+    end_type (e.g. "Eliminated", "Bomb defused") for the outcome icon.
+    """
+    by_puuid = {p.puuid: p for p in summary.players}
+
+    def _side(uid_by_puuid: Mapping[str, str]) -> str | None:
+        labels = {by_puuid[pu].team for pu in uid_by_puuid if pu in by_puuid}
+        return next(iter(labels)) if len(labels) == 1 else None
+
+    side_a = _side(team_a_uid_by_puuid)
+    winners = tuple(getattr(summary, "round_winners", ()) or ())
+    ends = tuple(getattr(summary, "round_end_types", ()) or ())
+
+    out: list[dict[str, str]] = []
+    for i, w in enumerate(winners):
+        end = ends[i] if i < len(ends) else ""
+        if side_a in ("Red", "Blue") and w in ("Red", "Blue"):
+            winner = "a" if w == side_a else "b"
+        else:
+            winner = ""
+        out.append({"winner": winner, "end": str(end)})
+    return out
