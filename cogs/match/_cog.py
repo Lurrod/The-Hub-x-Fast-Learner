@@ -58,6 +58,7 @@ from services.captain_draft import (
 )
 from services.elo_updater import (
     apply_match_validation,
+    build_elo_results,
 )
 from services.leaderboard_refresh import refresh_leaderboard_channel
 from services.map_pick_ban import (
@@ -77,6 +78,7 @@ from services.match_service import (
 )
 from services.match_verifier import (
     build_extended_stats,
+    compute_team_scores,
     find_henrik_custom_match,
     ratings_by_uid,
 )
@@ -1087,6 +1089,18 @@ class MatchCog(commands.Cog):
             multipliers=None,
         )
 
+        # Persist per-player ELO deltas on the match doc (all queues) so the
+        # stats website can show each player's ELO change for the match.
+        try:
+            await asyncio.to_thread(
+                repository.set_match_elo_results,
+                self.db,
+                match_doc["_id"],
+                build_elo_results(outcome),
+            )
+        except Exception:
+            logger.exception("[match] set_match_elo_results raised")
+
         embed = build_elo_changes_embed(outcome, match_doc, guild.name)
         elo_log = discord.utils.get(guild.text_channels, name="elo-adding")
         if elo_log is not None:
@@ -1103,6 +1117,22 @@ class MatchCog(commands.Cog):
         # Scoreboard + extended stats: only if Henrik responded.
         if fetched is not None:
             summary, team_a_uid_by_puuid, team_b_uid_by_puuid = fetched
+            # Persist the final round score (team_a vs team_b) on the match
+            # doc — only available when Henrik returned the custom.
+            try:
+                score_a, score_b = compute_team_scores(
+                    summary, team_a_uid_by_puuid, team_b_uid_by_puuid
+                )
+                if score_a is not None and score_b is not None:
+                    await asyncio.to_thread(
+                        repository.set_match_score,
+                        self.db,
+                        match_doc["_id"],
+                        score_a,
+                        score_b,
+                    )
+            except Exception:
+                logger.exception("[match] set_match_score raised")
             try:
                 await self._post_match_scoreboard(
                     guild,

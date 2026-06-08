@@ -842,6 +842,39 @@ def set_match_henrik_verified(
     )
 
 
+def set_match_elo_results(
+    db: Database,
+    match_id: Any,
+    results: Mapping[str, Any],
+) -> None:
+    """Persist the per-player ELO deltas for a validated match.
+
+    `results` maps user_id -> {delta, old, new, win} (see
+    `elo_updater.build_elo_results`). Idempotent ``$set``: re-running a
+    verification overwrites with identical values. Present only on matches
+    validated after this feature shipped (older matches have no field)."""
+    get_matches_col(db).update_one(
+        {"_id": match_id},
+        {"$set": {"elo_results": dict(results)}},
+    )
+
+
+def set_match_score(
+    db: Database,
+    match_id: Any,
+    score_a: int,
+    score_b: int,
+) -> None:
+    """Persist the final round score (team_a vs team_b) for a match.
+
+    Only available when HenrikDev returned the custom (pro queue); other
+    queues / un-found matches keep no score. Idempotent ``$set``."""
+    get_matches_col(db).update_one(
+        {"_id": match_id},
+        {"$set": {"score_a": int(score_a), "score_b": int(score_b)}},
+    )
+
+
 def get_match_player_stats_col(db: Database) -> Collection:
     """Match player stats collection shared across all guilds.
 
