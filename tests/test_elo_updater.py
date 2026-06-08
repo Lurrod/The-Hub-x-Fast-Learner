@@ -333,7 +333,7 @@ def test_apply_match_validation_uses_compound_doc_id():
     assert col.find_one({"_id": "1"}) is None
 
 
-# ── Pondération Rating 2.0 (pro queue uniquement) ─────────────────
+# ── Pondération Rating 2.0 (pro + semipro queues) ─────────────────
 def _pro_match(status="validated_a"):
     return {
         "_id": "match-pro-1",
@@ -341,6 +341,16 @@ def _pro_match(status="validated_a"):
         "team_b": [{"id": str(5 + i), "name": f"B{i}", "elo": 2000} for i in range(5)],
         "status": status,
         "queue_type": "pro",
+    }
+
+
+def _semipro_match(status="validated_a"):
+    return {
+        "_id": "match-semipro-1",
+        "team_a": [{"id": str(i), "name": f"A{i}", "elo": 2000} for i in range(5)],
+        "team_b": [{"id": str(5 + i), "name": f"B{i}", "elo": 2000} for i in range(5)],
+        "status": status,
+        "queue_type": "semipro",
     }
 
 
@@ -363,6 +373,27 @@ def test_pro_queue_weighted_deltas_applied():
     assert col.find_one({"_id": "1:pro"})["elo"] == 2020  # avg win +20
     assert col.find_one({"_id": "5:pro"})["elo"] == 1985  # carry loss -15 (clamped)
     assert col.find_one({"_id": "6:pro"})["elo"] == 1978  # feed loss -22 (clamped)
+
+
+def test_semipro_queue_weighted_deltas_applied():
+    """Semi-Pro uses the same Rating 2.0 weighting as Pro (not flat ±20)."""
+    import bot as bot_module
+
+    match = _semipro_match()
+    ratings = {
+        "0": 1.40,  # carry winner  -> +26
+        "1": 1.00,  # avg winner    -> +20
+        "5": 1.40,  # carry loser   -> -15 (clamped)
+        "6": 0.50,  # feeding loser -> -22 (clamped)
+    }
+    outcome = apply_match_validation(bot_module.db, match, ratings=ratings)
+    assert outcome.weighted is True
+
+    col = repository.get_elo_col(bot_module.db)
+    assert col.find_one({"_id": "0:semipro"})["elo"] == 2026  # carry win +26
+    assert col.find_one({"_id": "1:semipro"})["elo"] == 2020  # avg win +20
+    assert col.find_one({"_id": "5:semipro"})["elo"] == 1985  # carry loss -15
+    assert col.find_one({"_id": "6:semipro"})["elo"] == 1978  # feed loss -22
 
 
 def test_pro_queue_missing_rating_falls_back_flat():

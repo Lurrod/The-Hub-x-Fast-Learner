@@ -52,7 +52,7 @@ def _player_delta(
     win: bool,
     ratings: dict[str, float] | None,
 ) -> int:
-    """Weighted delta for a pro-queue player, or flat ±20 fallback.
+    """Weighted delta for a Pro/Semi-Pro player, or flat ±20 fallback.
 
     Falls back to the flat change when the player's Rating 2.0 is absent
     or invalid (<= 0), e.g. forfeits or missing Henrik data.
@@ -72,9 +72,9 @@ def apply_match_validation(
     """
     Distribute ELO in a single pass.
 
-    Default: flat ±20 for every player (all queues). For the **pro queue**
-    only, when per-player Rating 2.0 scores are provided via `ratings`,
-    each delta is weighted by performance (see
+    Default: flat ±20 for every player (Open / GC queues). For the **Pro
+    and Semi-Pro queues**, when per-player Rating 2.0 scores are provided
+    via `ratings`, each delta is weighted by performance (see
     `elo_calc.compute_weighted_delta`). Players whose rating is missing or
     invalid (<= 0) fall back to the flat ±20.
 
@@ -85,7 +85,7 @@ def apply_match_validation(
         db:          mongomock/pymongo Database (shared ELO collection)
         match_doc:   match doc with `team_a`, `team_b`, `status`, `queue_type`
         multipliers: kept for backward compatibility; ignored.
-        ratings:     {user_id(str) -> Rating 2.0}. Only used in pro queue.
+        ratings:     {user_id(str) -> Rating 2.0}. Used in pro/semipro queues.
 
     Raises:
         ValueError if status != validated_a/b
@@ -105,9 +105,10 @@ def apply_match_validation(
 
     base_gain = base_loss = FLAT_ELO_CHANGE
 
-    # Performance weighting is pro-queue-only and requires per-player
-    # Rating 2.0 scores. Anything else stays on the flat ±20 path.
-    weighted = queue_type == "pro" and bool(ratings)
+    # Performance weighting applies to the Pro and Semi-Pro queues and
+    # requires per-player Rating 2.0 scores. Anything else stays on the
+    # flat ±20 path.
+    weighted = queue_type in ("pro", "semipro") and bool(ratings)
 
     elo_col = repository.get_elo_col(db)
 

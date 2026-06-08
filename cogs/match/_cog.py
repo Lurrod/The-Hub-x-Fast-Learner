@@ -1057,11 +1057,11 @@ class MatchCog(commands.Cog):
         if claimed is None:
             return  # Already applied by a previous tick.
 
-        # Pro-queue ELO is weighted by Rating 2.0. Build the per-player
+        # Pro / Semi-Pro ELO is weighted by Rating 2.0. Build the per-player
         # ratings from the Henrik summary (already fetched above); other
         # queues — or matches without Henrik data — stay flat ±20.
         ratings = None
-        if fetched is not None and match_doc.get("queue_type") == "pro":
+        if fetched is not None and match_doc.get("queue_type") in ("pro", "semipro"):
             summary_for_ratings, ta_map, tb_map = fetched
             ratings = ratings_by_uid(
                 summary_for_ratings, {**(ta_map or {}), **(tb_map or {})}
