@@ -150,3 +150,17 @@ def test_set_match_rounds_persists_on_match_doc(mongo_db):
     doc = col.find_one({"_id": "m3"})
     assert doc["rounds"] == rounds
     assert len(doc["rounds"]) == 2
+
+
+# -- acs_sum aggregation -------------------------------------------------
+
+
+def test_acs_sum_accumulates_in_rating_aggregates(mongo_db):
+    deltas = [
+        {"user_id": "1", "queue_type": "pro", "games": 1, "acs_sum": 250.0, "rating_2_0_sum": 1.2},
+        {"user_id": "1", "queue_type": "pro", "games": 1, "acs_sum": 200.0, "rating_2_0_sum": 1.0},
+    ]
+    repository.update_rating_aggregates(mongo_db, deltas)
+    agg = repository.get_rating_aggregate(mongo_db, user_id="1", queue_type="pro")
+    assert agg["games"] == 2
+    assert agg["acs_sum"] == 450.0

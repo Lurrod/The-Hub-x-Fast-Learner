@@ -1247,6 +1247,7 @@ class MatchCog(commands.Cog):
                     "first_deaths": s.first_deaths,
                     "kast_rounds": s.kast_rounds,
                     "rating_2_0_sum": s.rating_2_0,
+                    "acs_sum": s.acs,
                 }
             )
 
