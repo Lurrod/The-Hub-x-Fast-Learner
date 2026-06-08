@@ -875,6 +875,22 @@ def set_match_score(
     )
 
 
+def set_match_rounds(
+    db: Database,
+    match_id: Any,
+    rounds: list[Mapping[str, Any]],
+) -> None:
+    """Persist the per-round breakdown for a match (website round bar).
+
+    Each entry is ``{"winner": "a"|"b"|"", "end": str}`` (see
+    `match_verifier.compute_round_breakdown`). Henrik-only; idempotent
+    ``$set``."""
+    get_matches_col(db).update_one(
+        {"_id": match_id},
+        {"$set": {"rounds": [dict(r) for r in rounds]}},
+    )
+
+
 def get_match_player_stats_col(db: Database) -> Collection:
     """Match player stats collection shared across all guilds.
 

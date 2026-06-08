@@ -78,6 +78,7 @@ from services.match_service import (
 )
 from services.match_verifier import (
     build_extended_stats,
+    compute_round_breakdown,
     compute_team_scores,
     find_henrik_custom_match,
     ratings_by_uid,
@@ -1133,6 +1134,21 @@ class MatchCog(commands.Cog):
                     )
             except Exception:
                 logger.exception("[match] set_match_score raised")
+            # Persist the per-round breakdown (winner a/b + end type) so the
+            # website can render the round bar like this scoreboard.
+            try:
+                rounds = compute_round_breakdown(
+                    summary, team_a_uid_by_puuid, team_b_uid_by_puuid
+                )
+                if rounds:
+                    await asyncio.to_thread(
+                        repository.set_match_rounds,
+                        self.db,
+                        match_doc["_id"],
+                        rounds,
+                    )
+            except Exception:
+                logger.exception("[match] set_match_rounds raised")
             try:
                 await self._post_match_scoreboard(
                     guild,
