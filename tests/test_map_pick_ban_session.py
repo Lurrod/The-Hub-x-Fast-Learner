@@ -50,8 +50,22 @@ def _mock_interaction(
     return interaction
 
 
+async def _run_six_bans(session: MapBanSession) -> None:
+    bans = [
+        (1, "Breeze"),
+        (2, "Ascent"),
+        (1, "Lotus"),
+        (2, "Fracture"),
+        (1, "Split"),
+        (2, "Haven"),
+    ]
+    for uid, m in bans:
+        inter = _mock_interaction(user_id=uid, picked_map=m, custom_id="map_ban_pick")
+        await session._on_ban(inter)
+
+
 @pytest.mark.asyncio
-async def test_six_bans_resolve_to_pearl_remaining():
+async def test_six_bans_then_side_pick_resolve_to_pearl_attack():
     channel = MagicMock()
     channel.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
     cap_a, cap_b = _p(1), _p(2)
@@ -65,22 +79,45 @@ async def test_six_bans_resolve_to_pearl_remaining():
     run_task = asyncio.create_task(session.run())
     await asyncio.sleep(0)  # let session.run() post the initial message
 
-    bans = [
-        (1, "Breeze"),
-        (2, "Ascent"),
-        (1, "Lotus"),
-        (2, "Fracture"),
-        (1, "Split"),
-        (2, "Haven"),
-    ]
-    for uid, m in bans:
-        inter = _mock_interaction(user_id=uid, picked_map=m, custom_id="map_ban_pick")
-        await session._on_ban(inter)
+    await _run_six_bans(session)
+
+    # After 6 bans: still pending, awaiting the side pick by cap_a.
+    assert not run_task.done()
+    assert session.state.status == "picking_side"
+
+    side_inter = _mock_interaction(user_id=1, custom_id="map_side_attack")
+    await session._on_side(side_inter, "Attack")
 
     result = await asyncio.wait_for(run_task, timeout=1.0)
     assert isinstance(result, MapBanResult)
     assert result.selected_map == "Pearl"
+    assert result.picked_side == "Attack"
+    assert result.side_captain_id == 1
     assert len(result.ban_history) == 6
+
+
+@pytest.mark.asyncio
+async def test_non_side_captain_cannot_pick_side():
+    channel = MagicMock()
+    channel.send = AsyncMock(return_value=MagicMock(edit=AsyncMock()))
+    session = MapBanSession(
+        prep_channel=channel,
+        cap_a=_p(1),
+        cap_b=_p(2),
+        maps=MAPS_7,
+        admin_role_names=ADMIN_ROLES,
+    )
+    run_task = asyncio.create_task(session.run())
+    await asyncio.sleep(0)
+    await _run_six_bans(session)
+
+    # cap_b (id 2) is NOT the side captain (cap_a made no final ban).
+    inter = _mock_interaction(user_id=2, custom_id="map_side_defense")
+    allowed = await session._interaction_check(inter)
+    assert allowed is False
+    inter.response.send_message.assert_awaited_once()
+    run_task.cancel()
+    await asyncio.gather(run_task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

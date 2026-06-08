@@ -1,7 +1,9 @@
 """Pro / Semi-Pro Queue Map Pick & Ban Service.
 
 Used after the captain draft completes: cap_a bans first, then alternating
-ABABAB (6 bans on 7 maps). The 1 remaining map is the match map.
+ABABAB (6 bans on 7 maps). The 1 remaining map is the match map. The
+captain who did NOT make the final ban (cap_a, since BAN_SEQUENCE ends on
+"B") then picks the side (Attack / Defense) for their team.
 
 Module isolated by queue: open and gc queues do NOT call this. They keep
 plan_match (random map).
@@ -30,7 +32,16 @@ logger = logging.getLogger(__name__)
 # 6 bans on 7 maps -> 1 remains. cap_a bans first.
 BAN_SEQUENCE: tuple[Literal["A", "B"], ...] = ("A", "B", "A", "B", "A", "B")
 
-BanStatus = Literal["banning", "complete", "cancelled"]
+# The captain who did NOT make the final ban picks the side: the other
+# captain effectively "chose" the map by banning everything else last.
+# With BAN_SEQUENCE ending on "B", the side-picker is captain A.
+SIDE_PICKER: Literal["A", "B"] = "A" if BAN_SEQUENCE[-1] == "B" else "B"
+
+Side = Literal["Attack", "Defense"]
+SIDES: tuple[Side, ...] = ("Attack", "Defense")
+
+# banning -> picking_side -> complete (or cancelled at any point).
+BanStatus = Literal["banning", "picking_side", "complete", "cancelled"]
 
 
 @dataclass(frozen=True)
@@ -41,6 +52,7 @@ class MapBanState:
     banned: tuple[tuple[Literal["A", "B"], str], ...]
     turn_index: int
     status: BanStatus
+    picked_side: Side | None = None
 
     @classmethod
     def initial(
@@ -60,18 +72,31 @@ class MapBanState:
         )
 
     @property
-    def is_complete(self) -> bool:
+    def bans_done(self) -> bool:
+        """True once all 6 bans have been made (1 map remains)."""
         return self.turn_index >= len(BAN_SEQUENCE)
 
     @property
+    def is_complete(self) -> bool:
+        return self.status == "complete"
+
+    @property
     def current_captain(self) -> Player:
-        if self.is_complete:
+        if self.bans_done:
             raise RuntimeError("Ban phase complete: no current captain.")
         side = BAN_SEQUENCE[self.turn_index]
         return self.cap_a if side == "A" else self.cap_b
 
+    @property
+    def side_captain(self) -> Player:
+        """Captain who picks the side: the one who did NOT make the final ban."""
+        return self.cap_a if SIDE_PICKER == "A" else self.cap_b
+
     def apply_ban(self, map_name: str) -> MapBanState:
         """Returns a new state with `map_name` removed from remaining.
+
+        Once the 6th ban lands, status transitions to "picking_side" (the
+        side captain must then call apply_side), not directly to "complete".
 
         Raises:
             ValueError if map_name not in remaining.
@@ -85,7 +110,7 @@ class MapBanState:
         new_remaining = tuple(m for m in self.remaining if m != map_name)
         new_banned = (*self.banned, (side, map_name))
         new_turn = self.turn_index + 1
-        new_status: BanStatus = "complete" if new_turn >= len(BAN_SEQUENCE) else "banning"
+        new_status: BanStatus = "picking_side" if new_turn >= len(BAN_SEQUENCE) else "banning"
         return replace(
             self,
             remaining=new_remaining,
@@ -94,11 +119,26 @@ class MapBanState:
             status=new_status,
         )
 
+    def apply_side(self, side: Side) -> MapBanState:
+        """Records the side picked by the side captain and completes the phase.
+
+        Raises:
+            ValueError if `side` is not a valid side.
+            RuntimeError if status != "picking_side".
+        """
+        if self.status != "picking_side":
+            raise RuntimeError(f"Ban status={self.status}, cannot pick side.")
+        if side not in SIDES:
+            raise ValueError(f"Invalid side {side!r}, expected one of {SIDES}.")
+        return replace(self, picked_side=side, status="complete")
+
 
 @dataclass(frozen=True)
 class MapBanResult:
     selected_map: str
     ban_history: tuple[tuple[Literal["A", "B"], str], ...]
+    picked_side: Side
+    side_captain_id: int
 
     @classmethod
     def from_state(cls, state: MapBanState) -> MapBanResult:
@@ -106,9 +146,13 @@ class MapBanResult:
             raise ValueError(f"Ban state not complete (status={state.status}).")
         if len(state.remaining) != 1:
             raise ValueError(f"Expected exactly 1 map remaining, got {len(state.remaining)}.")
+        if state.picked_side is None:
+            raise ValueError("Ban state complete but no side was picked.")
         return cls(
             selected_map=state.remaining[0],
             ban_history=state.banned,
+            picked_side=state.picked_side,
+            side_captain_id=state.side_captain.id,
         )
 
 
@@ -152,7 +196,8 @@ def _build_sequence_marker(turn_index: int) -> str:
 
 
 class MapBanSession:
-    """Posts the map ban embed and resolves to a MapBanResult after 6 bans.
+    """Posts the map ban embed and resolves to a MapBanResult after the 6
+    bans and the side pick by the side captain.
 
     Args:
         prep_channel:      Discord text channel where the embed is posted.
@@ -223,8 +268,23 @@ class MapBanSession:
             value=_build_remaining_lines(self.state.remaining),
             inline=False,
         )
-        if self.state.is_complete:
-            e.set_footer(text=f"✅ Map selected: {self.state.remaining[0]}")
+        if self.state.status == "complete":
+            e.set_footer(
+                text=(
+                    f"✅ Map: {self.state.remaining[0]} · "
+                    f"Team A side: {self.state.picked_side}"
+                )
+            )
+        elif self.state.status == "picking_side":
+            picker = self.state.side_captain
+            e.add_field(
+                name=f"🧭 <@{picker.id}>'s turn — choose your side",
+                value=(
+                    f"Map: **{self.state.remaining[0]}**\n"
+                    "Pick **Attack** or **Defense** for your team."
+                ),
+                inline=False,
+            )
         elif self.state.status == "banning":
             cur = self.state.current_captain
             seq = _build_sequence_marker(self.state.turn_index)
@@ -248,7 +308,7 @@ class MapBanSession:
                 return await session._interaction_check(interaction)
 
         view = _View()
-        if not self.state.is_complete and self.state.status == "banning":
+        if self.state.status == "banning":
             options = [discord.SelectOption(label=m, value=m) for m in self.state.remaining]
             select: discord.ui.Select[Any] = discord.ui.Select(
                 custom_id="map_ban_pick",
@@ -263,12 +323,32 @@ class MapBanSession:
 
             select.callback = _select_cb  # type: ignore[method-assign]
             view.add_item(select)
+        elif self.state.status == "picking_side":
+            for side in SIDES:
+                btn: discord.ui.Button[Any] = discord.ui.Button(
+                    custom_id=f"map_side_{side.lower()}",
+                    style=(
+                        discord.ButtonStyle.danger
+                        if side == "Attack"
+                        else discord.ButtonStyle.primary
+                    ),
+                    label=("⚔️ Attack" if side == "Attack" else "🛡️ Defense"),
+                )
+
+                def _make_side_cb(chosen: Side):
+                    async def _side_cb(interaction: discord.Interaction) -> None:
+                        await session._on_side(interaction, chosen)
+
+                    return _side_cb
+
+                btn.callback = _make_side_cb(side)  # type: ignore[method-assign]
+                view.add_item(btn)
 
         cancel_btn: discord.ui.Button[Any] = discord.ui.Button(
             custom_id="map_ban_cancel",
             style=discord.ButtonStyle.danger,
             label="❌ Cancel ban phase",
-            disabled=self.state.status != "banning",
+            disabled=self.state.status not in ("banning", "picking_side"),
         )
 
         async def _cancel_cb(interaction: discord.Interaction) -> None:
@@ -281,9 +361,20 @@ class MapBanSession:
     async def _interaction_check(self, interaction: Any) -> bool:
         cid = interaction.data.get("custom_id", "")
         if cid == "map_ban_pick":
-            if self.state.is_complete or interaction.user.id != self.state.current_captain.id:
+            if self.state.status != "banning" or (
+                interaction.user.id != self.state.current_captain.id
+            ):
                 await interaction.response.send_message(
                     "⏳ It's not your turn.",
+                    ephemeral=True,
+                )
+                return False
+        elif cid.startswith("map_side_"):
+            if self.state.status != "picking_side" or (
+                interaction.user.id != self.state.side_captain.id
+            ):
+                await interaction.response.send_message(
+                    "🧭 Only the side captain can choose the side.",
                     ephemeral=True,
                 )
                 return False
@@ -326,12 +417,38 @@ class MapBanSession:
                 if self.message is not None:
                     with contextlib.suppress(Exception):
                         await self.message.edit(embed=embed, view=view)
-            if self.state.is_complete and self._done is not None and not self._done.done():
+            # No future resolution here: bans done -> picking_side phase.
+
+    async def _on_side(self, interaction: Any, side: Side) -> None:
+        async with self._lock:
+            if self.state.status != "picking_side":
+                with contextlib.suppress(Exception):
+                    await interaction.response.defer()
+                return
+            self.state = self.state.apply_side(side)
+            logger.info(
+                "[map_ban] side picked by=%s side=%s map=%s",
+                interaction.user.id,
+                side,
+                self.state.remaining[0],
+            )
+            embed = self._build_embed()
+            view = self._build_view()
+            try:
+                await interaction.response.edit_message(embed=embed, view=view)
+            except Exception:
+                logger.exception(
+                    "[map_ban] edit_message via interaction raised, fallback message.edit"
+                )
+                if self.message is not None:
+                    with contextlib.suppress(Exception):
+                        await self.message.edit(embed=embed, view=view)
+            if self._done is not None and not self._done.done():
                 self._done.set_result(MapBanResult.from_state(self.state))
 
     async def _on_cancel(self, interaction: Any) -> None:
         async with self._lock:
-            if self.state.status != "banning":
+            if self.state.status not in ("banning", "picking_side"):
                 with contextlib.suppress(Exception):
                     await interaction.response.defer()
                 return

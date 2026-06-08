@@ -32,6 +32,9 @@ class MatchPlan:
     map_name: str
     lobby_leader: Player
     category_name: str | None  # None if no free category
+    # Side (Attack / Defense) picked by Team A's captain during the map
+    # ban phase. None on open/gc queues (no captain draft / side pick).
+    team_a_side: str | None = None
 
 
 def build_players(
@@ -111,6 +114,7 @@ def build_plan_from_draft(
     free_category: str,
     rng: random.Random,
     map_name: str | None = None,
+    team_a_side: str | None = None,
 ) -> MatchPlan:
     """Build a MatchPlan from a captain DraftResult.
 
@@ -123,6 +127,8 @@ def build_plan_from_draft(
         rng:           random source (used only when map_name is None).
         map_name:      map chosen by the map ban phase; if None, falls
                        back to rng.choice(elo_calc.MAPS).
+        team_a_side:   side ("Attack"/"Defense") picked by Team A's captain
+                       during the map ban phase; None if not applicable.
     """
     team_a = result.team_a
     team_b = result.team_b
@@ -142,4 +148,5 @@ def build_plan_from_draft(
         map_name=chosen_map,
         lobby_leader=result.cap_a,
         category_name=free_category,
+        team_a_side=team_a_side,
     )

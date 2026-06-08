@@ -496,6 +496,7 @@ def test_finalize_preparing_match_promotes_to_pending(mongo_db):
         map_name="Ascent",
         lobby_leader_id=1,
         category_name="Match #8",
+        team_a_side="Attack",
     )
 
     doc = get_matches_col(mongo_db).find_one({"_id": match_id})
@@ -505,6 +506,7 @@ def test_finalize_preparing_match_promotes_to_pending(mongo_db):
     assert doc["map"] == "Ascent"
     assert doc["lobby_leader_id"] == "1"
     assert doc["category_name"] == "Match #8"
+    assert doc["team_a_side"] == "Attack"
 
 
 def test_finalize_preparing_match_is_noop_when_already_promoted(mongo_db):

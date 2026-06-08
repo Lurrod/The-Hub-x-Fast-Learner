@@ -85,40 +85,71 @@ def test_apply_ban_raises_when_cancelled():
         cancelled.apply_ban("Breeze")
 
 
-def test_six_bans_leave_one_map_and_complete():
-    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
+def _ban_all_six(cap_a: Player, cap_b: Player) -> MapBanState:
+    state = MapBanState.initial(cap_a=cap_a, cap_b=cap_b, maps=MAPS_7)
     for m in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven"):
         state = state.apply_ban(m)
-    assert state.status == "complete"
-    assert state.is_complete
+    return state
+
+
+def test_six_bans_leave_one_map_and_move_to_side_pick():
+    state = _ban_all_six(_p(1), _p(2))
+    assert state.status == "picking_side"
+    assert state.bans_done
+    assert not state.is_complete  # side not picked yet
     assert state.remaining == ("Pearl",)
     assert len(state.banned) == 6
 
 
-def test_apply_ban_raises_when_complete():
-    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
-    for m in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven"):
-        state = state.apply_ban(m)
+def test_apply_ban_raises_once_bans_done():
+    state = _ban_all_six(_p(1), _p(2))
     with pytest.raises(RuntimeError, match="cannot ban"):
         state.apply_ban("Pearl")
 
 
-def test_current_captain_raises_when_complete():
-    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
-    for m in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven"):
-        state = state.apply_ban(m)
+def test_current_captain_raises_when_bans_done():
+    state = _ban_all_six(_p(1), _p(2))
     with pytest.raises(RuntimeError, match="no current captain"):
         _ = state.current_captain
+
+
+def test_side_captain_is_the_one_who_did_not_make_final_ban():
+    # BAN_SEQUENCE ends on "B" (cap_b), so cap_a picks the side.
+    state = _ban_all_six(_p(1), _p(2))
+    assert state.side_captain.id == 1
+
+
+def test_apply_side_completes_and_records_side():
+    state = _ban_all_six(_p(1), _p(2))
+    completed = state.apply_side("Attack")
+    assert completed.status == "complete"
+    assert completed.is_complete
+    assert completed.picked_side == "Attack"
+    # original unchanged (immutability)
+    assert state.picked_side is None
+    assert state.status == "picking_side"
+
+
+def test_apply_side_raises_when_not_picking_side():
+    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
+    with pytest.raises(RuntimeError, match="cannot pick side"):
+        state.apply_side("Attack")
+
+
+def test_apply_side_raises_on_invalid_side():
+    state = _ban_all_six(_p(1), _p(2))
+    with pytest.raises(ValueError, match="Invalid side"):
+        state.apply_side("Offense")  # type: ignore[arg-type]
 
 
 def test_map_ban_result_from_complete_state():
     from services.map_pick_ban import MapBanResult
 
-    state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
-    for m in ("Breeze", "Ascent", "Lotus", "Fracture", "Split", "Haven"):
-        state = state.apply_ban(m)
+    state = _ban_all_six(_p(1), _p(2)).apply_side("Defense")
     result = MapBanResult.from_state(state)
     assert result.selected_map == "Pearl"
+    assert result.picked_side == "Defense"
+    assert result.side_captain_id == 1
     assert result.ban_history == (
         ("A", "Breeze"),
         ("B", "Ascent"),
@@ -129,10 +160,18 @@ def test_map_ban_result_from_complete_state():
     )
 
 
-def test_map_ban_result_raises_if_state_not_complete():
+def test_map_ban_result_raises_if_bans_not_done():
     from services.map_pick_ban import MapBanResult
 
     state = MapBanState.initial(cap_a=_p(1), cap_b=_p(2), maps=MAPS_7)
+    with pytest.raises(ValueError, match="not complete"):
+        MapBanResult.from_state(state)
+
+
+def test_map_ban_result_raises_if_side_not_picked():
+    from services.map_pick_ban import MapBanResult
+
+    state = _ban_all_six(_p(1), _p(2))  # picking_side, no side yet
     with pytest.raises(ValueError, match="not complete"):
         MapBanResult.from_state(state)
 

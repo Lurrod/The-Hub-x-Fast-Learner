@@ -15,6 +15,17 @@ from cogs.queue_v2 import QUEUE_LABELS
 from services.elo_updater import MatchEloOutcome
 
 
+def _build_sides_value(team_a_side: str | None) -> str | None:
+    """Render the 'sides' field value, or None if no side was picked.
+
+    Team A picks its side during the map ban; Team B gets the opposite.
+    """
+    if not team_a_side:
+        return None
+    team_b_side = "Defense" if team_a_side == "Attack" else "Attack"
+    return f"🔵 **Team A** → {team_a_side}\n🔴 **Team B** → {team_b_side}"
+
+
 # ── Embed: from MatchPlan (initial publication) ───────────────────
 def build_match_embed(
     plan,
@@ -43,6 +54,10 @@ def build_match_embed(
         value=f"diff `{teams.elo_diff}` · peak diff `{teams.peak_diff}`",
         inline=False,
     )
+
+    sides_value = _build_sides_value(getattr(plan, "team_a_side", None))
+    if sides_value:
+        embed.add_field(name="🧭 Sides", value=sides_value, inline=False)
 
     if category:
         embed.add_field(
@@ -118,6 +133,10 @@ def build_match_embed_from_doc(doc: dict, guild_name: str) -> discord.Embed:
     embed.add_field(name=f"🔵 Team A ({sum_a})", value=a_lines, inline=True)
     embed.add_field(name=f"🔴 Team B ({sum_b})", value=b_lines, inline=True)
     embed.add_field(name="Balance", value=f"diff `{abs(sum_a - sum_b)}`", inline=False)
+
+    sides_value = _build_sides_value(doc.get("team_a_side"))
+    if sides_value:
+        embed.add_field(name="🧭 Sides", value=sides_value, inline=False)
 
     if category:
         embed.add_field(

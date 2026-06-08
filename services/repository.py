@@ -479,6 +479,7 @@ def finalize_preparing_match(
     map_name: str,
     lobby_leader_id: int | str,
     category_name: str | None,
+    team_a_side: str | None = None,
 ) -> None:
     """Promote a 'preparing' match to 'pending' once teams + map are
     known. No-op if the doc is no longer in 'preparing' state (e.g.
@@ -493,6 +494,7 @@ def finalize_preparing_match(
                 "team_a": team_a,
                 "team_b": team_b,
                 "map": map_name,
+                "team_a_side": team_a_side,
                 "lobby_leader_id": str(lobby_leader_id),
                 "category_name": category_name,
                 "promoted_at": datetime.now(UTC),

@@ -362,6 +362,7 @@ class MatchCog(commands.Cog):
                 free_category=free_cat_name,
                 rng=self.rng,
                 map_name=ban_result.selected_map,
+                team_a_side=ban_result.picked_side,
             )
         else:
             plan = plan_match(players, free_category=free_cat_name, rng=self.rng)
@@ -381,6 +382,7 @@ class MatchCog(commands.Cog):
             map_name=plan.map_name,
             lobby_leader_id=plan.lobby_leader.id,
             category_name=plan.category_name,
+            team_a_side=plan.team_a_side,
         )
 
         # Step 2: adjust roles BEFORE announcing. Best-effort: a crash
