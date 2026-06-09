@@ -479,6 +479,26 @@ class MatchCog(commands.Cog):
             queue_type,
         )
 
+        # Step 5b: strip the Join/Leave buttons off the now-stale queue
+        # message. A single QueueView instance is shared across every
+        # message of this queue_type (the custom_id is keyed on queue_type,
+        # not on the message). Once the match is formed and a fresh queue is
+        # reposted (Step 7), clicking Join/Leave on this old "match found"
+        # message would otherwise mutate the new queue and overwrite this
+        # message's content. Removing its view makes it inert. Best-effort:
+        # a missing/deleted message must not abort match formation.
+        old_msg_id = queue_doc.get("message_id")
+        if old_msg_id is not None:
+            try:
+                old_msg = await queue_channel.fetch_message(int(old_msg_id))
+                await old_msg.edit(view=None)
+            except Exception:
+                logger.debug(
+                    "[match] could not strip buttons off old queue message %s",
+                    old_msg_id,
+                    exc_info=True,
+                )
+
         # Step 6: voice move Waiting Room -> Team 1/Team 2 based on
         # the assignment computed by balance_teams. Players land
         # directly in their team VC, no need to re-split after the

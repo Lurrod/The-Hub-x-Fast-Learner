@@ -279,6 +279,37 @@ async def test_on_queue_full_resets_queue(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_on_queue_full_strips_buttons_from_old_queue_message(monkeypatch):
+    """After match formation the stale queue message has its Join/Leave
+    buttons removed (view=None) so it can no longer mutate the new queue."""
+    import bot as bot_module
+    import cogs.match._cog as match_cog_module
+
+    fake_channels = _make_fake_channels()
+    monkeypatch.setattr(match_cog_module, "reserve_match_number", lambda db, *, guild_id: 1)
+    monkeypatch.setattr(
+        match_cog_module, "create_match_category", AsyncMock(return_value=fake_channels)
+    )
+
+    # _seed_full_queue registers the queue message id as 999.
+    queue_doc = _seed_full_queue(bot_module.db, guild_id=42)
+    members = [_fake_member(i) for i in range(10)]
+    channel = _fake_channel(100)
+    old_msg = MagicMock()
+    old_msg.edit = AsyncMock()
+    channel.fetch_message = AsyncMock(return_value=old_msg)
+    guild = _fake_guild(42, members=members, categories=[], channel=channel)
+    inter = _fake_interaction(guild)
+
+    cog = MatchCog(bot_module.bot, bot_module.db, rng=random.Random(0))
+    match_id = await cog.on_queue_full(inter, queue_doc, "open")
+
+    assert match_id is not None
+    channel.fetch_message.assert_awaited_once_with(999)
+    old_msg.edit.assert_awaited_once_with(view=None)
+
+
+@pytest.mark.asyncio
 async def test_on_queue_full_balanced_teams_in_persistence(monkeypatch):
     """The persisted teams must be ELO-balanced within acceptable range."""
     import bot as bot_module

@@ -34,6 +34,12 @@ _IMPACT_KPR_C = 2.13
 _IMPACT_APR_C = 0.42
 _IMPACT_OFFSET = -0.41
 
+# Lower bound for a Rating 2.0 score. A heavy-loss statline (high deaths,
+# no kills/damage) drives the raw linear combination below zero, which
+# reads as broken on the scoreboard. We floor it at a small positive value
+# so a rating is never shown as zero or negative.
+_MIN_RATING = 0.01
+
 
 @dataclass(frozen=True)
 class RatingInputs:
@@ -61,7 +67,9 @@ def compute_impact(*, kpr: float, apr: float) -> float:
 
 
 def compute_rating_2_0(inputs: RatingInputs) -> float:
-    """Rating 2.0 score. Returns 0.0 when `rounds_played <= 0`."""
+    """Rating 2.0 score, floored at 0.01 so it is never zero/negative.
+
+    Returns 0.0 only when `rounds_played <= 0` (no data to score)."""
     rounds = inputs.rounds_played
     if rounds <= 0:
         return 0.0
@@ -71,7 +79,7 @@ def compute_rating_2_0(inputs: RatingInputs) -> float:
     apr = inputs.assists / rounds
     adr = inputs.damage_made / rounds
     impact = compute_impact(kpr=kpr, apr=apr)
-    return (
+    rating = (
         _KAST_C * kast
         + _KPR_C * kpr
         + _DPR_C * dpr
@@ -79,3 +87,4 @@ def compute_rating_2_0(inputs: RatingInputs) -> float:
         + _ADR_C * adr
         + _INTERCEPT
     )
+    return max(_MIN_RATING, rating)

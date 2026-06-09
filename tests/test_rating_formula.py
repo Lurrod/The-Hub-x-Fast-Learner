@@ -28,11 +28,24 @@ def test_rating_perfect_zero_input():
         damage_made=0,
         kast_rounds=0,
     )
-    # All-zero inputs: KAST/KPR/DPR/APR/ADR all zero. The Impact
-    # term evaluates to -0.41, contributing 0.2372 * (-0.41) on top
-    # of the recentred intercept -0.001.
-    expected = -0.001 + 0.2372 * (-0.41)
-    assert math.isclose(compute_rating_2_0(inputs), expected, abs_tol=1e-6)
+    # All-zero inputs: KAST/KPR/DPR/APR/ADR all zero. The raw linear
+    # combination evaluates negative (-0.001 + 0.2372 * (-0.41) ≈ -0.098),
+    # but Rating 2.0 is floored at 0.01 so it is never shown as negative.
+    assert compute_rating_2_0(inputs) == 0.01
+
+
+def test_rating_never_negative():
+    """A heavy-loss statline must never produce a zero/negative rating;
+    the score is floored at 0.01 (the floor the scoreboard relies on)."""
+    inputs = RatingInputs(
+        rounds_played=24,
+        kills=0,
+        deaths=24,
+        assists=0,
+        damage_made=0,
+        kast_rounds=0,
+    )
+    assert compute_rating_2_0(inputs) == 0.01
 
 
 def test_rating_high_frag_above_one():
