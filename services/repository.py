@@ -947,6 +947,7 @@ _AGGREGATE_COUNTER_FIELDS: tuple[str, ...] = (
     "kast_rounds",
     "rating_2_0_sum",
     "acs_sum",
+    "acs_games",
 )
 
 

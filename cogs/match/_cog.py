@@ -1270,6 +1270,10 @@ class MatchCog(commands.Cog):
                     "kast_rounds": s.kast_rounds,
                     "rating_2_0_sum": s.rating_2_0,
                     "acs_sum": s.acs,
+                    # Nombre de matchs inclus dans acs_sum : denominateur de
+                    # l'ACS saison (games compte aussi les matchs d'avant
+                    # l'accumulation d'ACS, qui dilueraient la moyenne).
+                    "acs_games": 1,
                 }
             )
 
